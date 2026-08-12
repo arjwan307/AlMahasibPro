@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>المحاسب برو - النظام المتكامل</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: Tahoma, sans-serif; }
+        body { background: #f1f5f9; display: flex; height: 100vh; color: #1e293b; }
+        .sidebar { width: 260px; background: #0f172a; color: white; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+        .sidebar h2 { font-size: 20px; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        .nav-btn { background: transparent; color: #94a3b8; border: none; padding: 10px; text-align: right; font-size: 15px; cursor: pointer; border-radius: 6px; transition: 0.2s; }
+        .nav-btn:hover, .nav-btn.active { background: #1e293b; color: #38bdf8; font-weight: bold; }
+        .main-container { flex: 1; padding: 20px; overflow-y: auto; display: none; }
+        .main-container.active { display: block; }
+        
+        /* تصميم الكاشير */
+        .pos-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; height: 100%; }
+        .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; max-height: 80vh; overflow-y: auto; }
+        .product-card { background: white; padding: 15px; border-radius: 8px; text-align: center; cursor: pointer; border: 1px solid #cbd5e1; }
+        .product-card:hover { border-color: #0284c7; }
+        .cart-section { background: white; padding: 20px; border-radius: 8px; border: 1px solid #cbd5e1; display: flex; flex-direction: column; justify-content: space-between; height: 85vh; }
+        .cart-items { flex: 1; overflow-y: auto; margin-bottom: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; }
+        .cart-item { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
+        .btn-checkout { background: #10b981; color: white; border: none; padding: 12px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; width: 100%; }
+
+        /* النماذج والجداول */
+        .form-group { margin-bottom: 12px; display: flex; flex-direction: column; gap: 5px; }
+        input, select { padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; }
+        th, td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 14px; }
+        th { background: #1e293b; color: white; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <h2>المحاسب برو</h2>
+        <button class="nav-btn active" onclick="switchTab('posTab', this)">شاشة الكاشير (POS)</button>
+        <button class="nav-btn" onclick="switchTab('inventoryTab', this)">إدارة المخزون</button>
+    </div>
+
+    <!-- قسم الكاشير -->
+    <div id="posTab" class="main-container active">
+        <div class="pos-layout">
+            <div>
+                <h3 style="margin-bottom: 15px;">اختر المنتج للبيع</h3>
+                <div class="products-grid" id="posProductsGrid"></div>
+            </div>
+            <div class="cart-section">
+                <div>
+                    <h3>سلة المبيعات</h3>
+                    <div class="cart-items" id="cartItemsContainer">
+                        <p style="color: #94a3b8; text-align: center;">السلة فارغة</p>
+                    </div>
+                </div>
+                <div>
+                    <div style="font-size: 18px; font-weight: bold; margin-bottom: 15px; display: flex; justify-content: space-between;">
+                        <span>الإجمالي:</span>
+                        <span id="cartTotalPrice">0 د.ع</span>
+                    </div>
+                    <button class="btn-checkout" onclick="checkout()">إتمام الدفع وحفظ الفاتورة</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- قسم إدارة المخزون -->
+    <div id="inventoryTab" class="main-container">
+        <h3 style="margin-bottom: 15px;">إضافة منتج جديد للمخزون</h3>
+        <div style="background: white; padding: 20px; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 20px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; align-items: end;">
+            <div class="form-group"><label>اسم المنتج</label><input type="text" id="pName"></div>
+            <div class="form-group"><label>سعر البيع</label><input type="number" id="pPrice"></div>
+            <div class="form-group"><label>سعر الشراء</label><input type="number" id="pCost"></div>
+            <div class="form-group"><label>الكمية بالمخزن</label><input type="number" id="pStock"></div>
+            <button style="background: #0284c7; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold;" onclick="addProduct()">حفظ المنتج</button>
+        </div>
+
+        <h3>قائمة المنتجات الحالية</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>اسم المنتج</th>
+                    <th>سعر البيع</th>
+                    <th>سعر الشراء</th>
+                    <th>الكمية المتاحة</th>
+                </tr>
+            </thead>
+            <tbody id="inventoryTableBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        let cart = [];
+        let productsList = [];
+
+        function switchTab(tabId, btn) {
+            document.querySelectorAll('.main-container').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            btn.classList.add('active');
+            if(tabId === 'posTab' || tabId === 'inventoryTab') loadProducts();
+        }
+
+        async function loadProducts() {
+            try {
+                let res = await fetch('/api/products');
+                let data = await res.json();
+                if(data.success) {
+                    productsList = data.products;
+                    renderPOSGrid();
+                    renderInventoryTable();
+                }
+            } catch (err) {
+                console.error("خطأ في جلب المنتجات:", err);
+            }
+        }
+
+        function renderPOSGrid() {
+            let grid = document.getElementById('posProductsGrid');
+            grid.innerHTML = "";
+            productsList.forEach(p => {
+                grid.innerHTML += `
+                    <div class="product-card" onclick="addToCart('${p.name}', ${p.price})">
+                        <h4>${p.name}</h4>
+                        <p style="color: #0284c7; font-weight: bold; margin-top: 5px;">${p.price} د.ع</p>
+                        <span style="font-size: 11px; color: #64748b;">متاح: ${p.stock}</span>
+                    </div>
+                `;
+            });
+        }
+
+        function renderInventoryTable() {
+            let tbody = document.getElementById('inventoryTableBody');
+            tbody.innerHTML = "";
+            productsList.forEach(p => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${p.name}</td>
+                        <td>${p.price} د.ع</td>
+                        <td>${p.cost} د.ع</td>
+                        <td>${p.stock}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function addToCart(name, price) {
+            let item = cart.find(i => i.name === name);
+            if(item) item.qty++;
+            else cart.push({ name, price, qty: 1 });
+            renderCart();
+        }
+
+        function renderCart() {
+            let container = document.getElementById('cartItemsContainer');
+            let totalElem = document.getElementById('cartTotalPrice');
+            container.innerHTML = "";
+            let total = 0;
+
+            if(cart.length === 0) {
+                container.innerHTML = `<p style="color: #94a3b8; text-align: center;">السلة فارغة</p>`;
+                totalElem.innerText = "0 د.ع";
+                return;
+            }
+
+            cart.forEach(i => {
+                let sum = i.price * i.qty;
+                total += sum;
+                container.innerHTML += `
+                    <div class="cart-item">
+                        <span>${i.name} (x${i.qty})</span>
+                        <span>${sum} د.ع</span>
+                    </div>
+                `;
+            });
+            totalElem.innerText = total + " د.ع";
+        }
+
+        async function addProduct() {
+            let name = document.getElementById('pName').value;
+            let price = document.getElementById('pPrice').value;
+            let cost = document.getElementById('pCost').value;
+            let stock = document.getElementById('pStock').value;
+
+            if(!name || !price) {
+                alert("يرجى إدخال اسم المنتج وسعر البيع على الأقل.");
+                return;
+            }
+
+            let res = await fetch('/api/products', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, price, cost, stock })
+            });
+            let data = await res.json();
+            if(data.success) {
+                alert("تم إضافة المنتج بقاعدة البيانات بنجاح!");
+                document.getElementById('pName').value = "";
+                document.getElementById('pPrice').value = "";
+                document.getElementById('pCost').value = "";
+                document.getElementById('pStock').value = "";
+                loadProducts();
+            }
+        }
+
+        async function checkout() {
+            if(cart.length === 0) {
+                alert("السلة فارغة!");
+                return;
+            }
+            let totalAmount = cart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+
+            let res = await fetch('/api/sales', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: cart, totalAmount })
+            });
+            let data = await res.json();
+            if(data.success) {
+                alert("تم إتمام البيع وحفظ الفاتورة في MongoDB بنجاح!");
+                cart = [];
+                renderCart();
+                loadProducts();
+            }
+        }
+
+        loadProducts();
+    </script>
+</body>
+</html>
