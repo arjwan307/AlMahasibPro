@@ -3,360 +3,278 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>المستودع - المحاسب برو</title>
+    <title>المستودع - المحاسب برو (جدولي)</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Cairo', sans-serif; }
+        
         body {
             min-height: 100vh;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            background-size: 400% 400%;
-            animation: gradientBG 15s ease infinite;
+            background: #0f172a;
             display: flex;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start;
             padding: 20px;
         }
-        @keyframes gradientBG {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
 
-        .glass-panel {
+        /* حاوية رئيسية */
+        .main-wrapper {
             width: 100%;
-            max-width: 1300px;
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(20px);
-            border-radius: 30px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
-            padding: 25px;
-            display: grid;
-            grid-template-columns: 250px 1fr;
-            gap: 20px;
-            height: 90vh;
-            overflow: hidden;
-        }
-
-        /* القائمة الجانبية */
-        .sidebar {
-            background: rgba(255, 255, 255, 0.05);
+            max-width: 1400px;
+            background: #1e293b;
             border-radius: 20px;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            border-left: 1px solid rgba(255,255,255,0.1);
+            padding: 25px;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
-        .sidebar-title {
-            color: #fbbf24;
-            font-size: 1.2rem;
-            font-weight: bold;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .sidebar-item {
-            color: rgba(255,255,255,0.7);
-            padding: 10px 15px;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-size: 0.95rem;
-            text-decoration: none;
-        }
-        .sidebar-item:hover, .sidebar-item.active {
-            background: rgba(255, 255, 255, 0.1);
-            color: #fbbf24;
-        }
-        .sidebar-item i { width: 20px; text-align: center; }
 
-        .back-btn {
-            margin-top: auto;
-            padding: 12px;
-            border-radius: 12px;
-            border: 1px solid rgba(255,50,50,0.3);
-            background: transparent;
-            color: #ef4444;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            transition: 0.3s;
-        }
-        .back-btn:hover { background: rgba(255,50,50,0.2); }
-
-        /* المحتوى الرئيسي */
-        .content {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            overflow-y: auto;
-        }
-        .content::-webkit-scrollbar { width: 6px; }
-        .content::-webkit-scrollbar-thumb { background: #fbbf24; border-radius: 10px; }
-
-        /* شريط البحث العلوي */
-        .search-bar {
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-        }
-        .search-bar input {
-            flex: 1;
-            padding: 12px 20px;
-            border-radius: 50px;
-            border: 1px solid rgba(255,255,255,0.1);
-            background: rgba(255,255,255,0.05);
-            color: #fff;
-            font-size: 1rem;
-            outline: none;
-            min-width: 200px;
-        }
-        .search-bar input::placeholder { color: rgba(255,255,255,0.5); }
-        .search-bar input:focus { border-color: #fbbf24; }
-        
-        .search-bar button {
-            padding: 12px 25px;
-            border: none;
-            border-radius: 50px;
-            background: #fbbf24;
-            color: #000;
-            font-weight: bold;
-            cursor: pointer;
-            transition: 0.3s;
-        }
-        .search-bar button:hover { transform: scale(1.05); }
-
-        /* بطاقات الإحصائيات */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-        }
-        .stat-card {
-            background: rgba(255,255,255,0.05);
-            padding: 15px;
-            border-radius: 15px;
-            text-align: center;
-            color: #fff;
-        }
-        .stat-card h3 { font-size: 1.8rem; margin: 5px 0; color: #fbbf24; }
-        .stat-card p { font-size: 0.85rem; opacity: 0.7; }
-
-        /* شجرة التصنيفات */
-        .category-tree {
-            background: rgba(255,255,255,0.03);
-            border-radius: 15px;
-            padding: 15px;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-        .tree-title {
-            color: #fff;
-            font-weight: bold;
-            margin-bottom: 10px;
+        /* رأس الصفحة */
+        .header {
             display: flex;
             justify-content: space-between;
-        }
-        .tree-title button {
-            background: #fbbf24; border: none; padding: 2px 12px; border-radius: 20px; color: #000; font-weight: bold; cursor: pointer;
-        }
-        .tree-item {
-            color: rgba(255,255,255,0.8);
-            padding: 6px 10px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: 0.2s;
-            font-size: 0.9rem;
-            display: flex;
             align-items: center;
-            gap: 8px;
-        }
-        .tree-item:hover { background: rgba(255,255,255,0.1); color: #fbbf24; }
-        .tree-sub {
-            padding-right: 20px;
-            border-right: 1px solid rgba(255,255,255,0.1);
-            margin-right: 10px;
-        }
-
-        /* نموذج إضافة مادة (شامل) */
-        .add-form {
-            background: rgba(255,255,255,0.05);
-            border-radius: 20px;
-            padding: 20px;
-            border: 1px solid rgba(255,255,255,0.1);
-            display: grid;
-            grid-template-columns: 1fr 1fr;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
             gap: 15px;
         }
-        .add-form .full-width { grid-column: 1 / -1; }
-        .add-form label { color: rgba(255,255,255,0.8); font-size: 0.9rem; display: block; margin-bottom: 5px; }
-        .add-form input, .add-form select {
-            width: 100%; padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
-            background: rgba(0,0,0,0.3); color: #fff; outline: none; transition: 0.3s;
+        .header h2 { color: #fbbf24; font-size: 1.8rem; display: flex; align-items: center; gap: 10px; }
+        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+        .btn {
+            padding: 10px 20px; border-radius: 10px; border: none; font-weight: bold;
+            cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px;
         }
-        .add-form input:focus { border-color: #fbbf24; }
-        .add-form button.submit-btn {
-            padding: 10px; border: none; border-radius: 10px; background: #22d3ee; color: #000; font-weight: bold; cursor: pointer; transition: 0.3s;
-        }
-        .add-form button.submit-btn:hover { transform: scale(1.02); }
+        .btn-primary { background: #3b82f6; color: #fff; }
+        .btn-primary:hover { transform: scale(1.05); background: #2563eb; }
+        .btn-success { background: #22c55e; color: #fff; }
+        .btn-success:hover { transform: scale(1.05); background: #16a34a; }
+        .btn-danger { background: #ef4444; color: #fff; }
+        .btn-danger:hover { transform: scale(1.05); background: #dc2626; }
+        .btn-warning { background: #f59e0b; color: #fff; }
+        .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #fff; }
+        .btn-outline:hover { background: rgba(255,255,255,0.1); }
 
-        /* جدول المواد */
-        .table-container {
-            background: rgba(255,255,255,0.03);
-            border-radius: 15px;
-            padding: 15px;
+        /* شريط البحث */
+        .search-bar {
+            width: 100%;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+        }
+        .search-bar input {
+            flex: 1; padding: 12px 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
+            background: #334155; color: #fff; outline: none; font-size: 1rem;
+        }
+        .search-bar input:focus { border-color: #fbbf24; }
+        .search-bar input::placeholder { color: rgba(255,255,255,0.5); }
+
+        /* حاوية الجدول */
+        .table-responsive {
+            width: 100%;
             overflow-x: auto;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.05);
         }
-        table { width: 100%; border-collapse: collapse; color: #fff; }
-        th, td { padding: 12px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.9rem; }
-        th { color: #fbbf24; }
 
-        .badge { padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; }
-        .badge.success { background: rgba(46, 213, 115, 0.2); color: #2ed573; }
-        .badge.danger { background: rgba(255, 71, 87, 0.2); color: #ff4757; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            color: #cbd5e1;
+            font-size: 0.95rem;
+            min-width: 900px;
+        }
+        thead {
+            background: #334155;
+        }
+        th {
+            padding: 15px;
+            text-align: right;
+            color: #fbbf24;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            vertical-align: middle;
+        }
+        tr:hover td { background: rgba(255,255,255,0.03); }
 
-        /* Hidden expiry for non-markets */
-        .expiry-field { display: block; }
+        /* صف الإدخال الجديد */
+        .row-new {
+            background: #1e293b;
+        }
+        .row-new input, .row-new select {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid #475569;
+            background: #0f172a;
+            color: #fff;
+            outline: none;
+            font-size: 0.9rem;
+            transition: 0.3s;
+        }
+        .row-new input:focus, .row-new select:focus {
+            border-color: #3b82f6;
+        }
+
+        /* حالة الكمية */
+        .qty-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+        .qty-high { background: #22c55e; color: #fff; }
+        .qty-medium { background: #f59e0b; color: #fff; }
+        .qty-low { background: #ef4444; color: #fff; }
+
+        /* الفوتر */
+        .footer-actions {
+            margin-top: 20px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+        }
         
-        @media (max-width: 900px) {
-            .glass-panel { grid-template-columns: 1fr; height: auto; }
-            .add-form { grid-template-columns: 1fr; }
+        @media (max-width: 768px) {
+            .main-wrapper { padding: 15px; }
+            .header { flex-direction: column; align-items: stretch; }
+            .header-actions { justify-content: stretch; }
+            .header-actions .btn { flex: 1; justify-content: center; }
         }
     </style>
 </head>
 <body>
-    <div class="glass-panel">
-        <!-- القائمة الجانبية -->
-        <div class="sidebar">
-            <div class="sidebar-title"><i class="fas fa-warehouse"></i> المستودع</div>
-            <a class="sidebar-item active"><i class="fas fa-home"></i> الرئيسية</a>
-            <a class="sidebar-item"><i class="fas fa-boxes"></i> المواد</a>
-            <a class="sidebar-item"><i class="fas fa-arrow-right-arrow-left"></i> حركة المواد</a>
-            <a class="sidebar-item"><i class="fas fa-clipboard-list"></i> الجرد</a>
-            <a class="sidebar-item"><i class="fas fa-chart-line"></i> التقارير</a>
-            
-            <button class="back-btn" onclick="goBack()"><i class="fas fa-arrow-left"></i> العودة للداشبورد</button>
+
+    <div class="main-wrapper">
+        <!-- العنوان والأزرار -->
+        <div class="header">
+            <h2><i class="fas fa-warehouse" style="color: #fbbf24;"></i> المستودع (النمط الجدولي)</h2>
+            <div class="header-actions">
+                <button class="btn btn-primary" onclick="addNewRow()"><i class="fas fa-plus-circle"></i> إضافة مادة</button>
+                <button class="btn btn-success"><i class="fas fa-print"></i> طباعة الكل</button>
+                <button class="btn btn-outline" onclick="window.location.href='/dashboard.html'"><i class="fas fa-arrow-left"></i> العودة</button>
+            </div>
         </div>
 
-        <!-- المحتوى -->
-        <div class="content">
-            <!-- شريط البحث -->
-            <div class="search-bar">
-                <input type="text" placeholder="🔍 بحث عن مادة بالاسم، الباركود، أو رقم الآيتم...">
-                <button>بحث</button>
-            </div>
+        <!-- البحث -->
+        <div class="search-bar">
+            <input type="text" placeholder="🔍 ابحث بالاسم، الباركود، أو رمز المادة...">
+            <button class="btn btn-primary">بحث</button>
+        </div>
 
-            <!-- بطاقات الإحصائيات -->
-            <div class="stats-grid">
-                <div class="stat-card"><h3>120</h3><p>إجمالي المواد</p></div>
-                <div class="stat-card"><h3>850</h3><p>الكمية الكلية</p></div>
-                <div class="stat-card"><h3>7</h3><p>مواد أوشكت على النفاذ</p></div>
-            </div>
-
-            <!-- شجرة التصنيفات -->
-            <div class="category-tree">
-                <div class="tree-title">
-                    <span><i class="fas fa-sitemap"></i> شجرة التصنيفات</span>
-                    <button onclick="alert('نافذة إضافة تصنيف جديد')">+ صنف</button>
-                </div>
-                <div class="tree-item"><i class="fas fa-folder"></i> خضروات وفواكه
-                    <div class="tree-sub">
-                        <div class="tree-item"><i class="fas fa-leaf"></i> خضروات ورقية</div>
-                        <div class="tree-item"><i class="fas fa-apple-alt"></i> فواكه</div>
-                    </div>
-                </div>
-                <div class="tree-item"><i class="fas fa-drumstick-bite"></i> لحوم ودواجن</div>
-                <div class="tree-item"><i class="fas fa-box"></i> مواد تموينية جافة</div>
-            </div>
-
-            <!-- نموذج إضافة مادة -->
-            <div class="add-form">
-                <div class="full-width" style="color:#fbbf24; font-weight:bold; margin-bottom:5px;"><i class="fas fa-plus-circle"></i> إضافة مادة جديدة</div>
-                <div>
-                    <label>اسم المادة</label>
-                    <input type="text" placeholder="اسم المادة">
-                </div>
-                <div>
-                    <label>رقم الآيتم (ID)</label>
-                    <input type="text" placeholder="مثال: ITM-001">
-                </div>
-                <div>
-                    <label>الباركود (Barcode)</label>
-                    <input type="text" placeholder="باركود المادة">
-                </div>
-                <div>
-                    <label>التصنيف الأساسي</label>
-                    <select>
-                        <option>خضروات وفواكه</option>
-                        <option>لحوم ودواجن</option>
-                        <option>مواد تموينية</option>
-                    </select>
-                </div>
-                <div class="expiry-field">
-                    <label>تاريخ انتهاء الصلاحية</label>
-                    <input type="date">
-                </div>
-                <div>
-                    <label>الكمية الافتتاحية</label>
-                    <input type="number" placeholder="0">
-                </div>
-                <div class="full-width" style="display:flex; gap:10px;">
-                    <button class="submit-btn" style="flex:1;">💾 حفظ المادة</button>
-                    <button class="submit-btn" style="flex:0.5; background:#f97316;">🖨️ طباعة باركود</button>
-                </div>
-            </div>
-
-            <!-- جدول المواد -->
-            <div class="table-container">
-                <h3 style="color:#fff; margin-bottom:10px;">📦 قائمة المواد</h3>
-                <table>
+        <!-- الجدول الرئيسي -->
+        <div class="table-responsive">
+            <table>
+                <thead>
                     <tr>
-                        <th>الاسم</th>
-                        <th>رقم الآيتم</th>
+                        <th style="width: 50px;">#</th>
+                        <th>رمز المادة</th>
+                        <th>اسم المادة</th>
+                        <th>الباركود</th>
                         <th>التصنيف</th>
-                        <th>الكمية</th>
-                        <th>الصلاحية</th>
+                        <th>الكمية المتوفرة</th>
                         <th>الحالة</th>
+                        <th style="width: 100px;">إجراءات</th>
                     </tr>
+                </thead>
+                <tbody id="itemsTableBody">
+                    <!-- صفوف افتراضية -->
                     <tr>
-                        <td>تفاح أحمر</td>
-                        <td>FRU-01</td>
+                        <td>1</td>
+                        <td>ITM-001</td>
+                        <td>تفاح أحمر سوري</td>
+                        <td>1234567890123</td>
                         <td>فواكه</td>
-                        <td>150 كجم</td>
-                        <td>2025-03-15</td>
-                        <td><span class="badge success">متوفر</span></td>
+                        <td>150</td>
+                        <td><span class="qty-badge qty-high">متوفر بكثرة</span></td>
+                        <td>
+                            <button class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;"><i class="fas fa-trash"></i></button>
+                        </td>
                     </tr>
                     <tr>
-                        <td>دجاج مجمد</td>
-                        <td>MEA-02</td>
-                        <td>دواجن</td>
-                        <td>45 كجم</td>
-                        <td>2026-01-20</td>
-                        <td><span class="badge danger">أوشك على النفاذ</span></td>
+                        <td>2</td>
+                        <td>ITM-002</td>
+                        <td>دجاج مجمد عراقي</td>
+                        <td>9876543210987</td>
+                        <td>لحوم ودواجن</td>
+                        <td>12</td>
+                        <td><span class="qty-badge qty-low">أوشك على النفاذ</span></td>
+                        <td>
+                            <button class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;"><i class="fas fa-trash"></i></button>
+                        </td>
                     </tr>
-                </table>
-            </div>
+                    <tr>
+                        <td>3</td>
+                        <td>ITM-003</td>
+                        <td>أرز بسمتي</td>
+                        <td>1112223334445</td>
+                        <td>مواد تموينية</td>
+                        <td>88</td>
+                        <td><span class="qty-badge qty-medium">كمية متوسطة</span></td>
+                        <td>
+                            <button class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- إحصائيات سريعة -->
+        <div class="footer-actions">
+            <span style="color: #94a3b8; font-size: 0.9rem; display: flex; gap: 20px;">
+                <span><i class="fas fa-boxes" style="color: #3b82f6;"></i> إجمالي المواد: <strong style="color: #fff;">3</strong></span>
+                <span><i class="fas fa-exclamation-triangle" style="color: #ef4444;"></i> مواد أوشكت على النفاذ: <strong style="color: #ef4444;">1</strong></span>
+            </span>
         </div>
     </div>
 
     <script>
-        // محاكاة تبديل الماركت/الشركة لإظهار وإخفاء حقل الصلاحية
-        // (لاحقاً سنقرأ هذا الإعداد من قاعدة البيانات)
-        const userType = 'market'; // أو 'company'
-        if (userType !== 'market') {
-            document.querySelector('.expiry-field').style.display = 'none';
+        let rowCounter = 3; // للعد الافتراضي
+
+        function addNewRow() {
+            const tbody = document.getElementById('itemsTableBody');
+            rowCounter++;
+            const newRow = document.createElement('tr');
+            newRow.className = 'row-new';
+            newRow.innerHTML = `
+                <td>${rowCounter}</td>
+                <td><input type="text" placeholder="مثال: ITM-004"></td>
+                <td><input type="text" placeholder="اسم المادة"></td>
+                <td><input type="text" placeholder="باركود"></td>
+                <td>
+                    <select>
+                        <option>فواكه</option>
+                        <option>لحوم ودواجن</option>
+                        <option>مواد تموينية</option>
+                        <option>خضروات</option>
+                    </select>
+                </td>
+                <td><input type="number" placeholder="0" style="width: 80px;"></td>
+                <td><span class="qty-badge qty-medium">جديد</span></td>
+                <td>
+                    <button class="btn btn-success" style="padding: 4px 8px; font-size: 0.8rem;" onclick="saveRow(this)"><i class="fas fa-save"></i></button>
+                    <button class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" onclick="deleteRow(this)"><i class="fas fa-times"></i></button>
+                </td>
+            `;
+            tbody.prepend(newRow); // يضيف الصف في الأعلى
         }
 
-        function goBack() {
-            window.location.href = '/dashboard.html';
+        function saveRow(btn) {
+            const row = btn.closest('tr');
+            const inputs = row.querySelectorAll('input, select');
+            // في المستقبل هنا سنرسل البيانات إلى قاعدة البيانات عبر API
+            row.className = ''; // إزالة نمط الصف الجديد
+            btn.parentElement.innerHTML = `<button class="btn btn-danger" style="padding: 4px 8px; font-size: 0.8rem;" onclick="deleteRow(this)"><i class="fas fa-trash"></i></button>`;
+            alert('✅ تم حفظ المادة بنجاح (محاكاة).');
+        }
+
+        function deleteRow(btn) {
+            if(confirm('هل أنت متأكد من حذف هذه المادة؟')) {
+                btn.closest('tr').remove();
+            }
         }
     </script>
 </body>
