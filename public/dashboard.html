@@ -56,7 +56,7 @@
         /* ---- الأقسام الفرعية (الأدوات المشتركة) ---- */
         .grid-sub {
             display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); 
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); 
             gap: 20px; 
             margin-top: 30px;
         }
@@ -103,7 +103,7 @@
             </div>
         </div>
 
-        <!-- الأقسام الفرعية (الأدوات المشتركة) -->
+        <!-- الأقسام الفرعية (الأدوات المشتركة) - تم تحديث الروابط -->
         <div class="grid-sub">
             <div class="sub-icon-card" onclick="window.location.href='/warehouse.html'">
                 <i class="fas fa-warehouse"></i>
@@ -115,12 +115,17 @@
                 <h4>الموردون</h4>
                 <p>فواتير، مشتريات، حسابات</p>
             </div>
+            <div class="sub-icon-card" onclick="window.location.href='/sales.html'">
+                <i class="fas fa-shopping-cart"></i>
+                <h4>المبيعات</h4>
+                <p>عملاء، طلبات، فواتير</p>
+            </div>
             <div class="sub-icon-card" onclick="window.location.href='/finance.html'">
                 <i class="fas fa-coins"></i>
                 <h4>الإدارة المالية</h4>
                 <p>صندوق، قيود، أرباح</p>
             </div>
-            <div class="sub-icon-card" onclick="alert('🚧 قسم الفواتير قيد التطوير.')">
+            <div class="sub-icon-card" onclick="window.location.href='/invoices.html'">
                 <i class="fas fa-file-invoice-dollar"></i>
                 <h4>الفواتير</h4>
                 <p>بيع، شراء، مرتجعات</p>
