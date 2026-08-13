@@ -6,6 +6,10 @@
     <title>المحاسب برو - المنصة الديناميكية</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- إضافة مكتبة HLS.js لتشغيل بث M3U8 المباشر في المتصفح -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Cairo', sans-serif; }
         
@@ -155,25 +159,30 @@
         }
         .login-btn:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(255, 235, 59, 0.4); }
 
-        /* ---- العمود الأيمن: الفيديو والقرآن ---- */
+        /* ---- العمود الأيمن: الفيديو والقرآن (مشغل M3U8 احترافي) ---- */
         .video-wrapper {
             flex: 1;
             position: relative;
             border-radius: 15px;
             overflow: hidden;
             background: #000;
+            display: flex;
+            flex-direction: column;
         }
-        .video-wrapper iframe {
+        .video-wrapper video {
             width: 100%;
             height: 100%;
-            border: none;
+            object-fit: contain;
+            background: #000;
         }
+
         .video-controls {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
-            padding-top: 12px;
+            padding: 12px 0 0 0;
             justify-content: center;
+            background: transparent;
         }
         .video-controls button {
             padding: 6px 12px;
@@ -186,6 +195,22 @@
             transition: 0.3s;
         }
         .video-controls button:hover { background: #ffeb3b; color: #000; }
+        
+        /* زر اختيار الملفات */
+        .file-input-wrapper {
+            display: inline-block;
+            position: relative;
+        }
+        .file-input-wrapper input[type="file"] {
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
         .size-controls { display: flex; gap: 5px; }
         .size-controls button {
             background: rgba(255,255,255,0.1);
@@ -275,20 +300,28 @@
             </div>
         </div>
 
-        <!-- 3. العمود الأيمن: شاشة القرآن / التلفزيون -->
+        <!-- 3. العمود الأيمن: شاشة البث المباشر (M3U8) -->
         <div class="glass-panel">
-            <div class="panel-title"><i class="fas fa-tv"></i> شاشة البث المباشر</div>
+            <div class="panel-title"><i class="fas fa-tv"></i> شاشة البث المباشر (M3U8)</div>
             <div class="video-wrapper" id="videoWrapper">
-                <!-- تم تحديث الرابط الافتراضي إلى رابط يعمل -->
-                <iframe id="liveIframe" src="https://www.youtube.com/embed/7J-L6A9-V24?mute=1&autoplay=1&enablejsapi=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                <video id="mainVideoPlayer" controls playsinline></video>
             </div>
             <div class="video-controls">
-                <button onclick="changeReciter('abdulbasit')">🎙️ عبد الباسط</button>
-                <button onclick="changeReciter('maher')">🎙️ المعيقلي</button>
-                <button onclick="changeReciter('ghamdi')">🎙️ الغامدي</button>
-                <button onclick="changeReciter('iraqi')">🎙️ قراء عراقيون</button>
-                <button onclick="changeChannel('tv')">📺 تلفزيون عربي</button>
-                <button onclick="changeChannel('news')">📰 أخبار</button>
+                <!-- أزرار القنوات -->
+                <button onclick="changeChannel('quran')">📖 قرآن كريم</button>
+                <button onclick="changeChannel('karbala')">🕌 كربلاء</button>
+                <button onclick="changeChannel('iraqia_news')">📰 العراقية نيوز</button>
+                <button onclick="changeChannel('sharqiya')">📺 الشرقية</button>
+                <button onclick="changeChannel('mbc_iraq')">🇮🇶 MBC العراق</button>
+                <button onclick="changeChannel('sky_news')">📡 سكاي نيوز</button>
+                
+                <!-- زر اختيار فيديو من الجهاز -->
+                <div class="file-input-wrapper">
+                    <button class="upload-btn"><i class="fas fa-folder-open"></i> اختيار ملف</button>
+                    <input type="file" id="fileInput" accept="video/*" onchange="loadLocalVideo(event)">
+                </div>
+
+                <!-- أزرار التكبير -->
                 <div class="size-controls">
                     <button onclick="toggleSize('max')"><i class="fas fa-expand"></i></button>
                     <button onclick="toggleSize('min')"><i class="fas fa-compress"></i></button>
@@ -309,29 +342,65 @@
         <span><i class="fab fa-whatsapp"></i> <a href="https://wa.me/9647807807491">07807807491</a></span>
     </div>
 
-    <!-- السكربتات للتحكم -->
+    <!-- السكربتات للتحكم في المشغل -->
     <script>
-        // قائمة بروابط اليوتيوب للقراء والقنوات (تم تحديث الروابط وإضافة autoplay)
-        const streams = {
-            'abdulbasit': 'https://www.youtube.com/embed/7J-L6A9-V24?mute=1&autoplay=1',
-            'maher': 'https://www.youtube.com/embed/GM2SJ1bUbIw?mute=1&autoplay=1',
-            'ghamdi': 'https://www.youtube.com/embed/MRFwH_28uNg?mute=1&autoplay=1',
-            'iraqi': 'https://www.youtube.com/embed/D4sYQkqOoVQ?mute=1&autoplay=1',
-            'tv': 'https://www.youtube.com/embed/DnyYgSaay-0?mute=1&autoplay=1',
-            'news': 'https://www.youtube.com/embed/MCc1FnHlmWo?mute=1&autoplay=1'
+        const videoPlayer = document.getElementById('mainVideoPlayer');
+        let hlsInstance = null;
+
+        // قائمة القنوات المباشرة (تم استخراجها من ملف M3U الذي أرسلته)
+        const channelSources = {
+            'quran': 'https://ktvlive.online/stream/hls/ch1.m3u8',
+            'karbala': 'https://ktvlive.online/stream/hls/ch3.m3u8',
+            'iraqia_news': 'https://imn-live.esite-lab.com/hls/iraqia-news.m3u8',
+            'sharqiya': 'http://185.9.2.18/chid_144/index.m3u8',
+            'mbc_iraq': 'https://shd-gcp-live.edgenextcdn.net/live/bitmovin-mbc-iraq/e38c44b1b43474e1c39cb5b90203691e/index.m3u8',
+            'sky_news': 'https://live-stream.skynewsarabia.com/c-horizontal-channel/horizontal-stream/index.m3u8'
         };
 
-        function changeReciter(reciter) {
-            if(streams[reciter]) {
-                document.getElementById('liveIframe').src = streams[reciter];
+        // الدالة الأساسية لتشغيل البث المباشر (M3U8) باستخدام HLS.js
+        function playM3U8(url) {
+            // إذا كان المتصفح يدعم HLS.js مباشرة (مثل Safari)
+            if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+                videoPlayer.src = url;
+            } 
+            // إذا كان المتصفح (Chrome, Edge) ويحتاج HLS.js
+            else if (Hls.isSupported()) {
+                // تدمير أي اتصال سابق
+                if (hlsInstance) {
+                    hlsInstance.destroy();
+                }
+                hlsInstance = new Hls();
+                hlsInstance.loadSource(url);
+                hlsInstance.attachMedia(videoPlayer);
+            } else {
+                alert('المتصفح لا يدعم تشغيل البث المباشر (M3U8).');
+            }
+            videoPlayer.play().catch(e => console.log("التشغيل التلقائي محظور"));
+        }
+
+        // دالة تغيير القناة عند الضغط على الأزرار
+        function changeChannel(key) {
+            if(channelSources[key]) {
+                playM3U8(channelSources[key]);
             }
         }
 
-        function changeChannel(type) {
-            if(type === 'tv') document.getElementById('liveIframe').src = streams['tv'];
-            else if(type === 'news') document.getElementById('liveIframe').src = streams['news'];
+        // دالة تشغيل فيديو محلي تم رفعه عبر زر الاختيار
+        function loadLocalVideo(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const fileURL = URL.createObjectURL(file);
+                if (hlsInstance) {
+                    hlsInstance.destroy(); // إيقاف البث المباشر إذا كان يعمل
+                    hlsInstance = null;
+                }
+                videoPlayer.src = fileURL;
+                videoPlayer.load();
+                videoPlayer.play();
+            }
         }
 
+        // دالة تكبير وتصغير الشاشة
         function toggleSize(size) {
             const panel = document.getElementById('videoWrapper');
             const controls = document.querySelector('.video-controls');
