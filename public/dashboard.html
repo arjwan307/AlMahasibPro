@@ -53,7 +53,7 @@
         .card-market i { color: #22d3ee; }
         .card-company i { color: #a78bfa; }
 
-        /* ---- الأقسام الفرعية (تم توسيعها وإضافة روابط) ---- */
+        /* ---- الأقسام الفرعية (الأدوات المشتركة) ---- */
         .grid-sub {
             display: grid; 
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); 
@@ -86,17 +86,17 @@
 
         <!-- الأقسام الرئيسية (أنظمة العمل) -->
         <div class="grid-main">
-            <div class="main-icon-card card-restaurant">
+            <div class="main-icon-card card-restaurant" onclick="alert('🚧 قسم المطاعم والكافيهات قيد التطوير.')">
                 <i class="fas fa-utensils"></i>
                 <h3>مطاعم وكافيهات</h3>
                 <p>نقاط البيع، الطلبات، جدول المطعم</p>
             </div>
-            <div class="main-icon-card card-market">
+            <div class="main-icon-card card-market" onclick="alert('🚧 قسم الماركتات والمجمعات قيد التطوير.')">
                 <i class="fas fa-store"></i>
                 <h3>ماركتات ومجمعات</h3>
                 <p>إدارة المبيعات، الأقسام، العروض</p>
             </div>
-            <div class="main-icon-card card-company">
+            <div class="main-icon-card card-company" onclick="alert('🚧 قسم الشركات والمؤسسات قيد التطوير.')">
                 <i class="fas fa-building"></i>
                 <h3>شركات ومؤسسات</h3>
                 <p>المشاريع، الرواتب، العقود</p>
@@ -115,22 +115,22 @@
                 <h4>الموردون</h4>
                 <p>فواتير، مشتريات، حسابات</p>
             </div>
-            <div class="sub-icon-card">
+            <div class="sub-icon-card" onclick="window.location.href='/finance.html'">
                 <i class="fas fa-coins"></i>
                 <h4>الإدارة المالية</h4>
                 <p>صندوق، قيود، أرباح</p>
             </div>
-            <div class="sub-icon-card">
+            <div class="sub-icon-card" onclick="alert('🚧 قسم الفواتير قيد التطوير.')">
                 <i class="fas fa-file-invoice-dollar"></i>
                 <h4>الفواتير</h4>
                 <p>بيع، شراء، مرتجعات</p>
             </div>
-            <div class="sub-icon-card">
+            <div class="sub-icon-card" onclick="alert('🚧 قسم التقارير قيد التطوير.')">
                 <i class="fas fa-chart-pie"></i>
                 <h4>التقارير</h4>
                 <p>تحليلات وإحصائيات</p>
             </div>
-            <div class="sub-icon-card">
+            <div class="sub-icon-card" onclick="alert('🚧 قسم الإعدادات قيد التطوير.')">
                 <i class="fas fa-cogs"></i>
                 <h4>الإعدادات</h4>
                 <p>خيارات النظام</p>
