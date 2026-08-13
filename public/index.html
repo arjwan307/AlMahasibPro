@@ -3,26 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تسجيل الدخول - المحاسب برو</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&display=swap" rel="stylesheet">
+    <title>المحاسب برو - المنصة الديناميكية</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Cairo', sans-serif;
-        }
-
-        /* خلفية متحركة زاهية (ديناميكية) */
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Cairo', sans-serif; }
+        
         body {
             min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
             display: flex;
             justify-content: center;
             align-items: center;
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            background-size: 400% 400%;
-            animation: gradientBG 10s ease infinite;
             padding: 20px;
         }
 
@@ -32,219 +26,323 @@
             100% { background-position: 0% 50%; }
         }
 
-        /* بطاقة تسجيل الدخول (مع تأثير الزجاج والحركة) */
-        .login-card {
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(15px);
-            border-radius: 30px;
-            padding: 50px 40px;
+        /* التخطيط الرئيسي (3 أعمدة) */
+        .main-dashboard {
+            display: grid;
+            grid-template-columns: 280px 1fr 320px;
+            gap: 20px;
             width: 100%;
-            max-width: 420px;
+            max-width: 1400px;
+            height: 85vh;
+        }
+
+        /* الأعمدة الثلاثة (نوافذ زجاجية) */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(12px);
+            border-radius: 25px;
             box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            text-align: center;
-            animation: slideUp 0.8s ease-out forwards;
-            opacity: 0;
-            transform: translateY(30px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
 
-        @keyframes slideUp {
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* شعار الشركة (رمز) */
-        .logo-icon {
-            font-size: 4rem;
+        .panel-title {
             color: #fff;
-            margin-bottom: 10px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 2px solid rgba(255,255,255,0.2);
+            padding-bottom: 10px;
+        }
+        .panel-title i { color: #ffeb3b; }
+
+        /* ---- العمود الأيسر: الإشعارات ---- */
+        .notifications-list {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+        .notifications-list::-webkit-scrollbar { width: 6px; }
+        .notifications-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        .notifications-list::-webkit-scrollbar-thumb { background: #ffeb3b; border-radius: 10px; }
+
+        .notif-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 12px;
+            border-radius: 15px;
+            margin-bottom: 12px;
+            color: #fff;
+            border-right: 4px solid #ffeb3b;
+            transition: 0.3s;
+        }
+        .notif-item:hover { background: rgba(255, 255, 255, 0.2); transform: translateX(-5px); }
+        .notif-item h4 { font-size: 0.9rem; margin-bottom: 5px; }
+        .notif-item p { font-size: 0.8rem; opacity: 0.8; }
+        .notif-item .time { font-size: 0.7rem; opacity: 0.6; display: block; margin-top: 5px; text-align: left; }
+
+        /* ---- العمود الأوسط: تسجيل الدخول ---- */
+        .login-card {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 20px;
+            animation: slideUp 0.8s ease-out;
+        }
+        .logo-icon {
+            font-size: 4.5rem;
+            color: #fff;
             text-shadow: 0 0 20px rgba(255,255,255,0.3);
             animation: pulse 2s infinite;
+            margin-bottom: 10px;
         }
-
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+        
         .brand-title {
             color: #fff;
-            font-size: 2rem;
+            font-size: 2.2rem;
             font-weight: 700;
-            margin-bottom: 30px;
-            text-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 25px;
         }
+        .brand-title span { color: #ffeb3b; }
 
-        .brand-title span {
-            color: #ffeb3b;
-        }
-
-        /* حقول الإدخال */
         .input-group {
             position: relative;
-            margin-bottom: 25px;
-            text-align: right;
+            width: 100%;
+            max-width: 300px;
+            margin-bottom: 18px;
         }
-
         .input-group i {
             position: absolute;
             right: 15px;
             top: 50%;
             transform: translateY(-50%);
             color: rgba(255,255,255,0.7);
-            font-size: 1.1rem;
         }
-
         .input-group input {
             width: 100%;
-            padding: 15px 45px 15px 15px;
+            padding: 12px 45px 12px 15px;
             border: none;
             border-radius: 50px;
             background: rgba(255, 255, 255, 0.25);
             color: #fff;
-            font-size: 1rem;
             outline: none;
-            transition: all 0.3s ease;
+            transition: 0.3s;
         }
-
-        .input-group input::placeholder {
-            color: rgba(255,255,255,0.7);
-        }
-
-        .input-group input:focus {
-            background: rgba(255, 255, 255, 0.4);
-            box-shadow: 0 0 15px rgba(255,255,255,0.2);
-        }
-
-        /* زر الدخول */
+        .input-group input::placeholder { color: rgba(255,255,255,0.6); }
+        .input-group input:focus { background: rgba(255, 255, 255, 0.4); box-shadow: 0 0 15px rgba(255,255,255,0.2); }
+        
         .login-btn {
             width: 100%;
-            padding: 15px;
+            max-width: 300px;
+            padding: 12px;
             border: none;
             border-radius: 50px;
             background: #ffeb3b;
             color: #333;
-            font-size: 1.1rem;
             font-weight: bold;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: 0.3s;
             margin-top: 10px;
-            box-shadow: 0 5px 15px rgba(255, 235, 59, 0.3);
         }
+        .login-btn:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(255, 235, 59, 0.4); }
 
-        .login-btn:hover {
-            transform: translateY(-3px) scale(1.02);
-            box-shadow: 0 8px 25px rgba(255, 235, 59, 0.5);
+        /* ---- العمود الأيمن: الفيديو والقرآن ---- */
+        .video-wrapper {
+            flex: 1;
+            position: relative;
+            border-radius: 15px;
+            overflow: hidden;
+            background: #000;
         }
-
-        .login-btn:active {
-            transform: scale(0.95);
+        .video-wrapper iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
         }
-
-        /* رسالة خطأ (للاستخدام المستقبلي) */
-        .error-msg {
-            color: #ffeb3b;
-            margin-top: 15px;
-            font-size: 0.9rem;
-            display: none;
-        }
-
-        /* تنسيق المطور (في أسفل البطاقة) */
-        .dev-info {
-            margin-top: 30px;
-            border-top: 1px solid rgba(255,255,255,0.2);
-            padding-top: 20px;
-            font-size: 0.8rem;
-            color: rgba(255,255,255,0.7);
+        .video-controls {
             display: flex;
-            justify-content: center;
-            gap: 15px;
             flex-wrap: wrap;
+            gap: 8px;
+            padding-top: 12px;
+            justify-content: center;
+        }
+        .video-controls button {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.2);
+            color: #fff;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: 0.3s;
+        }
+        .video-controls button:hover { background: #ffeb3b; color: #000; }
+        .size-controls { display: flex; gap: 5px; }
+        .size-controls button {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 5px;
+            padding: 2px 8px;
+            color: #fff;
+            cursor: pointer;
         }
 
-        .dev-info i {
-            color: #ffeb3b;
+        /* ---- الفوتر (معلومات المطور) ---- */
+        .footer-info {
+            position: fixed;
+            bottom: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(10px);
+            padding: 10px 25px;
+            border-radius: 50px;
+            color: #fff;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            border: 1px solid rgba(255,255,255,0.1);
+            z-index: 10;
+        }
+        .footer-info a { color: #ffeb3b; text-decoration: none; }
+        .footer-info a:hover { text-decoration: underline; }
+        .footer-info i { margin-left: 5px; color: #ffeb3b; }
+
+        /* التجاوب مع الشاشات الصغيرة */
+        @media (max-width: 1000px) {
+            .main-dashboard { grid-template-columns: 1fr; height: auto; gap: 15px; }
+            .glass-panel { min-height: 250px; }
+            .footer-info { width: 90%; border-radius: 15px; gap: 10px; bottom: 5px; }
         }
     </style>
 </head>
 <body>
 
-    <!-- بطاقة تسجيل الدخول -->
-    <div class="login-card">
-        <!-- شعار الشركة -->
-        <div class="logo-icon">
-            <i class="fas fa-calculator"></i>
-        </div>
-        <div class="brand-title">المحاسب <span>برو</span></div>
-
-        <!-- نموذج الدخول -->
-        <form id="loginForm">
-            <div class="input-group">
-                <i class="fas fa-user"></i>
-                <input type="text" id="username" placeholder="اسم المستخدم" required>
+    <!-- الشبكة الرئيسية -->
+    <div class="main-dashboard">
+        
+        <!-- 1. العمود الأيسر: الإشعارات والتذكيرات -->
+        <div class="glass-panel">
+            <div class="panel-title"><i class="fas fa-bell"></i> إشعارات المدير</div>
+            <div class="notifications-list">
+                <div class="notif-item">
+                    <h4>📢 تذكير هام</h4>
+                    <p>موعد اجتماع مجلس الإدارة غداً الساعة 10 صباحاً.</p>
+                    <span class="time">منذ ساعة</span>
+                </div>
+                <div class="notif-item">
+                    <h4>💬 رسالة جديدة</h4>
+                    <p>تم استلام طلب ترقية نظام المحاسبة من فرع بغداد.</p>
+                    <span class="time">منذ 3 ساعات</span>
+                </div>
+                <div class="notif-item">
+                    <h4>📊 تقرير شهري</h4>
+                    <p>تقرير المبيعات لشهر يناير جاهز للعرض.</p>
+                    <span class="time">منذ يوم</span>
+                </div>
             </div>
-            
-            <div class="input-group">
-                <i class="fas fa-lock"></i>
-                <input type="password" id="password" placeholder="كلمة المرور" required>
-            </div>
-
-            <button type="submit" class="login-btn">
-                <i class="fas fa-sign-in-alt"></i> دخول
-            </button>
-            
-            <div class="error-msg" id="errorMsg">❌ اسم المستخدم أو كلمة المرور غير صحيحة</div>
-        </form>
-
-        <!-- معلمات المطور -->
-        <div class="dev-info">
-            <span><i class="fas fa-copyright"></i> 2026 المحاسب برو</span>
-            <span>|</span>
-            <span><i class="fas fa-user-tie"></i> المطور: أروان محمد</span>
-            <span>|</span>
-            <span><i class="fas fa-database"></i> MongoDB</span>
-            <span>|</span>
-            <span><i class="fas fa-cloud"></i> Render</span>
         </div>
+
+        <!-- 2. العمود الأوسط: تسجيل الدخول -->
+        <div class="glass-panel">
+            <div class="login-card">
+                <div class="logo-icon"><i class="fas fa-calculator"></i></div>
+                <div class="brand-title">المحاسب <span>برو</span></div>
+                
+                <form id="loginForm" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+                    <div class="input-group">
+                        <i class="fas fa-user"></i>
+                        <input type="text" placeholder="اسم المستخدم" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="fas fa-lock"></i>
+                        <input type="password" placeholder="كلمة المرور" required>
+                    </div>
+                    <button type="submit" class="login-btn"><i class="fas fa-sign-in-alt"></i> دخول</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 3. العمود الأيمن: شاشة القرآن / التلفزيون -->
+        <div class="glass-panel">
+            <div class="panel-title"><i class="fas fa-tv"></i> شاشة البث المباشر</div>
+            <div class="video-wrapper" id="videoWrapper">
+                <iframe id="liveIframe" src="https://www.youtube.com/embed/8L5pI0sv2Ns?mute=1&enablejsapi=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+            </div>
+            <div class="video-controls">
+                <button onclick="changeReciter('abdulbasit')">🎙️ عبد الباسط</button>
+                <button onclick="changeReciter('maher')">🎙️ المعيقلي</button>
+                <button onclick="changeReciter('ghamdi')">🎙️ الغامدي</button>
+                <button onclick="changeReciter('iraqi')">🎙️ قراء عراقيون</button>
+                <button onclick="changeChannel('tv')">📺 تلفزيون عربي</button>
+                <button onclick="changeChannel('news')">📰 أخبار</button>
+                <div class="size-controls">
+                    <button onclick="toggleSize('max')"><i class="fas fa-expand"></i></button>
+                    <button onclick="toggleSize('min')"><i class="fas fa-compress"></i></button>
+                </div>
+            </div>
+        </div>
+
     </div>
 
-    <!-- سكربت بسيط لتجربة تسجيل الدخول -->
+    <!-- فوتر معلومات المطور -->
+    <div class="footer-info">
+        <span><i class="fas fa-copyright"></i> شركة الأرجوان للبرمجيات</span>
+        <span>|</span>
+        <span><i class="fas fa-user-tie"></i> المطور: محمد العبيدي</span>
+        <span>|</span>
+        <span><i class="fas fa-envelope"></i> <a href="mailto:mohmmed128@gmail.com">mohmmed128@gmail.com</a></span>
+        <span>|</span>
+        <span><i class="fab fa-whatsapp"></i> <a href="https://wa.me/9647807807491">07807807491</a></span>
+    </div>
+
+    <!-- السكربتات للتحكم -->
     <script>
-        document.getElementById('loginForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            const user = document.getElementById('username').value;
-            const pass = document.getElementById('password').value;
-            const errorMsg = document.getElementById('errorMsg');
+        // قائمة بروابط اليوتيوب للقراء والقنوات
+        const streams = {
+            'abdulbasit': 'https://www.youtube.com/embed/8L5pI0sv2Ns?mute=1',
+            'maher': 'https://www.youtube.com/embed/WKx16Tq6rNs?mute=1',
+            'ghamdi': 'https://www.youtube.com/embed/DTmhLzzlVgI?mute=1',
+            'iraqi': 'https://www.youtube.com/embed/4YtvJdKXb2g?mute=1',
+            'tv': 'https://www.youtube.com/embed/8o5nT3oO0BU?mute=1', // مثال قناة عربية
+            'news': 'https://www.youtube.com/embed/6HnJ4W5W4zc?mute=1'  // مثال أخبار
+        };
 
-            // مثال بسيط للتحقق (يمكنك تغيير القيم لاحقاً)
-            if(user === 'admin' && pass === '123456') {
-                errorMsg.style.display = 'none';
-                alert('🎉 مرحباً بك في لوحة التحكم! (سيتم توجيهك هنا لاحقاً)');
-                // هنا يمكنك إضافة توجيه للصفحة الرئيسية
-                // window.location.href = '/dashboard';
+        function changeReciter(reciter) {
+            if(streams[reciter]) {
+                document.getElementById('liveIframe').src = streams[reciter];
+            }
+        }
+
+        function changeChannel(type) {
+            if(type === 'tv') document.getElementById('liveIframe').src = streams['tv'];
+            else if(type === 'news') document.getElementById('liveIframe').src = streams['news'];
+        }
+
+        function toggleSize(size) {
+            const panel = document.getElementById('videoWrapper');
+            if(size === 'max') {
+                panel.style.position = 'fixed';
+                panel.style.top = '0'; panel.style.left = '0'; panel.style.width = '100vw'; panel.style.height = '100vh';
+                panel.style.zIndex = '999'; panel.style.borderRadius = '0';
             } else {
-                errorMsg.style.display = 'block';
-                // حركة اهتزاز للبطاقة عند الخطأ
-                document.querySelector('.login-card').style.animation = 'shake 0.5s';
-                setTimeout(() => {
-                    document.querySelector('.login-card').style.animation = 'slideUp 0.8s ease-out forwards';
-                }, 500);
+                panel.style.position = 'relative';
+                panel.style.width = '100%'; panel.style.height = '100%';
+                panel.style.zIndex = '0'; panel.style.borderRadius = '15px';
             }
-        });
-
-        // إضافة حركة اهتزاز (CSS إضافية)
-        const styleSheet = document.createElement("style");
-        styleSheet.textContent = `
-            @keyframes shake {
-                0%, 100% { transform: translateX(0); }
-                25% { transform: translateX(-10px); }
-                75% { transform: translateX(10px); }
-            }
-        `;
-        document.head.appendChild(styleSheet);
+        }
     </script>
 </body>
 </html>
