@@ -279,7 +279,8 @@
         <div class="glass-panel">
             <div class="panel-title"><i class="fas fa-tv"></i> شاشة البث المباشر</div>
             <div class="video-wrapper" id="videoWrapper">
-                <iframe id="liveIframe" src="https://www.youtube.com/embed/8L5pI0sv2Ns?mute=1&enablejsapi=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                <!-- تم تحديث الرابط الافتراضي إلى رابط يعمل -->
+                <iframe id="liveIframe" src="https://www.youtube.com/embed/7J-L6A9-V24?mute=1&autoplay=1&enablejsapi=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>
             </div>
             <div class="video-controls">
                 <button onclick="changeReciter('abdulbasit')">🎙️ عبد الباسط</button>
@@ -310,14 +311,14 @@
 
     <!-- السكربتات للتحكم -->
     <script>
-        // قائمة بروابط اليوتيوب للقراء والقنوات
+        // قائمة بروابط اليوتيوب للقراء والقنوات (تم تحديث الروابط وإضافة autoplay)
         const streams = {
-            'abdulbasit': 'https://www.youtube.com/embed/8L5pI0sv2Ns?mute=1',
-            'maher': 'https://www.youtube.com/embed/WKx16Tq6rNs?mute=1',
-            'ghamdi': 'https://www.youtube.com/embed/DTmhLzzlVgI?mute=1',
-            'iraqi': 'https://www.youtube.com/embed/4YtvJdKXb2g?mute=1',
-            'tv': 'https://www.youtube.com/embed/8o5nT3oO0BU?mute=1', // مثال قناة عربية
-            'news': 'https://www.youtube.com/embed/6HnJ4W5W4zc?mute=1'  // مثال أخبار
+            'abdulbasit': 'https://www.youtube.com/embed/7J-L6A9-V24?mute=1&autoplay=1',
+            'maher': 'https://www.youtube.com/embed/GM2SJ1bUbIw?mute=1&autoplay=1',
+            'ghamdi': 'https://www.youtube.com/embed/MRFwH_28uNg?mute=1&autoplay=1',
+            'iraqi': 'https://www.youtube.com/embed/D4sYQkqOoVQ?mute=1&autoplay=1',
+            'tv': 'https://www.youtube.com/embed/DnyYgSaay-0?mute=1&autoplay=1',
+            'news': 'https://www.youtube.com/embed/MCc1FnHlmWo?mute=1&autoplay=1'
         };
 
         function changeReciter(reciter) {
@@ -333,14 +334,30 @@
 
         function toggleSize(size) {
             const panel = document.getElementById('videoWrapper');
+            const controls = document.querySelector('.video-controls');
+            
             if(size === 'max') {
                 panel.style.position = 'fixed';
-                panel.style.top = '0'; panel.style.left = '0'; panel.style.width = '100vw'; panel.style.height = '100vh';
+                panel.style.top = '0'; panel.style.left = '0'; panel.style.width = '100vw'; panel.style.height = 'calc(100vh - 60px)';
                 panel.style.zIndex = '999'; panel.style.borderRadius = '0';
+                controls.style.position = 'fixed';
+                controls.style.bottom = '0'; controls.style.left = '0'; controls.style.width = '100%';
+                controls.style.zIndex = '1000';
+                controls.style.background = 'rgba(0,0,0,0.8)';
+                controls.style.padding = '10px';
+                controls.style.borderRadius = '0';
+                controls.style.justifyContent = 'center';
             } else {
                 panel.style.position = 'relative';
                 panel.style.width = '100%'; panel.style.height = '100%';
                 panel.style.zIndex = '0'; panel.style.borderRadius = '15px';
+                controls.style.position = 'relative';
+                controls.style.background = 'transparent';
+                controls.style.padding = '12px 0 0 0';
+                controls.style.borderRadius = '0';
+                controls.style.width = '100%';
+                controls.style.zIndex = '0';
+                controls.style.justifyContent = 'center';
             }
         }
     </script>
