@@ -7,7 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- إضافة مكتبة HLS.js لتشغيل بث M3U8 المباشر في المتصفح -->
+    <!-- إضافة مكتبة HLS.js -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     
     <style>
@@ -159,7 +159,7 @@
         }
         .login-btn:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(255, 235, 59, 0.4); }
 
-        /* ---- العمود الأيمن: الفيديو والقرآن (مشغل M3U8 احترافي) ---- */
+        /* ---- العمود الأيمن: الفيديو ---- */
         .video-wrapper {
             flex: 1;
             position: relative;
@@ -183,19 +183,86 @@
             padding: 12px 0 0 0;
             justify-content: center;
             background: transparent;
+            position: relative;
         }
-        .video-controls button {
-            padding: 6px 12px;
+        
+        /* زر القائمة الجانبية (زر فتح القائمة) */
+        .open-menu-btn {
+            padding: 8px 20px;
             border: none;
-            border-radius: 20px;
-            background: rgba(255,255,255,0.2);
+            border-radius: 30px;
+            background: #ffeb3b;
+            color: #333;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.3s;
+            font-size: 0.9rem;
+            box-shadow: 0 5px 15px rgba(255, 235, 59, 0.3);
+        }
+        .open-menu-btn:hover { transform: scale(1.05); }
+
+        /* القائمة الجانبية المنسدلة */
+        .channel-menu-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100vh;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+            display: none; /* مخفية افتراضياً */
+            justify-content: flex-end;
+        }
+        .channel-menu {
+            width: 350px;
+            height: 100%;
+            background: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(20px);
+            border-left: 3px solid #ffeb3b;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .menu-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #fff;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 15px;
+            margin-bottom: 15px;
+        }
+        .menu-header button {
+            background: transparent; border: none; color: #ffeb3b; font-size: 1.5rem; cursor: pointer;
+        }
+        .channel-group-title {
+            color: #ffeb3b;
+            font-size: 0.9rem;
+            margin: 15px 0 5px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 5px;
+        }
+        .channel-item {
+            padding: 10px 15px;
             color: #fff;
             cursor: pointer;
-            font-size: 0.75rem;
-            transition: 0.3s;
+            border-radius: 10px;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9rem;
         }
-        .video-controls button:hover { background: #ffeb3b; color: #000; }
-        
+        .channel-item:hover {
+            background: rgba(255, 235, 59, 0.2);
+            color: #ffeb3b;
+            transform: translateX(-5px);
+        }
+
         /* زر اختيار الملفات */
         .file-input-wrapper {
             display: inline-block;
@@ -203,25 +270,17 @@
         }
         .file-input-wrapper input[type="file"] {
             position: absolute;
-            left: 0;
-            top: 0;
-            opacity: 0;
-            width: 100%;
-            height: 100%;
-            cursor: pointer;
+            left: 0; top: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer;
         }
 
         .size-controls { display: flex; gap: 5px; }
         .size-controls button {
             background: rgba(255,255,255,0.1);
             border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 5px;
-            padding: 2px 8px;
-            color: #fff;
-            cursor: pointer;
+            border-radius: 5px; padding: 2px 8px; color: #fff; cursor: pointer;
         }
 
-        /* ---- الفوتر (معلومات المطور) ---- */
+        /* ---- الفوتر ---- */
         .footer-info {
             position: fixed;
             bottom: 15px;
@@ -245,11 +304,11 @@
         .footer-info a:hover { text-decoration: underline; }
         .footer-info i { margin-left: 5px; color: #ffeb3b; }
 
-        /* التجاوب مع الشاشات الصغيرة */
         @media (max-width: 1000px) {
             .main-dashboard { grid-template-columns: 1fr; height: auto; gap: 15px; }
             .glass-panel { min-height: 250px; }
             .footer-info { width: 90%; border-radius: 15px; gap: 10px; bottom: 5px; }
+            .channel-menu { width: 80%; }
         }
     </style>
 </head>
@@ -257,8 +316,7 @@
 
     <!-- الشبكة الرئيسية -->
     <div class="main-dashboard">
-        
-        <!-- 1. العمود الأيسر: الإشعارات والتذكيرات -->
+        <!-- 1. العمود الأيسر -->
         <div class="glass-panel">
             <div class="panel-title"><i class="fas fa-bell"></i> إشعارات المدير</div>
             <div class="notifications-list">
@@ -280,58 +338,55 @@
             </div>
         </div>
 
-        <!-- 2. العمود الأوسط: تسجيل الدخول -->
+        <!-- 2. العمود الأوسط -->
         <div class="glass-panel">
             <div class="login-card">
                 <div class="logo-icon"><i class="fas fa-calculator"></i></div>
                 <div class="brand-title">المحاسب <span>برو</span></div>
-                
-                <form id="loginForm" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
-                    <div class="input-group">
-                        <i class="fas fa-user"></i>
-                        <input type="text" placeholder="اسم المستخدم" required>
-                    </div>
-                    <div class="input-group">
-                        <i class="fas fa-lock"></i>
-                        <input type="password" placeholder="كلمة المرور" required>
-                    </div>
+                <form style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+                    <div class="input-group"><i class="fas fa-user"></i><input type="text" placeholder="اسم المستخدم" required></div>
+                    <div class="input-group"><i class="fas fa-lock"></i><input type="password" placeholder="كلمة المرور" required></div>
                     <button type="submit" class="login-btn"><i class="fas fa-sign-in-alt"></i> دخول</button>
                 </form>
             </div>
         </div>
 
-        <!-- 3. العمود الأيمن: شاشة البث المباشر (M3U8) -->
+        <!-- 3. العمود الأيمن: الفيديو + زر القائمة -->
         <div class="glass-panel">
-            <div class="panel-title"><i class="fas fa-tv"></i> شاشة البث المباشر (M3U8)</div>
+            <div class="panel-title"><i class="fas fa-tv"></i> شاشة البث المباشر</div>
             <div class="video-wrapper" id="videoWrapper">
                 <video id="mainVideoPlayer" controls playsinline></video>
             </div>
             <div class="video-controls">
-                <!-- أزرار القنوات -->
-                <button onclick="changeChannel('quran')">📖 قرآن كريم</button>
-                <button onclick="changeChannel('karbala')">🕌 كربلاء</button>
-                <button onclick="changeChannel('iraqia_news')">📰 العراقية نيوز</button>
-                <button onclick="changeChannel('sharqiya')">📺 الشرقية</button>
-                <button onclick="changeChannel('mbc_iraq')">🇮🇶 MBC العراق</button>
-                <button onclick="changeChannel('sky_news')">📡 سكاي نيوز</button>
+                <!-- زر فتح القائمة الجانبية -->
+                <button class="open-menu-btn" onclick="openChannelMenu()"><i class="fas fa-list-ul"></i> اختر قناة</button>
                 
-                <!-- زر اختيار فيديو من الجهاز -->
                 <div class="file-input-wrapper">
-                    <button class="upload-btn"><i class="fas fa-folder-open"></i> اختيار ملف</button>
+                    <button style="background:rgba(255,255,255,0.2); border:none; border-radius:20px; padding:6px 12px; color:#fff; cursor:pointer;"><i class="fas fa-folder-open"></i> ملف</button>
                     <input type="file" id="fileInput" accept="video/*" onchange="loadLocalVideo(event)">
                 </div>
-
-                <!-- أزرار التكبير -->
                 <div class="size-controls">
                     <button onclick="toggleSize('max')"><i class="fas fa-expand"></i></button>
                     <button onclick="toggleSize('min')"><i class="fas fa-compress"></i></button>
                 </div>
             </div>
         </div>
-
     </div>
 
-    <!-- فوتر معلومات المطور -->
+    <!-- القائمة الجانبية (القنوات) -->
+    <div class="channel-menu-overlay" id="channelMenuOverlay" onclick="closeChannelMenu(event)">
+        <div class="channel-menu" id="channelMenu">
+            <div class="menu-header">
+                <span>📺 قائمة القنوات</span>
+                <button onclick="closeChannelMenuDirect()"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="channelListContainer">
+                <!-- سيتم تعبئة القنوات هنا بواسطة JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- الفوتر -->
     <div class="footer-info">
         <span><i class="fas fa-copyright"></i> شركة الأرجوان للبرمجيات</span>
         <span>|</span>
@@ -342,90 +397,132 @@
         <span><i class="fab fa-whatsapp"></i> <a href="https://wa.me/9647807807491">07807807491</a></span>
     </div>
 
-    <!-- السكربتات للتحكم في المشغل -->
+    <!-- السكربتات -->
     <script>
         const videoPlayer = document.getElementById('mainVideoPlayer');
         let hlsInstance = null;
 
-        // قائمة القنوات المباشرة (تم استخراجها من ملف M3U الذي أرسلته)
-        const channelSources = {
-            'quran': 'https://ktvlive.online/stream/hls/ch1.m3u8',
-            'karbala': 'https://ktvlive.online/stream/hls/ch3.m3u8',
-            'iraqia_news': 'https://imn-live.esite-lab.com/hls/iraqia-news.m3u8',
-            'sharqiya': 'http://185.9.2.18/chid_144/index.m3u8',
-            'mbc_iraq': 'https://shd-gcp-live.edgenextcdn.net/live/bitmovin-mbc-iraq/e38c44b1b43474e1c39cb5b90203691e/index.m3u8',
-            'sky_news': 'https://live-stream.skynewsarabia.com/c-horizontal-channel/horizontal-stream/index.m3u8'
+        // جميع القنوات التي أرسلتها (مصنفة)
+        const allChannels = {
+            "📖 القرآن والدين": {
+                'القرآن الكريم': 'https://ktvlive.online/stream/hls/ch1.m3u8',
+                'كربلاء وثائقي': 'https://ktvlive.online/stream/hls/ch3.m3u8',
+                'قناة العباسية': 'https://stream.alabbassia.com/live/alabbassia/index.m3u8',
+                'الائمه': 'https://alaimma.tv/live/index.m3u8',
+                'الجوادين': 'https://live.aljawadain.org/live/aljawadaintv/playlist.m3u8',
+                'إقرار قرآن': 'https://playlist.fasttvcdn.com/pl/dlkqw1ftuvuuzkcb4pxdcg/Iqraafasttv2/playlist.m3u8',
+                'قطر القرآن': 'https://qatartv.akamaized.net/hls/live/20000612/qtvquran/master.m3u8',
+                'البحرين قرآن': 'https://5c7b683162943.streamlock.net/live/ngrp:bahrainquran_all/playlist.m3u8',
+            },
+            "📰 الأخبار": {
+                'العراقية نيوز': 'https://imn-live.esite-lab.com/hls/iraqia-news.m3u8',
+                'الشرقية نيوز': 'https://5d94523502c2d.streamlock.net/alsharqiyalive/mystream/playlist.m3u8',
+                'سكاي نيوز': 'https://live-stream.skynewsarabia.com/c-horizontal-channel/horizontal-stream/index.m3u8',
+                'الجزيرة': 'https://live-hls-apps-aja-fa.getaj.net/AJA/01.m3u8',
+                'العربية': 'https://live.alarabiya.net/alarabiapublish/alarabiya.smil/playlist.m3u8',
+                'الحرة عراق': 'https://mbn-ingest-worldsafe.akamaized.net/hls/live/2038899/MBN_Iraq_Worldsafe_HLS/master.m3u8',
+                'الحدث': 'https://shd-gcp-live.edgenextcdn.net/live/bitmovin-hadath/2ff87ec4c2f3ede35295a20637d9f8fd/index.m3u8',
+                'فرانس 24': 'https://live.france24.com/hls/live/2037222-b/F24_AR_HI_HLS/master_5000.m3u8',
+            },
+            "📺 تلفزيون عام": {
+                'الشرقية': 'http://185.9.2.18/chid_144/index.m3u8',
+                'MBC العراق': 'https://shd-gcp-live.edgenextcdn.net/live/bitmovin-mbc-iraq/e38c44b1b43474e1c39cb5b90203691e/index.m3u8',
+                'العراقية': 'https://imn-live.esite-lab.com/hls/iraqia-general.m3u8',
+                'MBC 1': 'https://shd-gcp-live.edgenextcdn.net/live/bitmovin-mbc-1/15cf99af5de54063fdabfefe66adc075/index.m3u8',
+                'الراشد': 'https://media1.livaat.com/static/AL-RASHEED-HD/playlist.m3u8',
+                'السعودية': 'https://shd-gcp-live.edgenextcdn.net/live/bitmovin-saudi-tv/2ad66056b51fd8c1b624854623112e43/index.m3u8',
+                'قطر': 'https://live.kwikmotion.com/qtv1live/qtv1.smil/playlist.m3u8',
+                'دبي': 'http://185.9.2.18/chid_139/index.m3u8',
+            },
+            "🎵 ترفيه ورياضة": {
+                'روتانا موسيقى': 'https://rotana.hibridcdn.net/rotananet/music_net-7Y83PP5adWixDF93/playlist.m3u8',
+                'روتانا خليجية': 'https://rotana.hibridcdn.net/rotananet/khaleejiya_net-7Y83PP5adWixDF93/playlist.m3u8',
+                'الرياضية العراقية': 'https://imn-live.esite-lab.com/hls/iraqia-sports-1.m3u8',
+                'الرياضية البحرين': 'https://5c7b683162943.streamlock.net/live/ngrp:bahrainsportstwo_all/playlist.m3u8',
+                'الرياضية قطر الكأس': 'https://liveeu-gcp.alkassdigital.net/alkass1-p/main.m3u8',
+            }
         };
 
-        // الدالة الأساسية لتشغيل البث المباشر (M3U8) باستخدام HLS.js
+        // دالة فتح القائمة
+        function openChannelMenu() {
+            const overlay = document.getElementById('channelMenuOverlay');
+            const container = document.getElementById('channelListContainer');
+            
+            // بناء القائمة ديناميكياً
+            let html = '';
+            for (const [groupName, channels] of Object.entries(allChannels)) {
+                html += `<div class="channel-group-title">${groupName}</div>`;
+                for (const [channelName, url] of Object.entries(channels)) {
+                    html += `<div class="channel-item" onclick="selectChannel('${channelName}', '${url}')">
+                                <i class="fas fa-play-circle" style="color: #ffeb3b;"></i> ${channelName}
+                             </div>`;
+                }
+            }
+            container.innerHTML = html;
+            overlay.style.display = 'flex';
+        }
+
+        // دالة إغلاق القائمة عند الضغط على خلفية القائمة
+        function closeChannelMenu(event) {
+            if(event.target === document.getElementById('channelMenuOverlay')) {
+                document.getElementById('channelMenuOverlay').style.display = 'none';
+            }
+        }
+        // دالة إغلاق القائمة عند الضغط على زر الإغلاق
+        function closeChannelMenuDirect() {
+            document.getElementById('channelMenuOverlay').style.display = 'none';
+        }
+
+        // دالة اختيار القناة وتشغيلها
+        function selectChannel(name, url) {
+            document.getElementById('channelMenuOverlay').style.display = 'none';
+            playM3U8(url);
+        }
+
+        // دالة تشغيل البث
         function playM3U8(url) {
-            // إذا كان المتصفح يدعم HLS.js مباشرة (مثل Safari)
             if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
                 videoPlayer.src = url;
-            } 
-            // إذا كان المتصفح (Chrome, Edge) ويحتاج HLS.js
-            else if (Hls.isSupported()) {
-                // تدمير أي اتصال سابق
-                if (hlsInstance) {
-                    hlsInstance.destroy();
-                }
+            } else if (Hls.isSupported()) {
+                if (hlsInstance) { hlsInstance.destroy(); }
                 hlsInstance = new Hls();
                 hlsInstance.loadSource(url);
                 hlsInstance.attachMedia(videoPlayer);
             } else {
-                alert('المتصفح لا يدعم تشغيل البث المباشر (M3U8).');
+                alert('المتصفح لا يدعم هذا النوع من البث.');
             }
-            videoPlayer.play().catch(e => console.log("التشغيل التلقائي محظور"));
+            videoPlayer.play().catch(() => {});
         }
 
-        // دالة تغيير القناة عند الضغط على الأزرار
-        function changeChannel(key) {
-            if(channelSources[key]) {
-                playM3U8(channelSources[key]);
-            }
-        }
-
-        // دالة تشغيل فيديو محلي تم رفعه عبر زر الاختيار
+        // دالة تشغيل الملف المحلي
         function loadLocalVideo(event) {
             const file = event.target.files[0];
             if (file) {
-                const fileURL = URL.createObjectURL(file);
-                if (hlsInstance) {
-                    hlsInstance.destroy(); // إيقاف البث المباشر إذا كان يعمل
-                    hlsInstance = null;
-                }
-                videoPlayer.src = fileURL;
+                if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+                videoPlayer.src = URL.createObjectURL(file);
                 videoPlayer.load();
                 videoPlayer.play();
             }
         }
 
-        // دالة تكبير وتصغير الشاشة
+        // دالة التكبير والتصغير
         function toggleSize(size) {
             const panel = document.getElementById('videoWrapper');
             const controls = document.querySelector('.video-controls');
-            
             if(size === 'max') {
-                panel.style.position = 'fixed';
-                panel.style.top = '0'; panel.style.left = '0'; panel.style.width = '100vw'; panel.style.height = 'calc(100vh - 60px)';
+                panel.style.position = 'fixed'; panel.style.top = '0'; panel.style.left = '0'; 
+                panel.style.width = '100vw'; panel.style.height = 'calc(100vh - 60px)';
                 panel.style.zIndex = '999'; panel.style.borderRadius = '0';
-                controls.style.position = 'fixed';
-                controls.style.bottom = '0'; controls.style.left = '0'; controls.style.width = '100%';
-                controls.style.zIndex = '1000';
-                controls.style.background = 'rgba(0,0,0,0.8)';
-                controls.style.padding = '10px';
-                controls.style.borderRadius = '0';
-                controls.style.justifyContent = 'center';
+                controls.style.position = 'fixed'; controls.style.bottom = '0'; controls.style.left = '0';
+                controls.style.width = '100%'; controls.style.zIndex = '1000';
+                controls.style.background = 'rgba(0,0,0,0.8)'; controls.style.padding = '10px';
+                controls.style.borderRadius = '0'; controls.style.justifyContent = 'center';
             } else {
-                panel.style.position = 'relative';
-                panel.style.width = '100%'; panel.style.height = '100%';
+                panel.style.position = 'relative'; panel.style.width = '100%'; panel.style.height = '100%';
                 panel.style.zIndex = '0'; panel.style.borderRadius = '15px';
-                controls.style.position = 'relative';
-                controls.style.background = 'transparent';
-                controls.style.padding = '12px 0 0 0';
-                controls.style.borderRadius = '0';
-                controls.style.width = '100%';
-                controls.style.zIndex = '0';
+                controls.style.position = 'relative'; controls.style.background = 'transparent';
+                controls.style.padding = '12px 0 0 0'; controls.style.borderRadius = '0';
+                controls.style.width = '100%'; controls.style.zIndex = '0';
                 controls.style.justifyContent = 'center';
             }
         }
