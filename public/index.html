@@ -7,7 +7,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- إضافة مكتبة HLS.js -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     
     <style>
@@ -22,7 +21,15 @@
             justify-content: center;
             align-items: center;
             padding: 20px;
+            transition: background 0.8s ease, animation 0.5s ease;
         }
+
+        /* إضافة ألوان قابلة للتغيير */
+        .body-bg-1 { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .body-bg-2 { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .body-bg-3 { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+        .body-bg-4 { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+        .body-bg-5 { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
 
         @keyframes gradientBG {
             0% { background-position: 0% 50%; }
@@ -55,7 +62,7 @@
 
         .panel-title {
             color: #fff;
-            font-size: 1.1rem;
+            font-size: 1.3rem; /* تكبير العنوان */
             font-weight: bold;
             margin-bottom: 15px;
             display: flex;
@@ -78,7 +85,7 @@
 
         .notif-item {
             background: rgba(255, 255, 255, 0.1);
-            padding: 12px;
+            padding: 15px;
             border-radius: 15px;
             margin-bottom: 12px;
             color: #fff;
@@ -86,9 +93,9 @@
             transition: 0.3s;
         }
         .notif-item:hover { background: rgba(255, 255, 255, 0.2); transform: translateX(-5px); }
-        .notif-item h4 { font-size: 0.9rem; margin-bottom: 5px; }
-        .notif-item p { font-size: 0.8rem; opacity: 0.8; }
-        .notif-item .time { font-size: 0.7rem; opacity: 0.6; display: block; margin-top: 5px; text-align: left; }
+        .notif-item h4 { font-size: 1.1rem; margin-bottom: 5px; }
+        .notif-item p { font-size: 0.95rem; opacity: 0.8; }
+        .notif-item .time { font-size: 0.85rem; opacity: 0.6; display: block; margin-top: 5px; text-align: left; }
 
         /* ---- العمود الأوسط: تسجيل الدخول ---- */
         .login-card {
@@ -102,26 +109,26 @@
             animation: slideUp 0.8s ease-out;
         }
         .logo-icon {
-            font-size: 4.5rem;
+            font-size: 5rem; /* تكبير الشعار */
             color: #fff;
             text-shadow: 0 0 20px rgba(255,255,255,0.3);
             animation: pulse 2s infinite;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
         }
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
         
         .brand-title {
             color: #fff;
-            font-size: 2.2rem;
+            font-size: 2.8rem; /* تكبير العنوان */
             font-weight: 700;
-            margin-bottom: 25px;
+            margin-bottom: 30px;
         }
         .brand-title span { color: #ffeb3b; }
 
         .input-group {
             position: relative;
             width: 100%;
-            max-width: 300px;
+            max-width: 320px;
             margin-bottom: 18px;
         }
         .input-group i {
@@ -130,14 +137,16 @@
             top: 50%;
             transform: translateY(-50%);
             color: rgba(255,255,255,0.7);
+            font-size: 1.1rem;
         }
         .input-group input {
             width: 100%;
-            padding: 12px 45px 12px 15px;
+            padding: 14px 50px 14px 15px; /* تكبير الحقول */
             border: none;
             border-radius: 50px;
             background: rgba(255, 255, 255, 0.25);
             color: #fff;
+            font-size: 1.05rem;
             outline: none;
             transition: 0.3s;
         }
@@ -146,13 +155,14 @@
         
         .login-btn {
             width: 100%;
-            max-width: 300px;
-            padding: 12px;
+            max-width: 320px;
+            padding: 15px; /* تكبير الزر */
             border: none;
             border-radius: 50px;
             background: #ffeb3b;
             color: #333;
             font-weight: bold;
+            font-size: 1.1rem;
             cursor: pointer;
             transition: 0.3s;
             margin-top: 10px;
@@ -186,9 +196,8 @@
             position: relative;
         }
         
-        /* زر القائمة الجانبية (زر فتح القائمة) */
         .open-menu-btn {
-            padding: 8px 20px;
+            padding: 10px 20px;
             border: none;
             border-radius: 30px;
             background: #ffeb3b;
@@ -196,19 +205,19 @@
             font-weight: bold;
             cursor: pointer;
             transition: 0.3s;
-            font-size: 0.9rem;
+            font-size: 1rem;
             box-shadow: 0 5px 15px rgba(255, 235, 59, 0.3);
         }
         .open-menu-btn:hover { transform: scale(1.05); }
 
-        /* القائمة الجانبية المنسدلة */
+        /* القائمة الجانبية */
         .channel-menu-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100vh;
             background: rgba(0,0,0,0.6);
             backdrop-filter: blur(5px);
             z-index: 1000;
-            display: none; /* مخفية افتراضياً */
+            display: none;
             justify-content: flex-end;
         }
         .channel-menu {
@@ -241,13 +250,13 @@
         }
         .channel-group-title {
             color: #ffeb3b;
-            font-size: 0.9rem;
+            font-size: 1rem;
             margin: 15px 0 5px 0;
             border-bottom: 1px solid rgba(255,255,255,0.1);
             padding-bottom: 5px;
         }
         .channel-item {
-            padding: 10px 15px;
+            padding: 12px 15px;
             color: #fff;
             cursor: pointer;
             border-radius: 10px;
@@ -255,7 +264,7 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            font-size: 0.9rem;
+            font-size: 1rem;
         }
         .channel-item:hover {
             background: rgba(255, 235, 59, 0.2);
@@ -263,7 +272,6 @@
             transform: translateX(-5px);
         }
 
-        /* زر اختيار الملفات */
         .file-input-wrapper {
             display: inline-block;
             position: relative;
@@ -278,6 +286,7 @@
             background: rgba(255,255,255,0.1);
             border: 1px solid rgba(255,255,255,0.2);
             border-radius: 5px; padding: 2px 8px; color: #fff; cursor: pointer;
+            font-size: 1rem;
         }
 
         /* ---- الفوتر ---- */
@@ -288,10 +297,10 @@
             transform: translateX(-50%);
             background: rgba(0, 0, 0, 0.6);
             backdrop-filter: blur(10px);
-            padding: 10px 25px;
+            padding: 12px 25px;
             border-radius: 50px;
             color: #fff;
-            font-size: 0.8rem;
+            font-size: 0.9rem;
             display: flex;
             align-items: center;
             gap: 20px;
@@ -310,9 +319,43 @@
             .footer-info { width: 90%; border-radius: 15px; gap: 10px; bottom: 5px; }
             .channel-menu { width: 80%; }
         }
+
+        /* أزرار تغيير الألوان الجديدة */
+        .color-switcher {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(10px);
+            padding: 10px 15px;
+            border-radius: 50px;
+            display: flex;
+            gap: 10px;
+            z-index: 50;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .color-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .color-btn:hover { transform: scale(1.2); border-color: #fff; }
+        .color-btn.active { border-color: #ffeb3b; }
     </style>
 </head>
 <body>
+
+    <!-- أزرار تغيير الألوان -->
+    <div class="color-switcher">
+        <div class="color-btn active" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);" onclick="changeBgColor('body-bg-1', this)"></div>
+        <div class="color-btn" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);" onclick="changeBgColor('body-bg-2', this)"></div>
+        <div class="color-btn" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);" onclick="changeBgColor('body-bg-3', this)"></div>
+        <div class="color-btn" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);" onclick="changeBgColor('body-bg-4', this)"></div>
+        <div class="color-btn" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);" onclick="changeBgColor('body-bg-5', this)"></div>
+    </div>
 
     <!-- الشبكة الرئيسية -->
     <div class="main-dashboard">
@@ -343,26 +386,35 @@
             <div class="login-card">
                 <div class="logo-icon"><i class="fas fa-calculator"></i></div>
                 <div class="brand-title">المحاسب <span>برو</span></div>
-                <form style="width: 100%; display: flex; flex-direction: column; align-items: center;">
-                    <div class="input-group"><i class="fas fa-user"></i><input type="text" placeholder="اسم المستخدم" required></div>
-                    <div class="input-group"><i class="fas fa-lock"></i><input type="password" placeholder="كلمة المرور" required></div>
+                <form id="loginForm" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+                    <!-- حقل رمز الشركة الجديد -->
+                    <div class="input-group">
+                        <i class="fas fa-building"></i>
+                        <input type="text" id="companyCode" placeholder="رمز الشركة" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="fas fa-user"></i>
+                        <input type="text" id="username" placeholder="اسم المستخدم" required>
+                    </div>
+                    <div class="input-group">
+                        <i class="fas fa-lock"></i>
+                        <input type="password" id="password" placeholder="كلمة المرور" required>
+                    </div>
                     <button type="submit" class="login-btn"><i class="fas fa-sign-in-alt"></i> دخول</button>
                 </form>
             </div>
         </div>
 
-        <!-- 3. العمود الأيمن: الفيديو + زر القائمة -->
+        <!-- 3. العمود الأيمن -->
         <div class="glass-panel">
             <div class="panel-title"><i class="fas fa-tv"></i> شاشة البث المباشر</div>
             <div class="video-wrapper" id="videoWrapper">
                 <video id="mainVideoPlayer" controls playsinline></video>
             </div>
             <div class="video-controls">
-                <!-- زر فتح القائمة الجانبية -->
                 <button class="open-menu-btn" onclick="openChannelMenu()"><i class="fas fa-list-ul"></i> اختر قناة</button>
-                
                 <div class="file-input-wrapper">
-                    <button style="background:rgba(255,255,255,0.2); border:none; border-radius:20px; padding:6px 12px; color:#fff; cursor:pointer;"><i class="fas fa-folder-open"></i> ملف</button>
+                    <button style="background:rgba(255,255,255,0.2); border:none; border-radius:20px; padding:8px 14px; color:#fff; cursor:pointer; font-size:1rem;"><i class="fas fa-folder-open"></i> ملف</button>
                     <input type="file" id="fileInput" accept="video/*" onchange="loadLocalVideo(event)">
                 </div>
                 <div class="size-controls">
@@ -373,16 +425,14 @@
         </div>
     </div>
 
-    <!-- القائمة الجانبية (القنوات) -->
+    <!-- القائمة الجانبية -->
     <div class="channel-menu-overlay" id="channelMenuOverlay" onclick="closeChannelMenu(event)">
         <div class="channel-menu" id="channelMenu">
             <div class="menu-header">
                 <span>📺 قائمة القنوات</span>
                 <button onclick="closeChannelMenuDirect()"><i class="fas fa-times"></i></button>
             </div>
-            <div id="channelListContainer">
-                <!-- سيتم تعبئة القنوات هنا بواسطة JavaScript -->
-            </div>
+            <div id="channelListContainer"></div>
         </div>
     </div>
 
@@ -402,7 +452,31 @@
         const videoPlayer = document.getElementById('mainVideoPlayer');
         let hlsInstance = null;
 
-        // جميع القنوات التي أرسلتها (مصنفة)
+        // 1. وظيفة تغيير ألوان الخلفية
+        function changeBgColor(className, btnElement) {
+            document.body.className = className;
+            document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+            btnElement.classList.add('active');
+        }
+
+        // 2. وظيفة تسجيل الدخول والانتقال للصفحة التالية
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const company = document.getElementById('companyCode').value;
+            const user = document.getElementById('username').value;
+            const pass = document.getElementById('password').value;
+
+            // مثال للتحقق (يمكنك تغييرها حسب رغبتك)
+            if(company === 'argwan' && user === 'admin' && pass === '123456') {
+                alert('🎉 مرحباً بك! جارٍ الانتقال إلى لوحة التحكم...');
+                // هنا ستضع رابط الصفحة التالية (مثلاً: /dashboard)
+                // window.location.href = '/dashboard';
+            } else {
+                alert('❌ رمز الشركة أو اسم المستخدم أو كلمة المرور غير صحيحة.');
+            }
+        });
+
+        // 3. جميع القنوات
         const allChannels = {
             "📖 القرآن والدين": {
                 'القرآن الكريم': 'https://ktvlive.online/stream/hls/ch1.m3u8',
@@ -411,8 +485,7 @@
                 'الائمه': 'https://alaimma.tv/live/index.m3u8',
                 'الجوادين': 'https://live.aljawadain.org/live/aljawadaintv/playlist.m3u8',
                 'إقرار قرآن': 'https://playlist.fasttvcdn.com/pl/dlkqw1ftuvuuzkcb4pxdcg/Iqraafasttv2/playlist.m3u8',
-                'قطر القرآن': 'https://qatartv.akamaized.net/hls/live/20000612/qtvquran/master.m3u8',
-                'البحرين قرآن': 'https://5c7b683162943.streamlock.net/live/ngrp:bahrainquran_all/playlist.m3u8',
+                'قطر القرآن': 'https://qatartv.akamaized.net/hls/live/20000612/qtvquran/master.m3u8'
             },
             "📰 الأخبار": {
                 'العراقية نيوز': 'https://imn-live.esite-lab.com/hls/iraqia-news.m3u8',
@@ -421,8 +494,7 @@
                 'الجزيرة': 'https://live-hls-apps-aja-fa.getaj.net/AJA/01.m3u8',
                 'العربية': 'https://live.alarabiya.net/alarabiapublish/alarabiya.smil/playlist.m3u8',
                 'الحرة عراق': 'https://mbn-ingest-worldsafe.akamaized.net/hls/live/2038899/MBN_Iraq_Worldsafe_HLS/master.m3u8',
-                'الحدث': 'https://shd-gcp-live.edgenextcdn.net/live/bitmovin-hadath/2ff87ec4c2f3ede35295a20637d9f8fd/index.m3u8',
-                'فرانس 24': 'https://live.france24.com/hls/live/2037222-b/F24_AR_HI_HLS/master_5000.m3u8',
+                'الحدث': 'https://shd-gcp-live.edgenextcdn.net/live/bitmovin-hadath/2ff87ec4c2f3ede35295a20637d9f8fd/index.m3u8'
             },
             "📺 تلفزيون عام": {
                 'الشرقية': 'http://185.9.2.18/chid_144/index.m3u8',
@@ -432,23 +504,20 @@
                 'الراشد': 'https://media1.livaat.com/static/AL-RASHEED-HD/playlist.m3u8',
                 'السعودية': 'https://shd-gcp-live.edgenextcdn.net/live/bitmovin-saudi-tv/2ad66056b51fd8c1b624854623112e43/index.m3u8',
                 'قطر': 'https://live.kwikmotion.com/qtv1live/qtv1.smil/playlist.m3u8',
-                'دبي': 'http://185.9.2.18/chid_139/index.m3u8',
+                'دبي': 'http://185.9.2.18/chid_139/index.m3u8'
             },
             "🎵 ترفيه ورياضة": {
                 'روتانا موسيقى': 'https://rotana.hibridcdn.net/rotananet/music_net-7Y83PP5adWixDF93/playlist.m3u8',
                 'روتانا خليجية': 'https://rotana.hibridcdn.net/rotananet/khaleejiya_net-7Y83PP5adWixDF93/playlist.m3u8',
                 'الرياضية العراقية': 'https://imn-live.esite-lab.com/hls/iraqia-sports-1.m3u8',
-                'الرياضية البحرين': 'https://5c7b683162943.streamlock.net/live/ngrp:bahrainsportstwo_all/playlist.m3u8',
-                'الرياضية قطر الكأس': 'https://liveeu-gcp.alkassdigital.net/alkass1-p/main.m3u8',
+                'الرياضية قطر الكأس': 'https://liveeu-gcp.alkassdigital.net/alkass1-p/main.m3u8'
             }
         };
 
-        // دالة فتح القائمة
+        // 4. وظائف القائمة
         function openChannelMenu() {
             const overlay = document.getElementById('channelMenuOverlay');
             const container = document.getElementById('channelListContainer');
-            
-            // بناء القائمة ديناميكياً
             let html = '';
             for (const [groupName, channels] of Object.entries(allChannels)) {
                 html += `<div class="channel-group-title">${groupName}</div>`;
@@ -462,24 +531,19 @@
             overlay.style.display = 'flex';
         }
 
-        // دالة إغلاق القائمة عند الضغط على خلفية القائمة
         function closeChannelMenu(event) {
             if(event.target === document.getElementById('channelMenuOverlay')) {
                 document.getElementById('channelMenuOverlay').style.display = 'none';
             }
         }
-        // دالة إغلاق القائمة عند الضغط على زر الإغلاق
         function closeChannelMenuDirect() {
             document.getElementById('channelMenuOverlay').style.display = 'none';
         }
-
-        // دالة اختيار القناة وتشغيلها
         function selectChannel(name, url) {
             document.getElementById('channelMenuOverlay').style.display = 'none';
             playM3U8(url);
         }
 
-        // دالة تشغيل البث
         function playM3U8(url) {
             if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
                 videoPlayer.src = url;
@@ -494,7 +558,6 @@
             videoPlayer.play().catch(() => {});
         }
 
-        // دالة تشغيل الملف المحلي
         function loadLocalVideo(event) {
             const file = event.target.files[0];
             if (file) {
@@ -505,7 +568,6 @@
             }
         }
 
-        // دالة التكبير والتصغير
         function toggleSize(size) {
             const panel = document.getElementById('videoWrapper');
             const controls = document.querySelector('.video-controls');
