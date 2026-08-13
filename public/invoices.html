@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>الفواتير - المحاسب برو</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Cairo', sans-serif; }
+        body {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .glass-container {
+            width: 100%; max-width: 1400px;
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(15px);
+            border-radius: 25px;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .header {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;
+            flex-wrap: wrap; gap: 15px;
+        }
+        .header h2 { color: #fbbf24; display: flex; align-items: center; gap: 10px; }
+        .btn {
+            padding: 8px 16px; border-radius: 10px; border: none; font-weight: bold;
+            cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 6px; color: #fff;
+        }
+        .btn-primary { background: #3b82f6; }
+        .btn-success { background: #22c55e; }
+        .btn-danger { background: #ef4444; }
+        .btn-warning { background: #f59e0b; }
+        .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #fff; }
+
+        .toolbar {
+            display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; align-items: center;
+        }
+        .search-box { display: flex; gap: 10px; align-items: center; margin-right: auto; }
+        .search-box input {
+            padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
+            background: #0f172a; color: #fff; outline: none; width: 200px;
+        }
+        .search-box input:focus { border-color: #fbbf24; }
+
+        .table-wrapper { overflow-x: auto; }
+        table {
+            width: 100%; border-collapse: collapse; color: #cbd5e1;
+        }
+        th, td { padding: 10px 12px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        th { color: #fbbf24; }
+
+        .badge {
+            padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold;
+        }
+        .badge-success { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+        .badge-warning { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .badge-danger { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); justify-content: center; align-items: center; z-index: 999;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-box {
+            background: #1e293b; padding: 25px; border-radius: 20px; width: 100%; max-width: 500px;
+            border: 1px solid rgba(255,255,255,0.1); color: #fff; animation: slideUp 0.3s ease;
+        }
+        .modal-box h3 { color: #fbbf24; margin-bottom: 15px; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { color: #94a3b8; font-size: 0.9rem; display: block; }
+        .form-group input, .form-group select {
+            width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+            background: #0f172a; color: #fff; outline: none;
+        }
+
+        @media (max-width: 768px) {
+            .glass-container { padding: 15px; }
+            .search-box input { width: 120px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="glass-container">
+        <!-- العنوان -->
+        <div class="header">
+            <h2><i class="fas fa-file-invoice"></i> الفواتير</h2>
+            <div>
+                <button class="btn btn-outline" onclick="window.location.href='/dashboard.html'"><i class="fas fa-arrow-left"></i> العودة</button>
+            </div>
+        </div>
+
+        <!-- شريط الأدوات -->
+        <div class="toolbar">
+            <button class="btn btn-primary" onclick="openModal('addInvoiceModal')"><i class="fas fa-plus"></i> إضافة فاتورة</button>
+            <div class="search-box">
+                <input type="text" placeholder="بحث عن فاتورة...">
+                <button class="btn btn-outline"><i class="fas fa-search"></i></button>
+            </div>
+        </div>
+
+        <!-- الجدول -->
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>رقم الفاتورة</th>
+                        <th>التاريخ</th>
+                        <th>العميل / المورد</th>
+                        <th>المبلغ ($)</th>
+                        <th>الحالة</th>
+                        <th>إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>INV-2026-001</td>
+                        <td>2026-01-15</td>
+                        <td>شركة الأرجوان</td>
+                        <td>2,500.00</td>
+                        <td><span class="badge badge-success">مدفوعة</span></td>
+                        <td>
+                            <button class="btn btn-warning" style="padding:2px 8px; font-size:0.8rem;"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-danger" style="padding:2px 8px; font-size:0.8rem;"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>INV-2026-002</td>
+                        <td>2026-01-18</td>
+                        <td>مورد المواد الغذائية</td>
+                        <td>1,200.00</td>
+                        <td><span class="badge badge-warning">معلقة</span></td>
+                        <td>
+                            <button class="btn btn-warning" style="padding:2px 8px; font-size:0.8rem;"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-danger" style="padding:2px 8px; font-size:0.8rem;"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>INV-2026-003</td>
+                        <td>2026-01-20</td>
+                        <td>مستوردي اللحوم</td>
+                        <td>3,750.00</td>
+                        <td><span class="badge badge-success">مدفوعة</span></td>
+                        <td>
+                            <button class="btn btn-warning" style="padding:2px 8px; font-size:0.8rem;"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-danger" style="padding:2px 8px; font-size:0.8rem;"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- نافذة إضافة فاتورة -->
+    <div class="modal-overlay" id="addInvoiceModal">
+        <div class="modal-box">
+            <h3><i class="fas fa-plus-circle"></i> إضافة فاتورة جديدة</h3>
+            <div class="form-group"><label>رقم الفاتورة</label><input type="text" placeholder="INV-2026-004"></div>
+            <div class="form-group"><label>التاريخ</label><input type="date"></div>
+            <div class="form-group"><label>العميل / المورد</label><input type="text" placeholder="اسم العميل أو المورد"></div>
+            <div class="form-group"><label>المبلغ ($)</label><input type="number" placeholder="0.00"></div>
+            <div class="form-group"><label>الحالة</label>
+                <select>
+                    <option>مدفوعة</option>
+                    <option>معلقة</option>
+                    <option>ملغية</option>
+                </select>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:15px;">
+                <button class="btn btn-success" onclick="closeModal('addInvoiceModal')">حفظ</button>
+                <button class="btn btn-danger" style="background:#ef4444;" onclick="closeModal('addInvoiceModal')">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openModal(id) {
+            document.getElementById(id).classList.add('open');
+        }
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('open');
+        }
+    </script>
+</body>
+</html>
