@@ -3,79 +3,283 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>المحاسب برو - واجهة الترحيب</title>
-    <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&display=swap" rel="stylesheet">
+    <title>المحاسب برو - المنصة الذكية</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
+    <!-- مكتبة الأيقونات -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        /* إعدادات أساسية */
+        :root {
+            --bg-dark: #0b1120;
+            --bg-panel: #1e293b;
+            --gold: #fbbf24;
+            --text-light: #e2e8f0;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
         body {
-            font-family: 'Amiri', serif;
-            background: linear-gradient(145deg, #0f172a 0%, #1e293b 100%);
-            color: #f8fafc;
+            font-family: 'Cairo', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            height: 100vh;
+            overflow: hidden; /* منع التمرير */
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* تخطيط الشاشة */
+        .main-layout {
+            display: flex;
+            height: calc(100vh - 70px); /* ترك مساحة للفوتر */
+            padding: 15px;
+            gap: 15px;
+        }
+
+        /* القسم الأيمن: شاشة البث (الأخبار / الترفيه) */
+        .media-section {
+            flex: 1;
+            background: var(--bg-panel);
+            border-radius: 20px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .video-container {
+            flex: 1;
+            background: #000;
+            position: relative;
+        }
+
+        .video-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .media-controls {
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.8);
             display: flex;
             justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .media-controls button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 12px;
+            background: var(--gold);
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .media-controls button:hover { transform: scale(1.05); opacity: 0.9; }
+        .media-controls button.danger { background: #ef4444; color: white; }
+        .media-controls button.success { background: #10b981; color: white; }
+
+        /* القسم الأيسر: لوحة القرآن الكريم */
+        .quran-sidebar {
+            width: 350px;
+            background: var(--bg-panel);
+            border-radius: 20px;
+            box-shadow: var(--shadow);
             padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-y: auto;
+            border-left: 3px solid var(--gold);
         }
-        .container {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border-radius: 24px;
-            padding: 40px;
-            max-width: 800px;
-            width: 100%;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            text-align: center;
-        }
-        .quran-text {
-            font-size: 2rem;
-            line-height: 1.8;
+
+        .quran-header {
+            font-family: 'Amiri', serif;
+            font-size: 1.8rem;
+            color: var(--gold);
             margin-bottom: 20px;
-            color: #fbbf24;
-            text-shadow: 0 0 20px rgba(251, 191, 36, 0.3);
+            text-align: center;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 15px;
+            width: 100%;
         }
-        .surah-name {
-            font-size: 1.5rem;
+
+        .quran-text-display {
+            font-family: 'Amiri', serif;
+            font-size: 1.6rem;
+            line-height: 2.2;
+            text-align: center;
+            color: #f8fafc;
+            padding: 15px;
+            flex: 1;
+        }
+
+        .quran-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            padding-top: 15px;
+            border-top: 1px solid #334155;
+            width: 100%;
+        }
+
+        .quran-controls button {
+            padding: 8px 12px;
+            border-radius: 20px;
+            border: 1px solid #334155;
+            background: transparent;
+            color: var(--text-light);
+            cursor: pointer;
+            transition: 0.3s;
+            font-size: 0.8rem;
+        }
+
+        .quran-controls button:hover, .quran-controls button.active {
+            background: var(--gold);
+            color: #000;
+            border-color: var(--gold);
+            font-weight: bold;
+        }
+
+        /* الفوتر (معلمات المطور) */
+        .footer-copyright {
+            height: 70px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(10px);
             color: #94a3b8;
-            margin-bottom: 30px;
-        }
-        .divider {
-            width: 100px;
-            height: 2px;
-            background: linear-gradient(to right, transparent, #fbbf24, transparent);
-            margin: 20px auto;
-        }
-        .footer-title {
-            font-size: 1.2rem;
-            color: #e2e8f0;
-            margin-top: 30px;
-        }
-        .footer-sub {
             font-size: 0.9rem;
-            color: #64748b;
+            gap: 20px;
+            border-top: 1px solid #1e293b;
+            padding: 0 20px;
+            flex-wrap: wrap;
         }
-        @media (max-width: 600px) {
-            .quran-text { font-size: 1.4rem; }
+
+        .footer-copyright i { color: var(--gold); }
+        .footer-copyright span { color: var(--gold); font-weight: bold; }
+
+        /* جعل الشاشة جانبية للأجهزة اللوحية */
+        @media (max-width: 900px) {
+            .main-layout { flex-direction: column-reverse; height: auto; overflow-y: auto; }
+            .quran-sidebar { width: 100%; border-left: none; border-top: 3px solid var(--gold); }
+            .media-section { height: 50vh; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="surah-name">سورة الفاتحة</div>
-        <div class="divider"></div>
-        <div class="quran-text">
-            بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br>
-            الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ<br>
-            الرَّحْمَٰنِ الرَّحِيمِ<br>
-            مَالِكِ يَوْمِ الدِّينِ<br>
-            إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ<br>
-            اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ<br>
-            صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ
+
+    <!-- التخطيط الرئيسي -->
+    <div class="main-layout">
+        
+        <!-- القسم الأيمن: الفيديو/البث المباشر -->
+        <div class="media-section">
+            <div class="video-container" id="videoContainer">
+                <!-- إطار الفيديو المباشر (افتراضي قناة قرآنية) -->
+                <iframe id="liveIframe" src="https://www.youtube.com/embed/8L5pI0sv2Ns?mute=1&enablejsapi=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+            </div>
+            <div class="media-controls">
+                <button onclick="togglePlay()" class="success"><i class="fas fa-play"></i> تشغيل</button>
+                <button onclick="togglePlay()" class="danger"><i class="fas fa-pause"></i> إيقاف</button>
+                <button onclick="changeChannel('news')">📰 قنوات إخبارية</button>
+                <button onclick="changeChannel('entertainment')">🎭 ترفيه</button>
+                <button onclick="changeChannel('quran')">📖 قرآن</button>
+            </div>
         </div>
-        <div class="divider"></div>
-        <div class="footer-title">🌙 المحاسب برو</div>
-        <div class="footer-sub">نظام محاسبي متكامل ببركة القرآن الكريم</div>
+
+        <!-- القسم الأيسر: القرآن الكريم -->
+        <div class="quran-sidebar">
+            <div class="quran-header">
+                <i class="fas fa-moon"></i> سورة الفاتحة
+            </div>
+            <div class="quran-text-display" id="quranText">
+                بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br>
+                الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ<br>
+                الرَّحْمَٰنِ الرَّحِيمِ<br>
+                مَالِكِ يَوْمِ الدِّينِ<br>
+                إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ<br>
+                اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ<br>
+                صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ
+            </div>
+            <div class="quran-controls">
+                <button class="active" onclick="changeReciter('default')">📿 عام</button>
+                <button onclick="changeReciter('abdulbasit')">🎙️ عبد الباسط</button>
+                <button onclick="changeReciter('maher')">🎙️ ماهر المعيقلي</button>
+                <button onclick="changeReciter('iraqi')">🎙️ قراء عراقيون</button>
+            </div>
+        </div>
+
     </div>
+
+    <!-- فوتر الموقع ومعلمات المطور -->
+    <div class="footer-copyright">
+        <span><i class="fas fa-copyright"></i> المحاسب برو v1.0</span>
+        <span>|</span>
+        <span>المطور: <span>أروان محمد</span></span>
+        <span>|</span>
+        <span><i class="fas fa-code"></i> تقنية: Node.js & Express</span>
+        <span>|</span>
+        <span><i class="fas fa-database"></i> قاعدة البيانات: MongoDB</span>
+        <span>|</span>
+        <span><i class="fas fa-cloud"></i> استضافة: Render</span>
+    </div>
+
+    <script>
+        // متغير للتحكم في الفيديو
+        let isPlaying = true;
+
+        // دالة تشغيل/إيقاف الفيديو
+        function togglePlay() {
+            const iframe = document.getElementById('liveIframe');
+            isPlaying = !isPlaying;
+            // إرسال أمر إلى يوتيوب عبر API (بسيط يعتمد على إعادة التحميل في هذه النسخة المبسطة)
+            if(isPlaying) {
+                iframe.src = iframe.src; // إعادة تحميل للتشغيل
+            } else {
+                iframe.src = ""; // إيقاف
+                setTimeout(() => { iframe.src = "https://www.youtube.com/embed/8L5pI0sv2Ns?mute=1&enablejsapi=1"; }, 100);
+            }
+        }
+
+        // دالة تغيير القنوات (محاكاة)
+        function changeChannel(type) {
+            let url = "";
+            if(type === 'news') {
+                url = "https://www.youtube.com/embed/6HnJ4W5W4zc"; // مثال قناة إخبارية
+            } else if(type === 'entertainment') {
+                url = "https://www.youtube.com/embed/dQw4w9WgXcQ"; // مثال ترفيه
+            } else {
+                url = "https://www.youtube.com/embed/8L5pI0sv2Ns"; // قرآن
+            }
+            document.getElementById('liveIframe').src = url;
+            isPlaying = true;
+        }
+
+        // دالة تغيير القارئ (تغيير النص فقط لعرض الديناميكية)
+        function changeReciter(reciter) {
+            const textDiv = document.getElementById('quranText');
+            // إزالة active من جميع الأزرار
+            document.querySelectorAll('.quran-controls button').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            if(reciter === 'abdulbasit') {
+                textDiv.innerHTML = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br>الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ<br>الرَّحْمَٰنِ الرَّحِيمِ<br>مَالِكِ يَوْمِ الدِّينِ<br>إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ<br>اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ<br>صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ<br><br><span style='font-size: 0.8rem; color: #94a3b8;'>🎙️ بصوت الشيخ عبد الباسط عبد الصمد</span>";
+            } else if(reciter === 'maher') {
+                textDiv.innerHTML = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br>الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ<br>الرَّحْمَٰنِ الرَّحِيمِ<br>مَالِكِ يَوْمِ الدِّينِ<br>إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ<br>اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ<br>صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ<br><br><span style='font-size: 0.8rem; color: #94a3b8;'>🎙️ بصوت الشيخ ماهر المعيقلي</span>";
+            } else if(reciter === 'iraqi') {
+                textDiv.innerHTML = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br>الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ<br>الرَّحْمَٰنِ الرَّحِيمِ<br>مَالِكِ يَوْمِ الدِّينِ<br>إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ<br>اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ<br>صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ<br><br><span style='font-size: 0.8rem; color: #94a3b8;'>🎙️ بصوت قراء عراقيين (مجموعة)</span>";
+            } else {
+                textDiv.innerHTML = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ<br>الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ<br>الرَّحْمَٰنِ الرَّحِيمِ<br>مَالِكِ يَوْمِ الدِّينِ<br>إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ<br>اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ<br>صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ";
+            }
+        }
+    </script>
 </body>
 </html>
