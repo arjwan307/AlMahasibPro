@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>الإدارة المالية - المحاسب برو</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Cairo', sans-serif; }
+        body {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .glass-container {
+            width: 100%; max-width: 1400px;
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(15px);
+            border-radius: 25px;
+            padding: 25px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .header {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;
+            flex-wrap: wrap; gap: 15px;
+        }
+        .header h2 { color: #fbbf24; display: flex; align-items: center; gap: 10px; }
+
+        .tabs-nav {
+            display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 12px;
+        }
+        .tab-btn {
+            padding: 10px 20px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.1);
+            background: transparent; color: #94a3b8; font-weight: bold; cursor: pointer;
+            transition: 0.3s; display: flex; align-items: center; gap: 8px;
+        }
+        .tab-btn:hover { background: rgba(255,255,255,0.05); color: #fff; }
+        .tab-btn.active { background: #fbbf24; color: #0f172a; border-color: #fbbf24; }
+
+        .content-area {
+            background: rgba(255, 255, 255, 0.02); border-radius: 15px; padding: 20px; min-height: 400px;
+        }
+        .tab-pane { display: none; animation: fadeIn 0.4s ease; }
+        .tab-pane.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .toolbar {
+            display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; align-items: center;
+        }
+        .btn {
+            padding: 8px 16px; border-radius: 10px; border: none; font-weight: bold;
+            cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 6px; color: #fff;
+        }
+        .btn-primary { background: #3b82f6; }
+        .btn-success { background: #22c55e; }
+        .btn-danger { background: #ef4444; }
+        .btn-warning { background: #f59e0b; }
+        .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #fff; }
+
+        .table-wrapper { overflow-x: auto; }
+        table {
+            width: 100%; border-collapse: collapse; color: #cbd5e1;
+        }
+        th, td { padding: 10px 12px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        th { color: #fbbf24; }
+
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); justify-content: center; align-items: center; z-index: 999;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-box {
+            background: #1e293b; padding: 25px; border-radius: 20px; width: 100%; max-width: 500px;
+            border: 1px solid rgba(255,255,255,0.1); color: #fff; animation: slideUp 0.3s ease;
+        }
+        .modal-box h3 { color: #fbbf24; margin-bottom: 15px; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label { color: #94a3b8; font-size: 0.9rem; display: block; }
+        .form-group input, .form-group select {
+            width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+            background: #0f172a; color: #fff; outline: none;
+        }
+
+        .search-box { display: flex; gap: 10px; align-items: center; }
+        .search-box input {
+            padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
+            background: #0f172a; color: #fff; outline: none; width: 200px;
+        }
+        .search-box input:focus { border-color: #fbbf24; }
+
+        @media (max-width: 768px) {
+            .glass-container { padding: 15px; }
+            .search-box input { width: 120px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="glass-container">
+        <!-- العنوان -->
+        <div class="header">
+            <h2><i class="fas fa-coins"></i> الإدارة المالية</h2>
+            <div>
+                <button class="btn btn-outline" onclick="window.location.href='/dashboard.html'"><i class="fas fa-arrow-left"></i> العودة</button>
+            </div>
+        </div>
+
+        <!-- التبويبات -->
+        <div class="tabs-nav">
+            <button class="tab-btn active" onclick="openTab('chart')"><i class="fas fa-list"></i> دليل الحسابات</button>
+            <button class="tab-btn" onclick="openTab('journal')"><i class="fas fa-pen"></i> قيد اليومية</button>
+            <button class="tab-btn" onclick="openTab('ledger')"><i class="fas fa-book"></i> الأستاذ العام</button>
+            <button class="tab-btn" onclick="openTab('cashbox')"><i class="fas fa-coins"></i> الصندوق</button>
+            <button class="tab-btn" onclick="openTab('pnl')"><i class="fas fa-chart-line"></i> الأرباح والخسائر</button>
+        </div>
+
+        <div class="content-area">
+
+            <!-- 1. دليل الحسابات -->
+            <div id="chart" class="tab-pane active">
+                <div class="toolbar">
+                    <button class="btn btn-primary" onclick="openModal('addAccountModal')"><i class="fas fa-plus"></i> إضافة حساب</button>
+                    <div class="search-box" style="margin-right: auto;">
+                        <input type="text" placeholder="بحث عن حساب...">
+                        <button class="btn btn-outline"><i class="fas fa-search"></i></button>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead><tr><th>رقم الحساب</th><th>اسم الحساب</th><th>النوع</th><th>الرصيد</th></tr></thead>
+                        <tbody>
+                            <tr><td>1</td><td>النقدية</td><td>أصول</td><td>15,000,000 د.ع</td></tr>
+                            <tr><td>2</td><td>البنك</td><td>أصول</td><td>50,000,000 د.ع</td></tr>
+                            <tr><td>3</td><td>الموردون</td><td>خصوم</td><td>10,000,000 د.ع</td></tr>
+                            <tr><td>4</td><td>العمليات الإيرادية</td><td>إيرادات</td><td>25,000,000 د.ع</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 2. قيد اليومية -->
+            <div id="journal" class="tab-pane">
+                <div class="toolbar">
+                    <button class="btn btn-success" onclick="openModal('addJournalModal')"><i class="fas fa-plus"></i> إضافة قيد</button>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead><tr><th>التاريخ</th><th>الشرح</th><th>مدين</th><th>دائن</th></tr></thead>
+                        <tbody>
+                            <tr><td>2026-01-21</td><td>شراء بضاعة</td><td>5,000,000</td><td>5,000,000</td></tr>
+                            <tr><td>2026-01-20</td><td>بيع منتجات</td><td>2,500,000</td><td>2,500,000</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 3. الأستاذ العام -->
+            <div id="ledger" class="tab-pane">
+                <div class="toolbar">
+                    <div class="search-box">
+                        <input type="text" placeholder="رقم الحساب أو الاسم...">
+                        <button class="btn btn-primary">عرض الحركة</button>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead><tr><th>التاريخ</th><th>الشرح</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
+                        <tbody>
+                            <tr><td>2026-01-21</td><td>شراء بضاعة</td><td>5,000,000</td><td></td><td>5,000,000</td></tr>
+                            <tr><td>2026-01-20</td><td>بيع منتجات</td><td></td><td>2,500,000</td><td>2,500,000</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 4. الصندوق -->
+            <div id="cashbox" class="tab-pane">
+                <div class="toolbar">
+                    <button class="btn btn-success"><i class="fas fa-plus"></i> إيداع / سحب</button>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead><tr><th>التاريخ</th><th>العملية</th><th>المبلغ</th><th>الرصيد التراكمي</th></tr></thead>
+                        <tbody>
+                            <tr><td>2026-01-21</td><td>مبيعات نقدية</td><td>+ 1,500,000</td><td>15,000,000</td></tr>
+                            <tr><td>2026-01-20</td><td>شراء مواد</td><td>- 500,000</td><td>13,500,000</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 5. الأرباح والخسائر -->
+            <div id="pnl" class="tab-pane">
+                <h4 style="color: #fbbf24; margin-bottom: 15px;">تقرير الأرباح والخسائر (يناير 2026)</h4>
+                <div class="table-wrapper">
+                    <table>
+                        <thead><tr><th>البيان</th><th>المبلغ (د.ع)</th></tr></thead>
+                        <tbody>
+                            <tr><td>إجمالي الإيرادات</td><td style="color: #22c55e;">25,000,000</td></tr>
+                            <tr><td>إجمالي المصروفات</td><td style="color: #ef4444;">15,000,000</td></tr>
+                            <tr><td style="font-weight: bold;">صافي الربح</td><td style="color: #fbbf24; font-weight: bold;">10,000,000</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- النوافذ المنبثقة -->
+    <div class="modal-overlay" id="addAccountModal">
+        <div class="modal-box">
+            <h3>إضافة حساب جديد</h3>
+            <div class="form-group"><label>اسم الحساب</label><input type="text"></div>
+            <div class="form-group"><label>نوع الحساب</label>
+                <select><option>أصول</option><option>خصوم</option><option>إيرادات</option><option>مصروفات</option></select>
+            </div>
+            <div class="form-group"><label>الرصيد الافتتاحي</label><input type="number"></div>
+            <div style="display:flex; gap:10px; margin-top:15px;">
+                <button class="btn btn-success" onclick="closeModal('addAccountModal')">حفظ</button>
+                <button class="btn btn-danger" style="background:#ef4444;" onclick="closeModal('addAccountModal')">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="addJournalModal">
+        <div class="modal-box">
+            <h3>إضافة قيد يومية</h3>
+            <div class="form-group"><label>التاريخ</label><input type="date"></div>
+            <div class="form-group"><label>الشرح</label><input type="text" placeholder="تفاصيل القيد"></div>
+            <div class="form-group"><label>المبلغ</label><input type="number"></div>
+            <div style="display:flex; gap:10px; margin-top:15px;">
+                <button class="btn btn-success" onclick="closeModal('addJournalModal')">تسجيل</button>
+                <button class="btn btn-danger" style="background:#ef4444;" onclick="closeModal('addJournalModal')">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openTab(tabId) {
+            document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function openModal(id) {
+            document.getElementById(id).classList.add('open');
+        }
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('open');
+        }
+    </script>
+</body>
+</html>
