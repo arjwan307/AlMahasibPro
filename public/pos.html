@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>الكاشير - المحاسب برو</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing:border-box; font-family:'Cairo',sans-serif; }
+        body { margin:0; min-height:100vh; padding:20px; color:#fff; background:linear-gradient(135deg,#0f172a,#1e293b); }
+        .shell { max-width:1300px; margin:auto; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); border-radius:32px; padding:25px; }
+        .header,.toolbar,.summary,.actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+        .header { justify-content:space-between; margin-bottom:20px; }
+        .header h1 { margin:0; } .header h1 span { color:#fbbf24; }
+        .badge { padding:7px 12px; border-radius:18px; background:#334155; } .online { background:#166534; } .offline { background:#991b1b; }
+        .btn { border:0; border-radius:12px; padding:10px 16px; color:#fff; cursor:pointer; background:#475569; }
+        .btn-primary { background:#2563eb; } .btn-success { background:#16a34a; } .btn-warning { background:#d97706; } .btn-danger { background:#dc2626; }
+        .toolbar { background:rgba(255,255,255,.06); padding:16px; border-radius:18px; margin-bottom:18px; }
+        input,select { background:#0f172a; color:#fff; border:1px solid #475569; border-radius:10px; padding:10px; min-width:130px; }
+        #barcodeInput { flex:1; min-width:260px; font-size:1.15rem; }
+        table { width:100%; border-collapse:collapse; background:rgba(255,255,255,.04); border-radius:18px; overflow:hidden; }
+        th,td { padding:12px; border-bottom:1px solid rgba(255,255,255,.08); text-align:right; } th { background:rgba(255,255,255,.08); }
+        .summary { justify-content:flex-end; margin:18px 0; } .total { font-size:1.5rem; color:#fbbf24; }
+        .actions { justify-content:flex-end; }
+        .mode-context { display:flex; gap:10px; align-items:center; }
+        #receipt { display:none; background:#fff; color:#000; padding:20px; width:320px; }
+        @media(max-width:700px){ .shell{padding:14px}.header{align-items:flex-start} table{font-size:.8rem}.btn{padding:9px 11px} }
+        @media print { body * { visibility:hidden; } #receipt,#receipt * { visibility:visible; } #receipt { display:block; position:absolute; right:0; top:0; } }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <div class="header">
+            <div><h1><i class="fas fa-cash-register"></i> كاشير <span id="modeTitle"></span></h1><div id="shiftStatus">جارٍ التحميل...</div></div>
+            <div class="actions">
+                <span id="networkStatus" class="badge"></span>
+                <button class="btn btn-primary" onclick="PosUI.openShift()">فتح الشفت</button>
+                <button class="btn btn-warning" onclick="PosUI.allocateOffline()">مخصص الأوف لاين</button>
+                <button class="btn btn-danger" onclick="PosUI.closeShift()">إغلاق وتسوية</button>
+                <button class="btn" onclick="location.href='/dashboard.html'">العودة</button>
+            </div>
+        </div>
+        <div class="toolbar">
+            <input id="barcodeInput" placeholder="امسح الباركود ثم اضغط Enter" autocomplete="off">
+            <input id="manualPrice" type="number" step="0.000001" placeholder="سعر يدوي عند غياب السعر">
+            <div class="mode-context"><label id="contextLabel"></label><input id="contextValue" placeholder=""></div>
+        </div>
+        <table>
+            <thead><tr><th>المادة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th><th></th></tr></thead>
+            <tbody id="cartBody"><tr><td colspan="5">لا توجد مواد</td></tr></tbody>
+        </table>
+        <div class="summary">
+            <input id="customerInput" list="customers" placeholder="العميل للآجل/المختلط"><datalist id="customers"></datalist>
+            <input id="discountInput" type="number" step="0.000001" value="0" placeholder="الخصم">
+            <select id="paymentMode"><option value="cash">نقدي</option><option value="credit">آجل</option><option value="mixed">مختلط</option></select>
+            <input id="cashAmount" type="number" step="0.000001" placeholder="المبلغ النقدي">
+            <strong class="total">الصافي: <span id="netTotal">0.000000</span> IQD</strong>
+        </div>
+        <div class="actions">
+            <button class="btn btn-success" onclick="PosUI.completeSale()"><i class="fas fa-check"></i> اعتماد البيع</button>
+            <button class="btn btn-warning" onclick="PosUI.returnLast()"><i class="fas fa-undo"></i> مرتجع آخر وصل</button>
+            <button class="btn" onclick="PosUI.printReceipt()"><i class="fas fa-print"></i> طباعة الوصل</button>
+        </div>
+    </div>
+    <div id="receipt"></div>
+    <script src="/offline-sync.js" defer></script>
+    <script src="/pos-ui.js" defer></script>
+</body>
+</html>

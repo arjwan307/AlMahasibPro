@@ -1,0 +1,145 @@
+{
+  "phase": "pos_foundation_implemented",
+  "designs": "visual_layout_unchanged_api_binding_added",
+  "github_write": false,
+  "deployed": false,
+  "database_migrated": "local_test_only",
+  "tests": {
+    "date": "2026-10-02",
+    "passed": 17,
+    "failed": 0,
+    "postgresql": "verified_with_temporary_postgresql_17"
+  },
+  "modules": [
+    {
+      "id": "identity",
+      "title": "الحسابات والمصادقة",
+      "status": "foundation_implemented"
+    },
+    {
+      "id": "tenancy",
+      "title": "الشركات والفروع",
+      "status": "foundation_implemented"
+    },
+    {
+      "id": "permissions",
+      "title": "الصلاحيات",
+      "status": "foundation_implemented"
+    },
+    {
+      "id": "catalog",
+      "title": "المواد والأسعار",
+      "status": "implemented"
+    },
+    {
+      "id": "customers",
+      "title": "العملاء",
+      "status": "foundation_implemented"
+    },
+    {
+      "id": "suppliers",
+      "title": "الموردون",
+      "status": "foundation_implemented"
+    },
+    {
+      "id": "purchasing",
+      "title": "المشتريات",
+      "status": "posting_and_returns_implemented"
+    },
+    {
+      "id": "inventory",
+      "title": "المخازن",
+      "status": "balances_and_movements_implemented"
+    },
+    {
+      "id": "sales",
+      "title": "محرك البيع المشترك",
+      "status": "posting_payments_and_returns_implemented"
+    },
+    {
+      "id": "pos",
+      "title": "الكاشير",
+      "status": "shifts_sales_returns_offline_and_settlement_implemented"
+    },
+    {
+      "id": "restaurant",
+      "title": "المطاعم والكافيهات",
+      "status": "pos_interface_implemented_kitchen_pending"
+    },
+    {
+      "id": "market",
+      "title": "الماركتات",
+      "status": "barcode_pos_interface_implemented"
+    },
+    {
+      "id": "enterprise",
+      "title": "الشركات والمؤسسات",
+      "status": "pos_credit_interface_implemented_quotes_pending"
+    },
+    {
+      "id": "representatives",
+      "title": "المندوبون المتحركون",
+      "status": "web_mobile_routes_sales_returns_collection_custody_and_offline_implemented_device_qa_pending"
+    },
+    {
+      "id": "production",
+      "title": "الإنتاج",
+      "status": "planned"
+    },
+    {
+      "id": "accounting",
+      "title": "المحاسبة",
+      "status": "commerce_auto_posting_implemented"
+    },
+    {
+      "id": "treasury",
+      "title": "الصندوق والبنوك",
+      "status": "document_payments_foundation_implemented"
+    },
+    {
+      "id": "employees",
+      "title": "الموظفون",
+      "status": "planned"
+    },
+    {
+      "id": "attendance",
+      "title": "الحضور والإجازات",
+      "status": "planned"
+    },
+    {
+      "id": "payroll",
+      "title": "الرواتب",
+      "status": "planned"
+    },
+    {
+      "id": "sync",
+      "title": "المزامنة والأوف لاين",
+      "status": "foundation_implemented"
+    },
+    {
+      "id": "reports",
+      "title": "التقارير",
+      "status": "planned"
+    },
+    {
+      "id": "audit",
+      "title": "سجل التدقيق",
+      "status": "foundation_implemented"
+    },
+    {
+      "id": "platform",
+      "title": "إدارة المنصة",
+      "status": "company_approval_implemented"
+    },
+    {
+      "id": "notifications",
+      "title": "التنبيهات",
+      "status": "planned"
+    },
+    {
+      "id": "documents",
+      "title": "المستندات والطباعة",
+      "status": "planned"
+    }
+  ]
+}

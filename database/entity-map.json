@@ -1,0 +1,96 @@
+{
+  "status": "proposed_not_migrated",
+  "engine": "PostgreSQL",
+  "groups": {
+    "identity": [
+      "companies",
+      "branches",
+      "users",
+      "roles",
+      "permissions",
+      "user_scopes",
+      "devices",
+      "sessions"
+    ],
+    "catalog": [
+      "items",
+      "item_units",
+      "barcodes",
+      "price_lists",
+      "prices",
+      "batches"
+    ],
+    "inventory": [
+      "warehouses",
+      "stock_movements",
+      "stock_movement_lines",
+      "stock_reservations",
+      "offline_allocations",
+      "counts",
+      "transfers"
+    ],
+    "sales": [
+      "customers",
+      "sales_orders",
+      "sales_invoices",
+      "sales_lines",
+      "sales_returns",
+      "payments",
+      "pos_devices",
+      "pos_shifts"
+    ],
+    "purchasing": [
+      "suppliers",
+      "purchase_orders",
+      "goods_receipts",
+      "purchase_invoices",
+      "purchase_returns"
+    ],
+    "representatives": [
+      "representatives",
+      "routes",
+      "visits",
+      "vehicle_warehouses",
+      "collections",
+      "custody_handovers"
+    ],
+    "restaurant": [
+      "tables",
+      "restaurant_orders",
+      "kitchen_tickets",
+      "recipes",
+      "recipe_lines"
+    ],
+    "production": [
+      "production_orders",
+      "material_consumption",
+      "finished_goods_receipts"
+    ],
+    "finance": [
+      "accounts",
+      "journal_entries",
+      "journal_lines",
+      "fiscal_periods",
+      "cashboxes",
+      "bank_accounts",
+      "cash_movements"
+    ],
+    "hr": [
+      "employees",
+      "contracts",
+      "attendance_events",
+      "leave_requests",
+      "overtime_approvals",
+      "payroll_runs",
+      "payroll_lines",
+      "employee_advances"
+    ],
+    "sync": [
+      "sync_operations",
+      "device_cursors",
+      "sync_conflicts",
+      "server_outbox",
+      "audit_events"
+    ]
+  }
+}

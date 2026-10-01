@@ -1,0 +1,50 @@
+[
+  {
+    "path": ".env",
+    "status": "identical"
+  },
+  {
+    "path": ".gitignore",
+    "status": "identical"
+  },
+  {
+    "path": "package-lock.json",
+    "status": "identical"
+  },
+  {
+    "path": "package.json",
+    "status": "identical"
+  },
+  {
+    "path": "public/dashboard.html",
+    "status": "identical"
+  },
+  {
+    "path": "public/employees.html",
+    "status": "identical"
+  },
+  {
+    "path": "public/finance.html",
+    "status": "identical"
+  },
+  {
+    "path": "public/index.html",
+    "status": "identical"
+  },
+  {
+    "path": "public/invoices.html",
+    "status": "identical"
+  },
+  {
+    "path": "public/sales.html",
+    "status": "identical"
+  },
+  {
+    "path": "public/warehouse.html",
+    "status": "identical"
+  },
+  {
+    "path": "server.js",
+    "status": "identical"
+  }
+]
