@@ -7,7 +7,7 @@ import { decimal, decimalString } from './lib/decimal.js';
 import { hashPassword, hashToken, newSessionToken, payloadHash, verifyPassword } from './lib/security.js';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
-const publicDirectory = path.resolve(currentDirectory, '../../../../public');
+const publicDirectory = path.resolve(currentDirectory, '../../../public');
 const loginAttempts = new Map();
 
 export function createApp({ store, sessionDays = 14, secureCookies = false, allowedOrigins = [] }) {
