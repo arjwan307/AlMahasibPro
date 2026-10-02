@@ -63,6 +63,35 @@ export class MemoryStore {
     return clone(user);
   }
 
+  async listPlatformAdmins() {
+    return [...this.users.values()].filter((user) => user.platformAdmin).map((user) => this.#publicUser(user));
+  }
+
+  async createPlatformAdmin({ username, displayName, passwordHash }, actorUserId) {
+    if ([...this.users.values()].some((user) => user.platformAdmin && user.username === username)) {
+      throw new AppError(409, 'USERNAME_EXISTS', 'اسم مستخدم المطور مستخدم');
+    }
+    const user = { id: randomUUID(), companyId: null, username, displayName, passwordHash, platformAdmin: true,
+      status: 'active', roleIds: [], scopes: [], createdAt: new Date().toISOString(), createdBy: actorUserId };
+    this.users.set(user.id, user);
+    this.#audit(null, actorUserId, 'platform_admin.created', 'user', user.id, {});
+    return this.#publicUser(user);
+  }
+
+  async listPlatformCompanies() {
+    return [...this.companies.values()].map((company) => this.#publicCompany(company));
+  }
+
+  async setCompanyStatus(companyId, status, actorUserId) {
+    if (!['active','suspended'].includes(status)) throw new AppError(400, 'INVALID_STATUS', 'حالة الشركة غير صالحة');
+    const company=this.companies.get(companyId);
+    if(!company) throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
+    company.status=status;
+    for(const user of this.users.values()) if(user.companyId===companyId) user.status=status==='active'?'active':'suspended';
+    this.#audit(null,actorUserId,'company.status_changed','company',companyId,{status});
+    return this.#publicCompany(company);
+  }
+
   async registerCompany({ code, legalName, timezone, currency, owner }) {
     if ([...this.companies.values()].some((company) => company.code === code)) {
       throw new AppError(409, 'COMPANY_CODE_EXISTS', 'رمز الشركة مستخدم');

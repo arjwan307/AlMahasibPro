@@ -13,7 +13,7 @@ const MAP_FIELDS = [
 ];
 const ARRAY_FIELDS = ['changes','audit','serverOutbox'];
 const WRITE_METHODS = [
-  'seedPlatformAdmin','registerCompany','approveCompany','createSession','revokeSession','createUser','createUnit',
+  'seedPlatformAdmin','createPlatformAdmin','setCompanyStatus','registerCompany','approveCompany','createSession','revokeSession','createUser','createUnit',
   'createItem','addItemUnit','setPrice','createParty','createWarehouse','createDepartment','createEmployee',
   'createEmployeeContract','addEmployeeComponent','createEmployeeAdvance','createWorkShift','assignEmployeeShift',
   'createOvertimeRequest','decideOvertime','createLeaveRequest','decideLeave','setPayrollSettings',
