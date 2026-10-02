@@ -73,8 +73,16 @@
 
   async function registerDevice() {
     master = await api('/api/v1/master-data');
-    const warehouse = master.warehouses[0];
-    if (!warehouse) throw new Error('أنشئ مخزنًا أولًا قبل تسجيل جهاز الكاشير');
+    let warehouse = master.warehouses[0];
+    if (!warehouse && selectedMode === 'restaurant') {
+      const created = await api('/api/v1/warehouses', {
+        method: 'POST',
+        body: JSON.stringify({ code: 'REST-MAIN', name: 'مخزن هوى دجلة الرئيسي', kind: 'pos' })
+      });
+      warehouse = created.warehouse;
+      master = await api('/api/v1/master-data');
+    }
+    if (!warehouse) throw new Error('تعذر تجهيز مخزن نقطة البيع تلقائيًا');
     const id = offline.posDeviceId(selectedMode);
     await api('/api/v1/pos/devices', {
       method: 'POST',
