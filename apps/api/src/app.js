@@ -92,6 +92,23 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     });
   });
 
+  app.get('/api/v1/platform/admins', authenticate(store), permit('company.approve'), asyncRoute(async (req, res) => {
+    requirePlatform(req.auth); res.json({ admins: await store.listPlatformAdmins() });
+  }));
+  app.post('/api/v1/platform/admins', authenticate(store), permit('company.approve'), asyncRoute(async (req, res) => {
+    requirePlatform(req.auth); requireFields(req.body, ['username','displayName','password']);
+    const passwordHash=await passwordHashOrValidation(req.body.password);
+    const admin=await store.createPlatformAdmin({username:normalizeUsername(req.body.username),displayName:String(req.body.displayName).trim().slice(0,120),passwordHash},req.auth.user.id);
+    res.status(201).json({admin});
+  }));
+  app.get('/api/v1/platform/companies', authenticate(store), permit('company.approve'), asyncRoute(async (req,res)=>{
+    requirePlatform(req.auth); res.json({companies:await store.listPlatformCompanies()});
+  }));
+  app.post('/api/v1/platform/companies/:companyId/status', authenticate(store), permit('company.approve'), asyncRoute(async (req,res)=>{
+    requirePlatform(req.auth); requireFields(req.body,['status']);
+    res.json({company:await store.setCompanyStatus(req.params.companyId,String(req.body.status),req.auth.user.id)});
+  }));
+
   app.get('/api/v1/platform/companies/pending', authenticate(store), permit('company.approve'), asyncRoute(async (req, res) => {
     requirePlatform(req.auth);
     res.json({ companies: await store.listPendingCompanies() });
