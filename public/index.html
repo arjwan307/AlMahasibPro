@@ -154,6 +154,13 @@
             margin-top: 10px;
         }
         .login-btn:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(255, 235, 59, 0.4); }
+        .account-actions { width:100%; max-width:320px; display:flex; gap:10px; margin-top:12px; }
+        .account-actions button { flex:1; padding:11px; border-radius:50px; border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.12); color:#fff; cursor:pointer; }
+        .developer-entry { position:fixed; bottom:8px; left:10px; width:22px; height:22px; opacity:.07; cursor:pointer; z-index:30; border:0; background:transparent; }
+        .modal-overlay { display:none; position:fixed; inset:0; background:rgba(20,14,55,.72); z-index:2000; align-items:center; justify-content:center; padding:20px; }
+        .modal-card { width:min(520px,100%); max-height:90vh; overflow:auto; background:#7562b6; border:1px solid rgba(255,255,255,.3); border-radius:24px; padding:24px; color:#fff; box-shadow:0 20px 60px rgba(0,0,0,.35); }
+        .modal-card h2 { margin-bottom:15px; } .modal-card input { width:100%; padding:13px 15px; margin:6px 0; border:0; border-radius:14px; }
+        .modal-actions { display:flex; gap:10px; margin-top:12px; }.modal-actions button{flex:1;padding:12px;border:0;border-radius:14px;cursor:pointer;font-weight:bold}.modal-actions .primary{background:#ffeb3b;color:#333}.modal-actions .cancel{background:rgba(255,255,255,.2);color:#fff}
 
         /* ---- الفيديو والقنوات ---- */
         .video-wrapper {
@@ -290,6 +297,7 @@
                         <input type="password" id="password" placeholder="كلمة المرور" required>
                     </div>
                     <button type="submit" class="login-btn">دخول</button>
+                    <div class="account-actions"><button type="button" onclick="openCompanyRegister()">طلب تسجيل شركة</button></div>
                 </form>
             </div>
         </div>
@@ -314,6 +322,21 @@
         </div>
     </div>
 
+    <button class="developer-entry" title="" aria-label="مدخل الإدارة" onclick="developerEntry()"></button>
+    <div class="modal-overlay" id="companyRegisterModal">
+      <div class="modal-card">
+        <h2>طلب تسجيل شركة</h2>
+        <p style="opacity:.8;margin-bottom:10px">يُرسل الطلب إلى لوحة المطور للمراجعة والاعتماد.</p>
+        <form id="companyRegisterForm">
+          <input id="regLegalName" placeholder="اسم الشركة" required>
+          <input id="regCode" placeholder="رمز الشركة" required>
+          <input id="regOwnerName" placeholder="اسم صاحب الشركة / المدير" required>
+          <input id="regUsername" placeholder="اسم المستخدم" required>
+          <input id="regPassword" type="password" placeholder="كلمة المرور" minlength="8" required>
+          <div class="modal-actions"><button class="primary" type="submit">إرسال الطلب</button><button class="cancel" type="button" onclick="closeCompanyRegister()">إلغاء</button></div>
+        </form>
+      </div>
+    </div>
     <!-- القائمة الجانبية للقنوات -->
     <div class="channel-menu-overlay" id="channelMenuOverlay" onclick="closeChannelMenu(event)">
         <div class="channel-menu" id="channelMenu">
@@ -326,6 +349,25 @@
     </div>
 
     <script>
+        function openCompanyRegister(){ document.getElementById('companyRegisterModal').style.display='flex'; }
+        function closeCompanyRegister(){ document.getElementById('companyRegisterModal').style.display='none'; }
+        function developerEntry(){ window.location.href='/developer.html'; }
+        document.getElementById('companyRegisterForm').addEventListener('submit', async function(e){
+          e.preventDefault();
+          const button=this.querySelector('button[type="submit"]'); button.disabled=true;
+          try {
+            const response=await fetch('/api/v1/companies/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+              legalName:document.getElementById('regLegalName').value,
+              code:document.getElementById('regCode').value,
+              ownerName:document.getElementById('regOwnerName').value,
+              username:document.getElementById('regUsername').value,
+              password:document.getElementById('regPassword').value,
+              timezone:'Asia/Baghdad',currency:'IQD'
+            })});
+            const data=await response.json(); if(!response.ok) throw new Error(data.error?.message||'تعذر إرسال الطلب');
+            alert(data.message||'تم إرسال الطلب'); this.reset(); closeCompanyRegister();
+          } catch(error){ alert(error.message); } finally { button.disabled=false; }
+        });
         const videoPlayer = document.getElementById('mainVideoPlayer');
         let hlsInstance = null;
 
