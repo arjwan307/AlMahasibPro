@@ -31,6 +31,9 @@
   }
 
   async function initialize() {
+    // Restaurant mode has its own cashier runtime. Do not initialize the legacy
+    // POS/offline device flow here; it causes warehouse/local-storage blockers.
+    if (selectedMode === 'restaurant') return;
     document.getElementById('modeTitle').textContent = titles[selectedMode];
     document.getElementById('contextLabel').textContent = contexts[selectedMode][0];
     document.getElementById('contextValue').placeholder = contexts[selectedMode][1];
