@@ -16,14 +16,20 @@
 <div class="top"><div><h1>لوحة المطور</h1><div class="muted">إدارة واعتماد الشركات المسجلة</div></div><div class="actions"><button class="secondary" onclick="loadPending()">تحديث</button><button class="secondary" onclick="logout()">تسجيل خروج</button></div></div>
 <div class="grid"><div class="card stat">طلبات بانتظار الاعتماد<b id="pendingCount">0</b></div><div class="card stat">حالة الخادم<b id="health">—</b></div><div class="card stat">قاعدة البيانات<b>MongoDB</b></div></div>
 <div class="card companies"><h2>طلبات الشركات</h2><div id="companies">جارٍ التحميل…</div></div>
+<div class="card companies"><h2>حسابات المطورين</h2>
+<form id="adminForm" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;margin:12px 0">
+<input id="adminName" placeholder="اسم المطور" required><input id="adminUsername" placeholder="اسم المستخدم" required><input id="adminPassword" type="password" minlength="8" placeholder="كلمة المرور" required><button>إنشاء مطور</button>
+</form><div id="admins">جارٍ التحميل…</div></div>
 </section></div>
 <script>
 const $=id=>document.getElementById(id);
 async function api(url,options={}){const r=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error?.message||'تعذر تنفيذ الطلب');return d}
 $('form').addEventListener('submit',async e=>{e.preventDefault();$('loginError').innerHTML='';try{let deviceId=localStorage.getItem('almahasib_device_id');if(!deviceId){deviceId=crypto.randomUUID();localStorage.setItem('almahasib_device_id',deviceId)}await api('/api/v1/auth/login',{method:'POST',body:JSON.stringify({platform:true,username:$('username').value,password:$('password').value,deviceId})});await openPanel()}catch(err){$('loginError').innerHTML='<div class="error">'+escapeHtml(err.message)+'</div>'}});
-async function openPanel(){$('login').classList.add('hidden');$('panel').classList.remove('hidden');await Promise.all([loadPending(),loadHealth()])}
+async function openPanel(){$('login').classList.add('hidden');$('panel').classList.remove('hidden');await Promise.all([loadPending(),loadHealth(),loadAdmins()])}
 async function loadHealth(){try{await api('/api/v1/health');$('health').textContent='يعمل'}catch{$('health').textContent='خطأ'}}
 async function loadPending(){try{const d=await api('/api/v1/platform/companies/pending');$('pendingCount').textContent=d.companies.length;$('companies').innerHTML=d.companies.length?d.companies.map(c=>'<div class="company"><div><b>'+escapeHtml(c.legalName)+'</b><div class="muted">الرمز: '+escapeHtml(c.code)+' · '+escapeHtml(c.timezone||'')+' · '+escapeHtml(c.currency||'')+'</div></div><button onclick="approve(\''+c.id+'\')">اعتماد الشركة</button></div>').join(''):'<p class="muted">لا توجد طلبات معلقة.</p>'}catch(err){if(/تسجيل الدخول|الجلسة|المنصة/.test(err.message)){showLogin()}else $('companies').innerHTML='<div class="error">'+escapeHtml(err.message)+'</div>'}}
+async function loadAdmins(){try{const d=await api('/api/v1/platform/admins');$('admins').innerHTML=d.admins.map(a=>'<div class="company"><div><b>'+escapeHtml(a.displayName)+'</b><div class="muted">@'+escapeHtml(a.username)+'</div></div><span>مطور</span></div>').join('')||'<p class="muted">لا توجد حسابات.</p>'}catch(err){$('admins').innerHTML='<div class="error">'+escapeHtml(err.message)+'</div>'}}
+$('adminForm').addEventListener('submit',async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;try{await api('/api/v1/platform/admins',{method:'POST',body:JSON.stringify({displayName:$('adminName').value,username:$('adminUsername').value,password:$('adminPassword').value})});e.target.reset();await loadAdmins()}catch(err){alert(err.message)}finally{b.disabled=false}});
 async function approve(id){if(!confirm('اعتماد هذه الشركة وتفعيل حساب مالكها؟'))return;try{await api('/api/v1/platform/companies/'+encodeURIComponent(id)+'/approve',{method:'POST',body:'{}'});await loadPending()}catch(err){alert(err.message)}}
 async function logout(){try{await api('/api/v1/auth/logout',{method:'POST',body:'{}'})}catch{}location.reload()}
 function showLogin(){$('panel').classList.add('hidden');$('login').classList.remove('hidden')}
