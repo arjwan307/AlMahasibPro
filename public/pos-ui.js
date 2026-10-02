@@ -62,6 +62,8 @@
         master = { customers: state.customers || [] };
       }
       populateCustomers();
+      renderRestaurantCatalog();
+      restoreRestaurantCart();
       renderStatus();
     } catch (error) {
       alert(error.message);
@@ -124,6 +126,17 @@
     } catch (error) { alert(error.message); }
   }
 
+  function renderRestaurantCatalog(){
+    const el=document.getElementById('restaurantCatalog'); if(selectedMode!=='restaurant'||!el)return;
+    el.style.display='grid';
+    const bars=state?.barcodes||[];
+    el.innerHTML=bars.map((b,i)=>'<div class="product-card" onclick="PosUI.addProduct('+i+')"><div class="product-photo">'+productEmoji(b.item?.name)+'</div><div class="product-info"><b>'+escapeHtml(b.item?.name||'مادة')+'</b><span class="product-price">'+escapeHtml(b.salePrice||'بدون سعر')+' IQD</span></div></div>').join('')||'<div>لا توجد مواد. أضف المواد والأسعار أولاً.</div>';
+  }
+  function productEmoji(name){const n=String(name||'').toLowerCase();if(/coffee|قهو|كابتش|لاتيه/.test(n))return '☕';if(/tea|شاي/.test(n))return '🍵';if(/juice|عصير/.test(n))return '🥤';if(/pizza|بيتزا/.test(n))return '🍕';if(/burger|برغر|برجر/.test(n))return '🍔';if(/cake|كيك/.test(n))return '🍰';return '🍽️'}
+  function addProduct(index){const b=state?.barcodes?.[index];if(!b)return;const price=b.salePrice;if(!price)return alert('حدد سعر بيع لهذه المادة أولاً');const x=cart.find(l=>l.itemId===b.itemId&&l.unitId===b.unitId);if(x)x.quantity=fromScaled(toScaled(x.quantity)+1000000n);else cart.push({itemId:b.itemId,unitId:b.unitId,name:b.item.name,quantity:'1.000000',unitPrice:price});saveRestaurantCart();renderCart()}
+  function changeQty(index,delta){const x=cart[index];if(!x)return;const q=toScaled(x.quantity)+BigInt(delta)*1000000n;if(q<=0n)cart.splice(index,1);else x.quantity=fromScaled(q);saveRestaurantCart();renderCart()}
+  function saveRestaurantCart(){if(selectedMode==='restaurant')localStorage.setItem('almahasib_restaurant_open_order',JSON.stringify(cart))}
+  function restoreRestaurantCart(){if(selectedMode!=='restaurant')return;try{const x=JSON.parse(localStorage.getItem('almahasib_restaurant_open_order')||'[]');if(Array.isArray(x))cart=x}catch{}renderCart()}
   function scanBarcode() {
     try {
       const input = document.getElementById('barcodeInput');
@@ -137,21 +150,21 @@
       else cart.push({ itemId: barcode.itemId, unitId: barcode.unitId, name: barcode.item.name, quantity: '1.000000', unitPrice: price });
       input.value = '';
       input.focus();
-      renderCart();
+      saveRestaurantCart(); renderCart();
     } catch (error) { alert(error.message); }
   }
 
   function renderCart() {
     const body = document.getElementById('cartBody');
     if (!cart.length) body.innerHTML = '<tr><td colspan="5">لا توجد مواد</td></tr>';
-    else body.innerHTML = cart.map((line, index) => `<tr><td>${escapeHtml(line.name)}</td><td>${line.quantity}</td><td>${line.unitPrice}</td><td>${multiply(line.quantity, line.unitPrice)}</td><td><button class="btn btn-danger" onclick="PosUI.remove(${index})">×</button></td></tr>`).join('');
+    else body.innerHTML = cart.map((line, index) => `<tr><td>${escapeHtml(line.name)}</td><td><div class="qty"><button onclick="PosUI.changeQty(${index},-1)">−</button><b>${line.quantity}</b><button onclick="PosUI.changeQty(${index},1)">+</button></div></td><td>${line.unitPrice}</td><td>${multiply(line.quantity, line.unitPrice)}</td><td><button class="btn btn-danger" onclick="PosUI.remove(${index})">×</button></td></tr>`).join('');
     const discount = normalize(document.getElementById('discountInput').value || '0');
     const gross = cart.reduce((sum, line) => sum + toScaled(multiply(line.quantity, line.unitPrice)), 0n);
     const net = gross - toScaled(discount);
     document.getElementById('netTotal').textContent = fromScaled(net > 0n ? net : 0n);
   }
 
-  function remove(index) { cart.splice(index, 1); renderCart(); }
+  function remove(index) { cart.splice(index, 1); saveRestaurantCart(); renderCart(); }
 
   async function completeSale() {
     try {
@@ -179,7 +192,7 @@
       await offline.enqueuePosDocument('pos.sale', payload);
       localReceipt = { number: payload.documentNumber, lines: structuredClone(cart), gross: fromScaled(gross), discount, net, cash, due: fromScaled(toScaled(net) - toScaled(cash)), mode: titles[selectedMode] };
       renderReceipt(localReceipt);
-      cart = []; renderCart();
+      cart = []; saveRestaurantCart(); renderCart();
       alert(navigator.onLine ? '✅ حُفظ البيع وأُرسل للمزامنة.' : '✅ حُفظ البيع أوف لاين ضمن مخصص الجهاز.');
     } catch (error) { alert(error.message); }
   }
@@ -248,6 +261,6 @@
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[character])); }
   function delay(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 
-  window.PosUI = { openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, remove };
+  window.PosUI = { openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, remove, addProduct, changeQty };
   void initialize();
 }());
