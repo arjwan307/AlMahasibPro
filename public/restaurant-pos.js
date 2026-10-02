@@ -2,10 +2,33 @@
 if(new URLSearchParams(location.search).get('mode')!=='restaurant')return;
 document.getElementById('restaurantExperience').classList.add('active');document.getElementById('legacyPos').classList.add('hidden-pos');
 const seed=[
-['كباب عراقي','مشويات',12000,'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?auto=format&fit=crop&w=500&q=80'],
-['قوزي','أكلات شرقية',15000,'https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=500&q=80'],
+['كباب عراقي نفر 4 شيش','مشويات',12000,'https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?auto=format&fit=crop&w=500&q=80'],
+['كباب عراقي نصف نفر 2 شيش','مشويات',6500,'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=500&q=80'],
+['كباب عراقي شيش واحد','مشويات',3500,'https://images.unsplash.com/photo-1558030006-450675393462?auto=format&fit=crop&w=500&q=80'],
+['تكة لحم نفر 4 شيش','مشويات',16000,'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=500&q=80'],
+['تكة لحم نصف نفر 2 شيش','مشويات',8500,'https://images.unsplash.com/photo-1529193591184-b1d58069ecdd?auto=format&fit=crop&w=500&q=80'],
+['تكة دجاج نفر 4 شيش','مشويات',12000,'https://images.unsplash.com/photo-1598515214211-89d3c73ae83b?auto=format&fit=crop&w=500&q=80'],
+['تكة دجاج نصف نفر 2 شيش','مشويات',6500,'https://images.unsplash.com/photo-1532550907401-a500c9a57435?auto=format&fit=crop&w=500&q=80'],
+['معلاك مشوي','مشويات',12000,'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=500&q=80'],
+['ضلوع مشوية','مشويات',18000,'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=500&q=80'],
+['ربع دجاج مشوي','دجاج',6000,'https://images.unsplash.com/photo-1532550907401-a500c9a57435?auto=format&fit=crop&w=500&q=80'],
+['نصف دجاج مشوي','دجاج',10000,'https://images.unsplash.com/photo-1598103442097-8b74394b95c6?auto=format&fit=crop&w=500&q=80'],
+['دجاجة مشوية كاملة','دجاج',18000,'https://images.unsplash.com/photo-1598103442097-8b74394b95c6?auto=format&fit=crop&w=500&q=80'],
+['تمن ومرق بامية','تمن ومرق',7000,'https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=500&q=80'],
+['تمن ومرق فاصوليا','تمن ومرق',7000,'https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=500&q=80'],
+['تمن ومرق باذنجان','تمن ومرق',7000,'https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=500&q=80'],
+['تمن ومرق دجاج','تمن ومرق',9000,'https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=500&q=80'],
+['سمك مقلي مع تمن','أسماك',15000,'https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?auto=format&fit=crop&w=500&q=80'],
+['سمك مسكوف','أسماك',22000,'https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?auto=format&fit=crop&w=500&q=80'],
+['دولمة عراقية','أكلات عراقية',12000,'https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=500&q=80'],
+['قوزي','أكلات عراقية',15000,'https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=500&q=80'],
 ['برغر لحم','وجبات سريعة',9000,'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=500&q=80'],
-['بيتزا','وجبات سريعة',10000,'https://images.unsplash.com/photo-1579751626657-72bc17010498?auto=format&fit=crop&w=500&q=80'],
+['برغر دجاج','وجبات سريعة',8000,'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=500&q=80'],
+['زنجر','وجبات سريعة',8000,'https://images.unsplash.com/photo-1615297928064-24977384d0da?auto=format&fit=crop&w=500&q=80'],
+['شاورما دجاج','وجبات سريعة',5000,'https://images.unsplash.com/photo-1529006557810-274b9b2fc783?auto=format&fit=crop&w=500&q=80'],
+['بيتزا لحم','وجبات سريعة',11000,'https://images.unsplash.com/photo-1579751626657-72bc17010498?auto=format&fit=crop&w=500&q=80'],
+['بيتزا دجاج','وجبات سريعة',10000,'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?auto=format&fit=crop&w=500&q=80'],
+['بطاطا مقلية','وجبات سريعة',3000,'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=500&q=80'],
 ['شاي عراقي','مشروبات ساخنة',1500,'https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=500&q=80'],
 ['كابتشينو','مشروبات ساخنة',4000,'https://images.unsplash.com/photo-1572442388796-11668a67e53d?auto=format&fit=crop&w=500&q=80'],
 ['عصير برتقال طبيعي','عصائر طبيعية',5000,'https://images.unsplash.com/photo-1600271886742-f049cd451bba?auto=format&fit=crop&w=500&q=80'],
@@ -13,7 +36,10 @@ const seed=[
 ['آيس كريم','آيس كريم',4000,'https://images.unsplash.com/photo-1563805042-7684c019e1cb?auto=format&fit=crop&w=500&q=80'],
 ['أركيلة تفاحتين','أركيلة',10000,'https://images.unsplash.com/photo-1525268323446-0505b6fe7778?auto=format&fit=crop&w=500&q=80']
 ];
-let menu=JSON.parse(localStorage.getItem('hawa_dijla_menu')||'null')||seed.map((x,i)=>({id:'demo-'+i,name:x[0],category:x[1],price:x[2],image:x[3],active:true}));
+let menu=JSON.parse(localStorage.getItem('hawa_dijla_menu')||'null')||[];
+const seeded=seed.map((x,i)=>({id:'demo-v2-'+i,name:x[0],category:x[1],price:x[2],image:x[3],active:true}));
+const existingNames=new Set(menu.map(x=>x.name));
+seeded.forEach(x=>{if(!existingNames.has(x.name))menu.push(x)});
 let cart=[],cat='الكل',editId=null; const $=id=>document.getElementById(id);
 function persist(){localStorage.setItem('hawa_dijla_menu',JSON.stringify(menu))}
 function render(){const cats=['الكل',...new Set(menu.map(x=>x.category))];$('categoryTabs').innerHTML=cats.map(x=>'<button class="btn '+(x===cat?'btn-primary':'')+'" data-cat="'+esc(x)+'">'+esc(x)+'</button>').join('');document.querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>{cat=b.dataset.cat;render()});const q=$('restaurantSearch').value.trim();$('productGrid').innerHTML=menu.filter(x=>x.active&&(cat==='الكل'||x.category===cat)&&(!q||x.name.includes(q))).map(x=>'<article class="product" data-id="'+x.id+'"><img src="'+esc(x.image)+'" alt=""><div class="info"><b>'+esc(x.name)+'</b><div class="price">'+Number(x.price).toLocaleString('ar-IQ')+' د.ع</div></div></article>').join('');document.querySelectorAll('.product').forEach(p=>p.onclick=()=>add(p.dataset.id));renderCart()}
