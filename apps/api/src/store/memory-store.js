@@ -63,6 +63,26 @@ export class MemoryStore {
     return clone(user);
   }
 
+  async listPlatformAdmins() {
+    return [...this.users.values()]
+      .filter((user) => user.platformAdmin)
+      .map((user) => this.#publicUser(user));
+  }
+
+  async createPlatformAdmin({ username, displayName, passwordHash }, actorUserId) {
+    if ([...this.users.values()].some((user) => user.platformAdmin && user.username === username)) {
+      throw new AppError(409, 'USERNAME_EXISTS', 'اسم مستخدم المطور مستخدم');
+    }
+    const user = {
+      id: randomUUID(), companyId: null, username, displayName, passwordHash,
+      platformAdmin: true, status: 'active', roleIds: [], scopes: [],
+      createdAt: new Date().toISOString(), createdBy: actorUserId
+    };
+    this.users.set(user.id, user);
+    this.#audit(null, actorUserId, 'platform_admin.created', 'user', user.id, {});
+    return this.#publicUser(user);
+  }
+
   async registerCompany({ code, legalName, timezone, currency, owner }) {
     if ([...this.companies.values()].some((company) => company.code === code)) {
       throw new AppError(409, 'COMPANY_CODE_EXISTS', 'رمز الشركة مستخدم');
