@@ -111,6 +111,13 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({company:await store.setCompanyStatus(req.params.companyId,String(req.body.status),req.auth.user.id)});
   }));
 
+  app.patch('/api/v1/platform/companies/:companyId', authenticate(store), permit('company.approve'), asyncRoute(async (req,res)=>{
+    requirePlatform(req.auth); res.json({company:await store.updatePlatformCompany(req.params.companyId,req.body||{},req.auth.user.id)});
+  }));
+  app.delete('/api/v1/platform/companies/:companyId', authenticate(store), permit('company.approve'), asyncRoute(async (req,res)=>{
+    requirePlatform(req.auth); res.json(await store.deletePlatformCompany(req.params.companyId,req.auth.user.id));
+  }));
+
   app.get('/api/v1/platform/companies/pending', authenticate(store), permit('company.approve'), asyncRoute(async (req, res) => {
     requirePlatform(req.auth);
     res.json({ companies: await store.listPendingCompanies() });
@@ -118,7 +125,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
 
   app.post('/api/v1/platform/companies/:companyId/approve', authenticate(store), permit('company.approve'), asyncRoute(async (req, res) => {
     requirePlatform(req.auth);
-    res.json({ company: await store.approveCompany(req.params.companyId, req.auth.user.id) });
+    res.json({ company: await store.approveCompany(req.params.companyId, req.auth.user.id, req.body?.code) });
   }));
 
   app.get('/api/v1/roles', authenticate(store), permit('roles.manage'), asyncRoute(async (req, res) => {

@@ -125,10 +125,15 @@ export class MemoryStore {
     return [...this.companies.values()].filter((company) => company.status === 'pending').map((company) => this.#publicCompany(company));
   }
 
-  async approveCompany(companyId, actorUserId) {
+  async approveCompany(companyId, actorUserId, approvedCode = null) {
     const company = this.companies.get(companyId);
     if (!company) throw new AppError(404, 'COMPANY_NOT_FOUND', 'الشركة غير موجودة');
     if (company.status === 'active') return this.#publicCompany(company);
+    if (approvedCode) {
+      const code=String(approvedCode).trim().toUpperCase();
+      if ([...this.companies.values()].some((x)=>x.id!==companyId && x.code===code)) throw new AppError(409,'COMPANY_CODE_EXISTS','رمز الشركة مستخدم');
+      company.code=code;
+    }
     company.status = 'active';
     company.approvedAt = new Date().toISOString();
     for (const user of this.users.values()) {
@@ -137,6 +142,31 @@ export class MemoryStore {
     this.#audit(null, actorUserId, 'company.approved', 'company', companyId, {});
     this.#change(companyId, 'company', companyId, 'upsert', this.#publicCompany(company));
     return this.#publicCompany(company);
+  }
+
+  async updatePlatformCompany(companyId, input, actorUserId) {
+    const company=this.companies.get(companyId);
+    if(!company) throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
+    if(input.legalName) company.legalName=String(input.legalName).trim();
+    if(input.phone!==undefined) company.phone=String(input.phone).trim().slice(0,32);
+    if(input.address!==undefined) company.address=String(input.address).trim().slice(0,240);
+    if(input.code) {
+      const code=String(input.code).trim().toUpperCase();
+      if([...this.companies.values()].some(x=>x.id!==companyId&&x.code===code)) throw new AppError(409,'COMPANY_CODE_EXISTS','رمز الشركة مستخدم');
+      company.code=code;
+    }
+    this.#audit(null,actorUserId,'company.updated','company',companyId,{});
+    return this.#publicCompany(company);
+  }
+
+  async deletePlatformCompany(companyId, actorUserId) {
+    const company=this.companies.get(companyId);
+    if(!company) throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
+    for(const [id,user] of this.users) if(user.companyId===companyId) this.users.delete(id);
+    for(const [id,role] of this.roles) if(role.companyId===companyId) this.roles.delete(id);
+    this.companies.delete(companyId);
+    this.#audit(null,actorUserId,'company.deleted','company',companyId,{});
+    return {id:companyId};
   }
 
   async findLogin({ companyCode, username, platform }) {
