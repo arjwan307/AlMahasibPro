@@ -92,7 +92,7 @@ export class MemoryStore {
     return this.#publicCompany(company);
   }
 
-  async registerCompany({ code, legalName, timezone, currency, owner }) {
+  async registerCompany({ code, legalName, timezone, currency, phone, address, owner }) {
     if ([...this.companies.values()].some((company) => company.code === code)) {
       throw new AppError(409, 'COMPANY_CODE_EXISTS', 'رمز الشركة مستخدم');
     }
@@ -100,7 +100,7 @@ export class MemoryStore {
     const now = new Date().toISOString();
     const branchId = randomUUID();
     const company = {
-      id: companyId, code, legalName, timezone, currency, status: 'pending',
+      id: companyId, code, legalName, timezone, currency, phone, address, status: 'pending',
       createdAt: now, approvedAt: null, ownerUserId: null,
       branches: [{ id: branchId, name: 'الفرع الرئيسي', code: 'main', active: true }]
     };

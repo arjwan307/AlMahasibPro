@@ -26,13 +26,15 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
 
   app.post('/api/v1/companies/register', asyncRoute(async (req, res) => {
-    requireFields(req.body, ['code', 'legalName', 'ownerName', 'username', 'password']);
+    requireFields(req.body, ['legalName', 'ownerName', 'phone', 'username', 'password']);
     const passwordHash = await passwordHashOrValidation(req.body.password);
     const company = await store.registerCompany({
-      code: normalizeCode(req.body.code),
+      code: `REQ-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`,
       legalName: req.body.legalName.trim(),
       timezone: req.body.timezone || 'Asia/Baghdad',
       currency: String(req.body.currency || 'IQD').toUpperCase(),
+      phone: String(req.body.phone).trim().slice(0,32),
+      address: String(req.body.address || '').trim().slice(0,240),
       owner: {
         displayName: req.body.ownerName.trim(),
         username: normalizeUsername(req.body.username),
