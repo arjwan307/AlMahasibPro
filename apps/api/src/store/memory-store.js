@@ -514,6 +514,17 @@ export class MemoryStore {
           result.entityId = record.id;
           this.#change(context.company.id, 'financial_record', record.id, 'upsert', record);
         }
+      } else if (operation.type.startsWith('market.transaction.')) {
+        const p = operation.payload || {}, entityId = String(p.id || operation.operationId);
+        if (!['sale','return','cancel','shift_open','shift_close','expense'].includes(String(p.kind || ''))) {
+          result.status = 'rejected'; result.code = 'INVALID_MARKET_TRANSACTION';
+        } else {
+          result.entityId = entityId;
+          this.#change(context.company.id, 'market.transaction', entityId, 'upsert', {
+            ...clone(p), id: entityId, kind: String(p.kind), cashier: String(p.cashier || ''), cashierCode: String(p.cashierCode || ''),
+            occurredAt: p.occurredAt || operation.occurredAt
+          });
+        }
       } else if (operation.type === 'market.snapshot') {
         const catalog = Array.isArray(operation.payload?.catalog) ? operation.payload.catalog : null;
         if (!catalog) {
