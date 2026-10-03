@@ -423,6 +423,22 @@
     localReceipt=x;renderReceipt(x);printReceipt();
   }
 
+  let marketScannerToken=null,marketScannerTimer=null;
+  async function pairPhoneScanner(){
+    try{
+      const terminal=marketCashierId(),r=await fetch('/api/v1/market/scanner/pair',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({terminal})}),b=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(b?.error?.message||'تعذر إنشاء ربط الهاتف');
+      marketScannerToken=b.token;const el=document.getElementById('marketScannerStatus');if(el)el.textContent='رمز الهاتف: '+marketScannerToken.slice(0,8);
+      const url=location.origin+'/market-scanner.html#'+encodeURIComponent(marketScannerToken);
+      prompt('افتح هذا الرابط في الهاتف. رمز الربط صالح 15 دقيقة:',url);
+      clearInterval(marketScannerTimer);marketScannerTimer=setInterval(pollPhoneScanner,350);
+    }catch(e){alert(e.message)}
+  }
+  async function pollPhoneScanner(){
+    if(!marketScannerToken||!navigator.onLine)return;
+    try{const r=await fetch('/api/v1/market/scanner/'+encodeURIComponent(marketScannerToken)+'/poll',{credentials:'same-origin'});if(r.status===410){clearInterval(marketScannerTimer);marketScannerToken=null;const el=document.getElementById('marketScannerStatus');if(el)el.textContent='انتهى ربط الهاتف';return}if(!r.ok)return;const b=await r.json();for(const row of b.codes||[]){const item=marketCatalog().find(x=>String(x.barcode)===String(row.barcode));if(item){addMarketProduct(item.id);const el=document.getElementById('marketScannerStatus');if(el)el.textContent='✓ '+item.name}else{const el=document.getElementById('marketScannerStatus');if(el)el.textContent='غير معروف: '+row.barcode}}}catch{}
+  }
+
   function populateCustomers() {
     if (!master?.customers) return;
     document.getElementById('customers').innerHTML = master.customers.map((customer) => `<option value="${escapeHtml(customer.code)}">${escapeHtml(customer.name)}</option>`).join('');
@@ -450,6 +466,6 @@
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[character])); }
   function delay(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 
-  window.PosUI = { cancelMarketInvoice, marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
+  window.PosUI = { pairPhoneScanner, cancelMarketInvoice, marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
   void initialize();
 }());
