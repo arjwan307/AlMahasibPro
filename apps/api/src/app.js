@@ -332,6 +332,44 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   // Company-scoped market cloud snapshot. This deliberately stores the snapshot
   // through the existing sync change stream, so Mongo-backed stores persist it
   // with the same company isolation as every other synchronized entity.
+  app.post('/api/v1/market/sale', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+    if (!lines.length || lines.length > 500) throw new AppError(400, 'INVALID_MARKET_SALE', 'فاتورة البيع غير صالحة');
+    let cursor = 0, latestRow = null, guard = 0;
+    do {
+      const page = await store.pullChanges(req.auth.company.id, cursor, 500);
+      for (const row of page.changes || []) if (row.entityType === 'market.snapshot') latestRow = row;
+      if (!page.hasMore || page.nextCursor === cursor) break;
+      cursor = page.nextCursor; guard += 1;
+    } while (guard < 200);
+    const latest = latestRow?.payload || latestRow?.data || null;
+    if (!latest?.catalog) throw new AppError(409, 'MARKET_CATALOG_NOT_SYNCED', 'يجب مزامنة مخزون الحاسبة الرئيسية أولًا');
+    const catalog = structuredClone(latest.catalog);
+    for (const line of lines) {
+      const item = catalog.find((x) => String(x.id) === String(line.itemId));
+      const qty = Number(line.quantity || 0);
+      if (!item || !(qty > 0)) throw new AppError(409, 'MARKET_ITEM_NOT_FOUND', 'أحد أصناف الفاتورة غير موجود');
+      if (Number(item.qty || 0) < qty) throw new AppError(409, 'MARKET_STOCK_INSUFFICIENT', 'الرصيد غير كافٍ للصنف: ' + String(item.name || ''));
+    }
+    for (const line of lines) {
+      const item = catalog.find((x) => String(x.id) === String(line.itemId));
+      item.qty = Number(item.qty || 0) - Number(line.quantity || 0);
+    }
+    const now = new Date().toISOString(), snapshotOperation = validateOperation({
+      operationId: crypto.randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
+      clientSequence: Date.now(), occurredAt: now, schemaVersion: 1, dependencies: [], type: 'market.snapshot',
+      payload: { catalog, updatedAt: now }
+    });
+    const saleId = String(req.body?.id || crypto.randomUUID()), saleOperation = validateOperation({
+      operationId: crypto.randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
+      clientSequence: Date.now() + 1, occurredAt: now, schemaVersion: 1, dependencies: [], type: 'market.transaction.sale',
+      payload: { ...req.body, id: saleId, kind: 'sale', occurredAt: now }
+    });
+    const results = await store.pushOperations(req.auth, [snapshotOperation, saleOperation]);
+    if (results.some((x) => x.status !== 'acknowledged')) throw new AppError(409, 'MARKET_SALE_REJECTED', 'تعذر اعتماد البيع مركزيًا');
+    res.json({ ok: true, saleId, snapshot: { catalog, updatedAt: now } });
+  }));
+
   app.get('/api/v1/market/transactions', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
     let cursor = 0, rows = [], guard = 0;
     do {
