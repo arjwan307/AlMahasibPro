@@ -2,6 +2,10 @@
 if(new URLSearchParams(location.search).get('mode')!=='restaurant')return;
 document.getElementById('restaurantExperience').classList.add('active');document.getElementById('legacyPos').classList.add('hidden-pos');
 const companyContext=(()=>{try{return JSON.parse(localStorage.getItem('almahasib_company_context')||'{}')}catch{return{}}})();
+if(!companyContext.id&&!companyContext.code){
+  document.getElementById('restaurantExperience').innerHTML='<div style="margin:40px;padding:30px;background:#fff;color:#111;border-radius:18px;text-align:center"><h2>يجب تسجيل الدخول من جديد</h2><p>لم يتم تحديد حساب الشركة لهذه الجلسة، لذلك تم منع تحميل أي بيانات تجريبية أو بيانات شركة أخرى.</p><button onclick="location.href=\'/\'" style="padding:12px 24px">تسجيل الدخول</button></div>';
+  return;
+}
 const companyScope=String(companyContext.id||companyContext.code||'unscoped').replace(/[^A-Za-z0-9_-]/g,'_');
 const tenantKey=(key)=>'tenant:'+companyScope+':'+key;
 const legacyGet=localStorage.getItem.bind(localStorage),legacySet=localStorage.setItem.bind(localStorage);
