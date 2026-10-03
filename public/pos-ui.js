@@ -50,6 +50,7 @@
     document.getElementById('discountInput').addEventListener('input', renderCart);
     if(selectedMode==='market'){
       const admin=document.getElementById('marketCatalogButton'); if(admin) admin.style.display='';
+      const tools=document.getElementById('marketSaleTools'); if(tools) tools.style.display='block';
       const list=document.getElementById('marketCatalog'); if(list) list.style.display='grid';
       renderMarketCatalog();
       window.addEventListener('storage',(e)=>{if(e.key===marketCatalogKey)renderMarketCatalog()});
@@ -217,10 +218,43 @@
     const discount = normalize(document.getElementById('discountInput').value || '0');
     const gross = cart.reduce((sum, line) => sum + toScaled(multiply(line.quantity, line.unitPrice)), 0n);
     const net = gross - toScaled(discount);
-    document.getElementById('netTotal').textContent = fromScaled(net > 0n ? net : 0n);
+    document.getElementById('netTotal').textContent = fromScaled(net > 0n ? net : 0n); if(selectedMode==='market')updateMarketChange();
   }
 
-  function remove(index) { cart.splice(index, 1); saveRestaurantCart(); renderCart(); }
+  function remove(index) { cart.splice(index, 1); saveRestaurantCart(); renderCart(); if(selectedMode==='market')updateMarketChange(); }
+
+  function marketHeldKey(){return 'tenant:'+companyScope+':market_held_sales_v1'}
+  function marketInvoicesKey(){return 'tenant:'+companyScope+':market_invoices_v1'}
+  function holdMarketSale(){
+    if(!cart.length)return alert('لا توجد مواد لتعليقها');
+    const a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]');
+    const ref=prompt('اسم أو رقم الفاتورة المعلقة:','معلق '+(a.length+1)); if(ref===null)return;
+    a.unshift({id:crypto.randomUUID(),ref:ref.trim()||('معلق '+(a.length+1)),at:new Date().toISOString(),cart:structuredClone(cart)});
+    localStorage.setItem(marketHeldKey(),JSON.stringify(a));cart=[];renderCart();showHeldMarketSales();
+  }
+  function showHeldMarketSales(){
+    const el=document.getElementById('marketHeldList');if(!el)return;
+    const a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]');el.style.display='block';
+    el.innerHTML=a.length?a.map(x=>'<div style="display:flex;justify-content:space-between;gap:8px;padding:8px;border-bottom:1px solid #334"><span>'+escapeHtml(x.ref)+' — '+new Date(x.at).toLocaleString('ar-IQ')+'</span><span><button class="btn" onclick="PosUI.restoreHeldMarketSale(\''+x.id+'\')">استرجاع</button> <button class="btn btn-danger" onclick="PosUI.deleteHeldMarketSale(\''+x.id+'\')">حذف</button></span></div>').join(''):'لا توجد فواتير معلقة';
+  }
+  function restoreHeldMarketSale(id){let a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]'),x=a.find(z=>z.id===id);if(!x)return;cart=x.cart||[];a=a.filter(z=>z.id!==id);localStorage.setItem(marketHeldKey(),JSON.stringify(a));renderCart();showHeldMarketSales()}
+  function deleteHeldMarketSale(id){if(!confirm('حذف الفاتورة المعلقة؟'))return;let a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]').filter(z=>z.id!==id);localStorage.setItem(marketHeldKey(),JSON.stringify(a));showHeldMarketSales()}
+  function updateMarketChange(){
+    if(selectedMode!=='market')return;
+    const gross=cart.reduce((s,l)=>s+toScaled(multiply(l.quantity,l.unitPrice)),0n);
+    const discount=normalize(document.getElementById('discountInput')?.value||'0');
+    const net=gross-toScaled(discount),received=normalize(document.getElementById('marketReceived')?.value||'0');
+    const ch=toScaled(received)-net;const el=document.getElementById('marketChange');if(el)el.textContent=fromScaled(ch>0n?ch:0n);
+  }
+  function returnMarketInvoice(){
+    const number=prompt('أدخل رقم الفاتورة المراد إرجاعها:');if(!number)return;
+    const a=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]'),x=a.find(z=>z.number===number);
+    if(!x)return alert('الفاتورة غير موجودة على هذا الجهاز');
+    if(x.returned)return alert('هذه الفاتورة مرتجعة مسبقًا');
+    if(!confirm('إرجاع الفاتورة '+number+' بالكامل وإعادة كمياتها للمخزون؟'))return;
+    let cat=marketCatalog();(x.lines||[]).forEach(l=>{const item=cat.find(z=>z.id===l.itemId);if(item)item.qty=Number(item.qty||0)+Number(l.quantity||0)});
+    localStorage.setItem(marketCatalogKey,JSON.stringify(cat));x.returned=true;x.returnedAt=new Date().toISOString();localStorage.setItem(marketInvoicesKey(),JSON.stringify(a));renderMarketCatalog();alert('تم تسجيل المرتجع وإعادة الكميات للمخزون');
+  }
 
   async function completeSale() {
     try {
@@ -247,8 +281,17 @@
       };
       await offline.enqueuePosDocument('pos.sale', payload);
       localReceipt = { number: payload.documentNumber, lines: structuredClone(cart), gross: fromScaled(gross), discount, net, cash, due: fromScaled(toScaled(net) - toScaled(cash)), mode: titles[selectedMode] };
+      if(selectedMode==='market'){
+        let catalog=marketCatalog();
+        cart.forEach(l=>{const x=catalog.find(z=>z.id===l.itemId);if(x)x.qty=Math.max(0,Number(x.qty||0)-Number(l.quantity||0))});
+        localStorage.setItem(marketCatalogKey,JSON.stringify(catalog));
+        const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');
+        invoices.unshift({...localReceipt,at:new Date().toISOString(),returned:false});
+        localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices.slice(0,1000)));
+        renderMarketCatalog();
+      }
       renderReceipt(localReceipt);
-      cart = []; saveRestaurantCart(); renderCart();
+      cart = []; saveRestaurantCart(); renderCart(); if(selectedMode==='market'){const r=document.getElementById('marketReceived');if(r)r.value='0';updateMarketChange()}
       alert(navigator.onLine ? '✅ حُفظ البيع وأُرسل للمزامنة.' : '✅ حُفظ البيع أوف لاين ضمن مخصص الجهاز.');
     } catch (error) { alert(error.message); }
   }
@@ -317,6 +360,6 @@
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[character])); }
   function delay(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 
-  window.PosUI = { openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog };
+  window.PosUI = { openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
   void initialize();
 }());
