@@ -340,6 +340,13 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   }));
 
   app.post('/api/v1/market/snapshot', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    const page = await store.pullChanges(req.auth.company.id, 0, 10000);
+    const snapshots = (page.changes || []).filter((row) => row.entityType === 'market.snapshot').sort((a,b) => Number(b.sequence || b.id || 0) - Number(a.sequence || a.id || 0));
+    const latest = snapshots[0]?.payload || snapshots[0]?.data || null;
+    const baseUpdatedAt = req.body?.baseUpdatedAt == null ? null : String(req.body.baseUpdatedAt);
+    if (latest?.updatedAt && baseUpdatedAt !== String(latest.updatedAt)) {
+      return res.status(409).json({ ok:false, code:'MARKET_SNAPSHOT_CONFLICT', message:'تم تعديل المخزون من جهاز آخر', snapshot:latest });
+    }
     const catalog = Array.isArray(req.body?.catalog) ? req.body.catalog.slice(0, 10000).map((x) => ({
       id: String(x.id || '').slice(0,128), name: String(x.name || '').slice(0,200),
       category: String(x.category || 'غير مصنف').slice(0,100), barcode: String(x.barcode || '').slice(0,64),
@@ -350,7 +357,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     const operation = validateOperation({
       operationId: crypto.randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
       clientSequence: Date.now(), occurredAt: new Date().toISOString(), schemaVersion: 1,
-      dependencies: [], type: 'market.snapshot', payload: { catalog, updatedAt: new Date().toISOString() }
+      dependencies: [], type: 'market.snapshot', payload: { catalog, updatedAt: String(req.body?.clientUpdatedAt || new Date().toISOString()) }
     });
     const results = await store.pushOperations(req.auth, [operation]);
     res.json({ ok: true, result: results[0] });
