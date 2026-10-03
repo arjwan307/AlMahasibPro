@@ -278,14 +278,28 @@
     const net=gross-toScaled(discount),received=normalize(document.getElementById('marketReceived')?.value||'0');
     const ch=toScaled(received)-net;const el=document.getElementById('marketChange');if(el)el.textContent=fromScaled(ch>0n?ch:0n);
   }
+  function marketReturnsKey(){return 'tenant:'+companyScope+':market_returns_v1'}
   function returnMarketInvoice(){
     const number=prompt('أدخل رقم الفاتورة المراد إرجاعها:');if(!number)return;
     const a=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]'),x=a.find(z=>z.number===number);
     if(!x)return alert('الفاتورة غير موجودة على هذا الجهاز');
-    if(x.returned)return alert('هذه الفاتورة مرتجعة مسبقًا');
-    if(!confirm('إرجاع الفاتورة '+number+' بالكامل وإعادة كمياتها للمخزون؟'))return;
-    let cat=marketCatalog();(x.lines||[]).forEach(l=>{const item=cat.find(z=>z.id===l.itemId);if(item)item.qty=Number(item.qty||0)+Number(l.quantity||0)});
-    localStorage.setItem(marketCatalogKey,JSON.stringify(cat));x.returned=true;x.returnedAt=new Date().toISOString();localStorage.setItem(marketInvoicesKey(),JSON.stringify(a));renderMarketCatalog();alert('تم تسجيل المرتجع وإعادة الكميات للمخزون');
+    if(x.returned)return alert('هذه الفاتورة مرتجعة بالكامل مسبقًا');
+    const reason=prompt('سبب المرتجع:');if(!reason)return alert('سبب المرتجع مطلوب');
+    const choice=prompt('اكتب "كامل" لإرجاع الفاتورة كلها، أو أدخل رقم تسلسل المادة (1،2،3...) لإرجاع مادة محددة:','كامل');if(!choice)return;
+    let selected=[];
+    if(choice.trim()==='كامل') selected=(x.lines||[]).map((l,i)=>({line:l,index:i}));
+    else {const i=Number(choice)-1;if(!Number.isInteger(i)||!x.lines?.[i])return alert('رقم المادة غير صحيح');const line=x.lines[i];const max=Number(line.quantity||0),q=Number(prompt('الكمية المرتجعة من '+line.name+' (الحد '+max+'):',String(max))||0);if(!(q>0&&q<=max))return alert('كمية المرتجع غير صحيحة');selected=[{line:{...line,quantity:String(q)},index:i}]}
+    if(!confirm('تأكيد المرتجع وإعادة الكمية للمخزون؟'))return;
+    let cat=marketCatalog(),amount=0;selected.forEach(({line})=>{const item=cat.find(z=>z.id===line.itemId);if(item)item.qty=Number(item.qty||0)+Number(line.quantity||0);amount+=Number(line.quantity||0)*Number(line.unitPrice||0)});
+    localStorage.setItem(marketCatalogKey,JSON.stringify(cat));
+    const returns=JSON.parse(localStorage.getItem(marketReturnsKey())||'[]');returns.unshift({id:crypto.randomUUID(),invoice:number,reason,lines:selected.map(z=>z.line),amount,at:new Date().toISOString(),cashier:new URLSearchParams(location.search).get('cashier')||'الكاشير الرئيسي'});localStorage.setItem(marketReturnsKey(),JSON.stringify(returns.slice(0,1000)));
+    if(choice.trim()==='كامل'){x.returned=true;x.returnedAt=new Date().toISOString();x.returnReason=reason}else{x.partialReturns=x.partialReturns||[];x.partialReturns.push({reason,lines:selected.map(z=>z.line),at:new Date().toISOString()})}
+    localStorage.setItem(marketInvoicesKey(),JSON.stringify(a));renderMarketCatalog();alert('تم تسجيل المرتجع وإعادة الكمية للمخزون');
+  }
+  function cancelMarketInvoice(){
+    const number=prompt('رقم الفاتورة المراد إلغاؤها:');if(!number)return;const a=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]'),x=a.find(z=>z.number===number);if(!x)return alert('الفاتورة غير موجودة');if(x.returned||x.cancelled)return alert('الفاتورة مرتجعة أو ملغاة مسبقًا');
+    const reason=prompt('سبب الإلغاء:');if(!reason)return alert('سبب الإلغاء مطلوب');if(!confirm('تأكيد إلغاء الفاتورة وإعادة جميع الكميات؟'))return;
+    let cat=marketCatalog();(x.lines||[]).forEach(l=>{const item=cat.find(z=>z.id===l.itemId);if(item)item.qty=Number(item.qty||0)+Number(l.quantity||0)});localStorage.setItem(marketCatalogKey,JSON.stringify(cat));x.cancelled=true;x.cancelledAt=new Date().toISOString();x.cancelReason=reason;localStorage.setItem(marketInvoicesKey(),JSON.stringify(a));renderMarketCatalog();alert('تم إلغاء الفاتورة وحفظ السبب وإعادة المخزون');
   }
 
   async function completeSale() {
@@ -414,6 +428,6 @@
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[character])); }
   function delay(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 
-  window.PosUI = { marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
+  window.PosUI = { cancelMarketInvoice, marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
   void initialize();
 }());
