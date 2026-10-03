@@ -240,12 +240,12 @@
     const opening=Number(document.getElementById('marketOpeningBalance')?.value||prompt('الرصيد الافتتاحي:','0')||0);
     const cashier=new URLSearchParams(location.search).get('cashier')||'الكاشير الرئيسي';
     const s={id:crypto.randomUUID(),status:'open',cashier,opening,openedAt:new Date().toISOString(),expenses:[]};
-    localStorage.setItem(marketShiftKey(),JSON.stringify(s));localStorage.setItem('tenant:'+companyScope+':market_opening_balance',String(opening));renderMarketShift();alert('تم فتح شفت الكاشير');
+    localStorage.setItem(marketShiftKey(),JSON.stringify(s));localStorage.setItem('tenant:'+companyScope+':market_opening_balance',String(opening));window.AlMahasibMarketOffline?.queueTransaction('shift_open',{id:s.id,shiftId:s.id,cashier:s.cashier,cashierCode:marketCashierId(),opening:s.opening,occurredAt:s.openedAt});renderMarketShift();alert('تم فتح شفت الكاشير');
   }
   function marketExpense(){
     const s=getMarketShift();if(!s||s.status!=='open')return alert('افتح الشفت أولًا');
     const title=prompt('بيان المصروف:');if(!title)return;const amount=Number(prompt('المبلغ:','0')||0);if(!(amount>0))return;
-    s.expenses.push({id:crypto.randomUUID(),title,amount,at:new Date().toISOString()});localStorage.setItem(marketShiftKey(),JSON.stringify(s));renderMarketShift();
+    const expense={id:crypto.randomUUID(),title,amount,at:new Date().toISOString()};s.expenses.push(expense);localStorage.setItem(marketShiftKey(),JSON.stringify(s));window.AlMahasibMarketOffline?.queueTransaction('expense',{id:expense.id,shiftId:s.id,cashier:s.cashier,cashierCode:marketCashierId(),title,amount,occurredAt:expense.at});renderMarketShift();
   }
   function marketShiftSummary(s=getMarketShift()){
     if(!s)return null;const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]').filter(x=>new Date(x.at)>=new Date(s.openedAt)&&(!s.closedAt||new Date(x.at)<=new Date(s.closedAt)));
@@ -260,7 +260,7 @@
   function closeMarketShift(handover=false){
     const s=getMarketShift();if(!s||s.status!=='open')return alert('لا يوجد شفت مفتوح');const m=marketShiftSummary(s),counted=Number(prompt('النقد الفعلي في الصندوق:',String(m.expected))||0);
     s.status='closed';s.closedAt=new Date().toISOString();s.counted=counted;s.difference=counted-m.expected;s.closeType=handover?'handover':'close';
-    const h=JSON.parse(localStorage.getItem(marketShiftHistoryKey())||'[]');h.unshift({...s,summary:m});localStorage.setItem(marketShiftHistoryKey(),JSON.stringify(h.slice(0,200)));localStorage.setItem(marketShiftKey(),JSON.stringify(s));renderMarketShift();
+    const h=JSON.parse(localStorage.getItem(marketShiftHistoryKey())||'[]');h.unshift({...s,summary:m});localStorage.setItem(marketShiftHistoryKey(),JSON.stringify(h.slice(0,200)));localStorage.setItem(marketShiftKey(),JSON.stringify(s));window.AlMahasibMarketOffline?.queueTransaction('shift_close',{id:crypto.randomUUID(),shiftId:s.id,cashier:s.cashier,cashierCode:marketCashierId(),opening:s.opening,counted:s.counted,difference:s.difference,closeType:s.closeType,summary:m,occurredAt:s.closedAt});renderMarketShift();
     alert((handover?'تم تسليم الشفت':'تم إغلاق وتسوية الشفت')+'\nفرق الصندوق: '+s.difference.toLocaleString('ar-IQ')+' د.ع');
   }
   function renderMarketShift(){if(selectedMode!=='market')return;const s=getMarketShift(),el=document.getElementById('marketShiftInfo');if(!el)return;el.textContent=!s?'لا يوجد شفت مفتوح':s.status==='open'?'الشفت مفتوح منذ '+new Date(s.openedAt).toLocaleTimeString('ar-IQ'):'آخر شفت مغلق — فرق الصندوق '+Number(s.difference||0).toLocaleString('ar-IQ')+' د.ع';}
@@ -299,14 +299,14 @@
     if(!confirm('تأكيد المرتجع وإعادة الكمية للمخزون؟'))return;
     let cat=marketCatalog(),amount=0;selected.forEach(({line})=>{const item=cat.find(z=>z.id===line.itemId);if(item)item.qty=Number(item.qty||0)+Number(line.quantity||0);amount+=Number(line.quantity||0)*Number(line.unitPrice||0)});
     localStorage.setItem(marketCatalogKey,JSON.stringify(cat));localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',new Date().toISOString());window.AlMahasibMarketOffline?.saveSnapshot('market-return');if(navigator.onLine)void window.AlMahasibMarketOffline?.syncCloud();
-    const returns=JSON.parse(localStorage.getItem(marketReturnsKey())||'[]');returns.unshift({id:crypto.randomUUID(),invoice:number,reason,lines:selected.map(z=>z.line),amount,at:new Date().toISOString(),cashier:new URLSearchParams(location.search).get('cashier')||'الكاشير الرئيسي'});localStorage.setItem(marketReturnsKey(),JSON.stringify(returns.slice(0,1000)));
+    const returns=JSON.parse(localStorage.getItem(marketReturnsKey())||'[]');returns.unshift({id:crypto.randomUUID(),invoice:number,reason,lines:selected.map(z=>z.line),amount,at:new Date().toISOString(),cashier:new URLSearchParams(location.search).get('cashier')||'الكاشير الرئيسي'});localStorage.setItem(marketReturnsKey(),JSON.stringify(returns.slice(0,1000)));const returnRow=returns[0];window.AlMahasibMarketOffline?.queueTransaction('return',{...returnRow,shiftId:getMarketShift()?.id||null,cashierCode:marketCashierId(),occurredAt:returnRow.at});
     if(choice.trim()==='كامل'){x.returned=true;x.returnedAt=new Date().toISOString();x.returnReason=reason}else{x.partialReturns=x.partialReturns||[];x.partialReturns.push({reason,lines:selected.map(z=>z.line),at:new Date().toISOString()})}
     localStorage.setItem(marketInvoicesKey(),JSON.stringify(a));renderMarketCatalog();alert('تم تسجيل المرتجع وإعادة الكمية للمخزون');
   }
   function cancelMarketInvoice(){
     const number=prompt('رقم الفاتورة المراد إلغاؤها:');if(!number)return;const a=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]'),x=a.find(z=>z.number===number);if(!x)return alert('الفاتورة غير موجودة');if(x.returned||x.cancelled)return alert('الفاتورة مرتجعة أو ملغاة مسبقًا');if((x.partialReturns||[]).length)return alert('لا يمكن إلغاء فاتورة عليها مرتجع جزئي؛ أكمل المرتجع أو راجع السجل');
     const reason=prompt('سبب الإلغاء:');if(!reason)return alert('سبب الإلغاء مطلوب');if(!confirm('تأكيد إلغاء الفاتورة وإعادة جميع الكميات؟'))return;
-    let cat=marketCatalog();(x.lines||[]).forEach(l=>{const item=cat.find(z=>z.id===l.itemId);if(item)item.qty=Number(item.qty||0)+Number(l.quantity||0)});localStorage.setItem(marketCatalogKey,JSON.stringify(cat));localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',new Date().toISOString());window.AlMahasibMarketOffline?.saveSnapshot('market-cancel');if(navigator.onLine)void window.AlMahasibMarketOffline?.syncCloud();x.cancelled=true;x.cancelledAt=new Date().toISOString();x.cancelReason=reason;localStorage.setItem(marketInvoicesKey(),JSON.stringify(a));renderMarketCatalog();alert('تم إلغاء الفاتورة وحفظ السبب وإعادة المخزون');
+    let cat=marketCatalog();(x.lines||[]).forEach(l=>{const item=cat.find(z=>z.id===l.itemId);if(item)item.qty=Number(item.qty||0)+Number(l.quantity||0)});localStorage.setItem(marketCatalogKey,JSON.stringify(cat));localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',new Date().toISOString());window.AlMahasibMarketOffline?.saveSnapshot('market-cancel');if(navigator.onLine)void window.AlMahasibMarketOffline?.syncCloud();x.cancelled=true;x.cancelledAt=new Date().toISOString();x.cancelReason=reason;localStorage.setItem(marketInvoicesKey(),JSON.stringify(a));window.AlMahasibMarketOffline?.queueTransaction('cancel',{id:crypto.randomUUID(),invoice:x.number,amount:Number(x.net||0),reason,shiftId:getMarketShift()?.id||null,cashier:new URLSearchParams(location.search).get('cashier')||'الكاشير الرئيسي',cashierCode:marketCashierId(),occurredAt:x.cancelledAt});renderMarketCatalog();alert('تم إلغاء الفاتورة وحفظ السبب وإعادة المخزون');
   }
 
   async function completeSale() {
@@ -331,7 +331,7 @@
         localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',new Date().toISOString());
         const number='MKT-'+Date.now()+'-'+crypto.randomUUID().slice(0,6);
         localReceipt={number,lines:structuredClone(cart),gross:fromScaled(gross),discount,net,cash:net,due:'0.000000',received,change:fromScaled(toScaled(received)-toScaled(net)),mode:titles[selectedMode],at:new Date().toISOString(),returned:false,cancelled:false};
-        const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');invoices.unshift(localReceipt);localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices.slice(0,1000)));
+        const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');invoices.unshift(localReceipt);localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices.slice(0,1000)));await window.AlMahasibMarketOffline?.queueTransaction('sale',{id:crypto.randomUUID(),invoice:number,shiftId:shift.id,cashier:shift.cashier,cashierCode:marketCashierId(),gross:localReceipt.gross,discount:localReceipt.discount,net:localReceipt.net,received:localReceipt.received,change:localReceipt.change,lines:localReceipt.lines,occurredAt:localReceipt.at});
         await window.AlMahasibMarketOffline?.saveSnapshot('market-sale');if(navigator.onLine)void window.AlMahasibMarketOffline?.syncCloud();
         renderMarketCatalog();renderReceipt(localReceipt);cart=[];renderCart();const r=document.getElementById('marketReceived');if(r)r.value='0';updateMarketChange();
         alert('✅ تم حفظ البيع وخصم المخزون'+(navigator.onLine?' وإرساله للمزامنة.':' أوف لاين وسيزامن عند عودة الاتصال.'));return;
