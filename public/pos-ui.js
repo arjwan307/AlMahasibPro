@@ -54,6 +54,12 @@
       const list=document.getElementById('marketCatalog'); if(list) list.style.display='grid';
       renderMarketCatalog();renderMarketShift();
       window.addEventListener('storage',(e)=>{if(e.key===marketCatalogKey)renderMarketCatalog()});
+      window.addEventListener('almahasib:market-update',renderMarketCatalog);
+      // Market has a tenant-scoped IndexedDB/cloud runtime and must not be
+      // blocked by the legacy UUID POS-device bootstrap.
+      for(let attempt=0;attempt<30&&!window.AlMahasibMarketOffline;attempt+=1)await delay(100);
+      if(window.AlMahasibMarketOffline){await window.AlMahasibMarketOffline.open();await window.AlMahasibMarketOffline.restore();await window.AlMahasibMarketOffline.renderStatus();renderMarketCatalog()}
+      return;
     }
     for (let attempt = 0; attempt < 50 && !window.AlMahasibOffline; attempt += 1) await delay(100);
     offline = window.AlMahasibOffline;
