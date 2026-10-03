@@ -20,7 +20,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     },
     credentials: true
   }));
-  app.use(express.json({ limit: '512kb' }));
+  app.use(express.json({ limit: '5mb' }));
   app.use(express.static(publicDirectory, { extensions: ['html'], etag: true }));
 
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
@@ -333,16 +333,25 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   // through the existing sync change stream, so Mongo-backed stores persist it
   // with the same company isolation as every other synchronized entity.
   app.get('/api/v1/market/snapshot', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
-    const page = await store.pullChanges(req.auth.company.id, 0, 10000);
-    const rows = (page.changes || []).filter((row) => row.entityType === 'market.snapshot');
-    const latest = rows.sort((a,b) => Number(b.sequence || b.id || 0) - Number(a.sequence || a.id || 0))[0] || null;
+    let cursor = 0, latest = null, guard = 0;
+    do {
+      const page = await store.pullChanges(req.auth.company.id, cursor, 500);
+      for (const row of page.changes || []) if (row.entityType === 'market.snapshot') latest = row;
+      if (!page.hasMore || page.nextCursor === cursor) break;
+      cursor = page.nextCursor; guard += 1;
+    } while (guard < 200);
     res.json({ snapshot: latest?.payload || latest?.data || null });
   }));
 
   app.post('/api/v1/market/snapshot', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
-    const page = await store.pullChanges(req.auth.company.id, 0, 10000);
-    const snapshots = (page.changes || []).filter((row) => row.entityType === 'market.snapshot').sort((a,b) => Number(b.sequence || b.id || 0) - Number(a.sequence || a.id || 0));
-    const latest = snapshots[0]?.payload || snapshots[0]?.data || null;
+    let cursor = 0, latestRow = null, guard = 0;
+    do {
+      const page = await store.pullChanges(req.auth.company.id, cursor, 500);
+      for (const row of page.changes || []) if (row.entityType === 'market.snapshot') latestRow = row;
+      if (!page.hasMore || page.nextCursor === cursor) break;
+      cursor = page.nextCursor; guard += 1;
+    } while (guard < 200);
+    const latest = latestRow?.payload || latestRow?.data || null;
     const baseUpdatedAt = req.body?.baseUpdatedAt == null ? null : String(req.body.baseUpdatedAt);
     if (latest?.updatedAt && baseUpdatedAt !== String(latest.updatedAt)) {
       return res.status(409).json({ ok:false, code:'MARKET_SNAPSHOT_CONFLICT', message:'تم تعديل المخزون من جهاز آخر', snapshot:latest });
