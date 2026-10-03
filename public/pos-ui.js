@@ -85,6 +85,22 @@
       warehouse = created.warehouse;
       master = await api('/api/v1/master-data');
     }
+    if (!warehouse && selectedMode === 'market') {
+      const created = await api('/api/v1/warehouses', {
+        method: 'POST',
+        body: JSON.stringify({ code: 'MARKET-MAIN', name: 'المخزن الرئيسي للماركت والمجمع', kind: 'pos' })
+      });
+      warehouse = created.warehouse;
+      master = await api('/api/v1/master-data');
+    }
+    if (!warehouse && selectedMode === 'enterprise') {
+      const created = await api('/api/v1/warehouses', {
+        method: 'POST',
+        body: JSON.stringify({ code: 'ENTERPRISE-MAIN', name: 'المخزن الرئيسي للشركة', kind: 'pos' })
+      });
+      warehouse = created.warehouse;
+      master = await api('/api/v1/master-data');
+    }
     if (!warehouse) throw new Error('تعذر تجهيز مخزن نقطة البيع تلقائيًا');
     const id = offline.posDeviceId(selectedMode);
     await api('/api/v1/pos/devices', {
