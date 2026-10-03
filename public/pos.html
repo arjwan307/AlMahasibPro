@@ -42,6 +42,7 @@
 <div class="shell" id="legacyPos">
         <div id="marketTopbar" class="market-topbar"><span><b id="marketCompanyName">المجمع</b></span><span>الكاشير: <b id="marketCashierName">الكاشير الرئيسي</b></span><span>الوقت: <b id="marketClock">--:--:--</b></span><span>التاريخ: <b id="marketDate">--</b></span><span>الرصيد الافتتاحي: <input id="marketOpeningBalance" type="number" min="0" value="0"></span><button class="btn btn-success" onclick="PosUI.openShift()">فتح الكاشير</button><button class="btn" onclick="PosUI.printStatement ? PosUI.printStatement() : window.print()">طباعة الكشف</button><button class="btn btn-handover" onclick="PosUI.handoverShift ? PosUI.handoverShift() : PosUI.closeShift()">تسليم الشفت</button><button class="btn btn-danger" onclick="PosUI.closeShift()">إغلاق وتسوية</button><button class="btn" onclick="location.href='/dashboard.html'">الرئيسية</button></div>
         <div class="header">
+            <div id="marketCatalogButton" style="display:none"><button class="btn btn-success" onclick="location.href='/market-admin.html'">إدارة الأصناف والمستودع</button></div>
             <div><h1><i class="fas fa-cash-register"></i> كاشير <span id="modeTitle"></span></h1><div id="shiftStatus">جارٍ التحميل...</div></div>
             <div class="actions">
                 <span id="networkStatus" class="badge"></span>
@@ -57,7 +58,7 @@
             <div class="mode-context"><label id="contextLabel"></label><input id="contextValue" placeholder=""></div>
         </div>
         <div id="restaurantCatalog" class="restaurant-catalog"></div>
-        <table>
+        <div id="marketCatalog" class="restaurant-catalog" style="display:none"></div><table>
             <thead><tr><th>المادة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th><th></th></tr></thead>
             <tbody id="cartBody"><tr><td colspan="5">لا توجد مواد</td></tr></tbody>
         </table>
