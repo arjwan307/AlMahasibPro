@@ -6,7 +6,10 @@
 <div class="card"><h3>إضافة / تعديل مادة</h3><div class="bar"><input id="name" placeholder="اسم المادة"><input id="cat" placeholder="القسم"><input id="barcode" placeholder="الباركود — اتركه فارغاً للتوليد"><input id="price" type="number" placeholder="سعر البيع"><input id="qty" type="number" placeholder="الرصيد"><select id="unit"><option>قطعة</option><option>كغم</option><option>لتر</option><option>علبة</option><option>كارتون</option><option>زوج</option></select><button class="green" onclick="save()">حفظ</button><button onclick="clearForm()">جديد</button></div></div>
 <div class="card"><div class="bar"><input id="q" placeholder="بحث بالاسم أو الباركود..." oninput="render()"><select id="filter" onchange="render()"><option value="">كل الأقسام</option></select><button onclick="seed(true)">إعادة المواد الافتراضية</button><button class="danger" onclick="clearDemo()">حذف المواد الافتراضية</button></div><div class="scroll"><table><thead><tr><th>المادة</th><th>القسم</th><th>الباركود</th><th>السعر</th><th>الرصيد</th><th>الوحدة</th><th>إجراء</th></tr></thead><tbody id="rows"></tbody></table></div></div></div>
 <script>
-const K='al_obaidi_market_catalog_v1'; let editId=null;
+const companyContext=(()=>{try{return JSON.parse(localStorage.getItem('almahasib_company_context')||'{}')}catch{return{}}})();
+const companyScope=String(companyContext.id||companyContext.code||'unscoped').replace(/[^A-Za-z0-9_-]/g,'_');
+const K='tenant:'+companyScope+':market_catalog_v1'; let editId=null;
+document.querySelector('h1').textContent='مركز إدارة '+(companyContext.name||'الماركت والمجمع');
 const groups={
 'مواد غذائية':['رز بسمتي','رز عنبر','سكر','طحين','ملح','زيت طبخ','سمن','معجون طماطم','عدس','حمص','فاصوليا','شاي','قهوة','حليب','لبن','جبن','بيض','مكرونة','شعيرية','تونة','سردين','مخللات','عسل','مربى'],
 'بهارات':['فلفل أسود','كمون','كركم','كاري','قرفة','هيل','قرنفل','سماق','بابريكا','زنجبيل','بهارات لحم','بهارات دجاج','بهارات برياني','ليمون دوزي'],
