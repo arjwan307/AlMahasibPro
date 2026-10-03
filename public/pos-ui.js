@@ -326,13 +326,21 @@
         if(toScaled(received)<toScaled(net))throw new Error('المبلغ المستلم أقل من صافي الفاتورة');
         let catalog=marketCatalog();
         for(const l of cart){const x=catalog.find(z=>z.id===l.itemId);if(!x)throw new Error('أحد الأصناف غير موجود');if(Number(x.qty||0)<Number(l.quantity||0))throw new Error('الرصيد غير كافٍ للصنف: '+l.name)}
-        cart.forEach(l=>{const x=catalog.find(z=>z.id===l.itemId);x.qty=Number(x.qty||0)-Number(l.quantity||0)});
-        localStorage.setItem(marketCatalogKey,JSON.stringify(catalog));
-        localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',new Date().toISOString());
-        const number='MKT-'+Date.now()+'-'+crypto.randomUUID().slice(0,6);
-        localReceipt={number,lines:structuredClone(cart),gross:fromScaled(gross),discount,net,cash:net,due:'0.000000',received,change:fromScaled(toScaled(received)-toScaled(net)),mode:titles[selectedMode],at:new Date().toISOString(),returned:false,cancelled:false};
-        const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');invoices.unshift(localReceipt);localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices.slice(0,1000)));await window.AlMahasibMarketOffline?.queueTransaction('sale',{id:crypto.randomUUID(),invoice:number,shiftId:shift.id,cashier:shift.cashier,cashierCode:marketCashierId(),gross:localReceipt.gross,discount:localReceipt.discount,net:localReceipt.net,received:localReceipt.received,change:localReceipt.change,lines:localReceipt.lines,occurredAt:localReceipt.at});
-        await window.AlMahasibMarketOffline?.saveSnapshot('market-sale');if(navigator.onLine)void window.AlMahasibMarketOffline?.syncCloud();
+        const number='MKT-'+Date.now()+'-'+crypto.randomUUID().slice(0,6),saleId=crypto.randomUUID(),saleAt=new Date().toISOString();
+        const salePayload={id:saleId,invoice:number,shiftId:shift.id,cashier:shift.cashier,cashierCode:marketCashierId(),gross:fromScaled(gross),discount,net,received,change:fromScaled(toScaled(received)-toScaled(net)),lines:structuredClone(cart),occurredAt:saleAt};
+        if(navigator.onLine){
+          const response=await fetch('/api/v1/market/sale',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(salePayload)});
+          const body=await response.json().catch(()=>({}));
+          if(!response.ok)throw new Error(body?.error?.message||body?.message||'تعذر اعتماد البيع من المخزون المركزي');
+          catalog=body.snapshot.catalog;localStorage.setItem(marketCatalogKey,JSON.stringify(catalog));localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',body.snapshot.updatedAt);
+          await window.AlMahasibMarketOffline?.saveLocalSnapshot(catalog,body.snapshot.updatedAt);
+        }else{
+          cart.forEach(l=>{const x=catalog.find(z=>z.id===l.itemId);x.qty=Number(x.qty||0)-Number(l.quantity||0)});
+          localStorage.setItem(marketCatalogKey,JSON.stringify(catalog));localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',saleAt);
+          await window.AlMahasibMarketOffline?.queueTransaction('sale',salePayload);await window.AlMahasibMarketOffline?.saveSnapshot('market-sale');
+        }
+        localReceipt={number,lines:structuredClone(cart),gross:fromScaled(gross),discount,net,cash:net,due:'0.000000',received,change:salePayload.change,mode:titles[selectedMode],at:saleAt,returned:false,cancelled:false,cashier:shift.cashier,cashierCode:marketCashierId()};
+        const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');invoices.unshift(localReceipt);localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices.slice(0,1000)));
         renderMarketCatalog();renderReceipt(localReceipt);cart=[];renderCart();const r=document.getElementById('marketReceived');if(r)r.value='0';updateMarketChange();
         alert('✅ تم حفظ البيع وخصم المخزون'+(navigator.onLine?' وإرساله للمزامنة.':' أوف لاين وسيزامن عند عودة الاتصال.'));return;
       }
