@@ -178,7 +178,7 @@
   }
   function productEmoji(name){const n=String(name||'').toLowerCase();if(/coffee|قهو|كابتش|لاتيه/.test(n))return '☕';if(/tea|شاي/.test(n))return '🍵';if(/juice|عصير/.test(n))return '🥤';if(/pizza|بيتزا/.test(n))return '🍕';if(/burger|برغر|برجر/.test(n))return '🍔';if(/cake|كيك/.test(n))return '🍰';return '🍽️'}
   function addProduct(index){const b=state?.barcodes?.[index];if(!b)return;const price=b.salePrice;if(!price)return alert('حدد سعر بيع لهذه المادة أولاً');const x=cart.find(l=>l.itemId===b.itemId&&l.unitId===b.unitId);if(x)x.quantity=fromScaled(toScaled(x.quantity)+1000000n);else cart.push({itemId:b.itemId,unitId:b.unitId,name:b.item.name,quantity:'1.000000',unitPrice:price});saveRestaurantCart();renderCart()}
-  function changeQty(index,delta){const x=cart[index];if(!x)return;const q=toScaled(x.quantity)+BigInt(delta)*1000000n;if(q<=0n)cart.splice(index,1);else x.quantity=fromScaled(q);saveRestaurantCart();renderCart()}
+  function changeQty(index,delta){const x=cart[index];if(!x)return;const q=toScaled(x.quantity)+BigInt(delta)*1000000n;if(q<=0n)cart.splice(index,1);else{if(selectedMode==='market'){const stock=marketCatalog().find(z=>z.id===x.itemId);if(stock&&Number(fromScaled(q))>Number(stock.qty||0))return alert('الكمية المطلوبة أكبر من الرصيد')}x.quantity=fromScaled(q)}saveRestaurantCart();renderCart()}
   function saveRestaurantCart(){if(selectedMode==='restaurant')localStorage.setItem('almahasib_restaurant_open_order',JSON.stringify(cart))}
   function restoreRestaurantCart(){if(selectedMode!=='restaurant')return;try{const x=JSON.parse(localStorage.getItem('almahasib_restaurant_open_order')||'[]');if(Array.isArray(x))cart=x}catch{}renderCart()}
   function renderMarketCatalog(){
@@ -249,7 +249,7 @@
   function marketShiftSummary(s=getMarketShift()){
     if(!s)return null;const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]').filter(x=>new Date(x.at)>=new Date(s.openedAt)&&(!s.closedAt||new Date(x.at)<=new Date(s.closedAt)));
     const returns=JSON.parse(localStorage.getItem(marketReturnsKey())||'[]').filter(x=>new Date(x.at)>=new Date(s.openedAt)&&(!s.closedAt||new Date(x.at)<=new Date(s.closedAt)));
-    const valid=invoices.filter(x=>!x.cancelled),sales=valid.reduce((n,x)=>n+Number(x.net||0),0),returnAmount=returns.reduce((n,x)=>n+Number(x.amount||0),0),cancelled=invoices.filter(x=>x.cancelled).reduce((n,x)=>n+Number(x.net||0),0),expenses=(s.expenses||[]).reduce((n,x)=>n+Number(x.amount||0),0);
+    const valid=invoices.filter(x=>!x.cancelled),sales=invoices.reduce((n,x)=>n+Number(x.net||0),0),returnAmount=returns.reduce((n,x)=>n+Number(x.amount||0),0),cancelled=invoices.filter(x=>x.cancelled).reduce((n,x)=>n+Number(x.net||0),0),expenses=(s.expenses||[]).reduce((n,x)=>n+Number(x.amount||0),0);
     return {invoices,valid,returned:returns,sales,returns:returnAmount,cancelled,expenses,expected:Number(s.opening||0)+sales-returnAmount-cancelled-expenses};
   }
   function printMarketStatement(){
@@ -289,12 +289,12 @@
     const number=prompt('أدخل رقم الفاتورة المراد إرجاعها:');if(!number)return;
     const a=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]'),x=a.find(z=>z.number===number);
     if(!x)return alert('الفاتورة غير موجودة على هذا الجهاز');
-    if(x.returned)return alert('هذه الفاتورة مرتجعة بالكامل مسبقًا');
+    if(x.returned)return alert('هذه الفاتورة مرتجعة بالكامل مسبقًا');if(x.cancelled)return alert('لا يمكن إرجاع فاتورة ملغاة');
     const reason=prompt('سبب المرتجع:');if(!reason)return alert('سبب المرتجع مطلوب');
     const choice=prompt('اكتب "كامل" لإرجاع الفاتورة كلها، أو أدخل رقم تسلسل المادة (1،2،3...) لإرجاع مادة محددة:','كامل');if(!choice)return;
     let selected=[];
     if(choice.trim()==='كامل') selected=(x.lines||[]).map((l,i)=>({line:l,index:i}));
-    else {const i=Number(choice)-1;if(!Number.isInteger(i)||!x.lines?.[i])return alert('رقم المادة غير صحيح');const line=x.lines[i];const max=Number(line.quantity||0),q=Number(prompt('الكمية المرتجعة من '+line.name+' (الحد '+max+'):',String(max))||0);if(!(q>0&&q<=max))return alert('كمية المرتجع غير صحيحة');selected=[{line:{...line,quantity:String(q)},index:i}]}
+    else {const i=Number(choice)-1;if(!Number.isInteger(i)||!x.lines?.[i])return alert('رقم المادة غير صحيح');const line=x.lines[i];const already=(x.partialReturns||[]).flatMap(r=>r.lines||[]).filter(l=>l.itemId===line.itemId).reduce((n,l)=>n+Number(l.quantity||0),0),max=Math.max(0,Number(line.quantity||0)-already);if(max<=0)return alert('تم إرجاع كامل كمية هذه المادة مسبقًا');const q=Number(prompt('الكمية المرتجعة من '+line.name+' (المتبقي '+max+'):',String(max))||0);if(!(q>0&&q<=max))return alert('كمية المرتجع غير صحيحة');selected=[{line:{...line,quantity:String(q)},index:i}]}
     if(!confirm('تأكيد المرتجع وإعادة الكمية للمخزون؟'))return;
     let cat=marketCatalog(),amount=0;selected.forEach(({line})=>{const item=cat.find(z=>z.id===line.itemId);if(item)item.qty=Number(item.qty||0)+Number(line.quantity||0);amount+=Number(line.quantity||0)*Number(line.unitPrice||0)});
     localStorage.setItem(marketCatalogKey,JSON.stringify(cat));localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',new Date().toISOString());window.AlMahasibMarketOffline?.saveSnapshot('market-return');if(navigator.onLine)void window.AlMahasibMarketOffline?.syncCloud();
