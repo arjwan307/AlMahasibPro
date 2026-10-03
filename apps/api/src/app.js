@@ -363,6 +363,22 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({ok:true,snapshot:{catalog,updatedAt:now}});
   }));
 
+  const marketScannerLinks = new Map();
+  app.post('/api/v1/market/scanner/pair', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
+    const terminal=String(req.body?.terminal||'main'),token=crypto.randomUUID().replace(/-/g,'');
+    marketScannerLinks.set(token,{companyId:req.auth.company.id,terminal,createdAt:Date.now(),codes:[]});
+    res.json({token,expiresIn:900});
+  }));
+  app.post('/api/v1/market/scanner/:token/scan', asyncRoute(async (req,res)=>{
+    const link=marketScannerLinks.get(req.params.token);if(!link||Date.now()-link.createdAt>900000)throw new AppError(410,'SCANNER_LINK_EXPIRED','انتهى ربط الهاتف');
+    const barcode=String(req.body?.barcode||'').trim();if(!barcode||barcode.length>128)throw new AppError(400,'INVALID_BARCODE','باركود غير صالح');
+    link.codes.push({barcode,at:new Date().toISOString()});if(link.codes.length>100)link.codes.splice(0,link.codes.length-100);res.json({ok:true});
+  }));
+  app.get('/api/v1/market/scanner/:token/poll', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
+    const link=marketScannerLinks.get(req.params.token);if(!link||link.companyId!==req.auth.company.id||Date.now()-link.createdAt>900000)throw new AppError(410,'SCANNER_LINK_EXPIRED','انتهى ربط الهاتف');
+    const codes=link.codes.splice(0);res.json({codes});
+  }));
+
   app.post('/api/v1/market/sale', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
     const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
     if (!lines.length || lines.length > 500) throw new AppError(400, 'INVALID_MARKET_SALE', 'فاتورة البيع غير صالحة');
