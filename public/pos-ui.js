@@ -330,7 +330,29 @@
   }
 
   function renderReceipt(receipt) {
-    document.getElementById('receipt').innerHTML = `<h2>المحاسب برو</h2><p>${escapeHtml(receipt.mode || titles[selectedMode])}</p><hr><p>رقم: ${escapeHtml(receipt.number || receipt.documentNumber || '')}</p><p>الصافي: ${escapeHtml(receipt.net || receipt.subtotal || '0.000000')} IQD</p><p>شكرًا لزيارتكم</p>`;
+    const company=companyContext.name||'المحاسب برو';
+    const cashier=new URLSearchParams(location.search).get('cashier')||'الكاشير الرئيسي';
+    const lines=receipt.lines||[];
+    const net=receipt.net||receipt.subtotal||'0.000000', cash=receipt.cash||'0.000000', due=receipt.due||'0.000000';
+    document.getElementById('receipt').innerHTML =
+      '<div style="font-family:Arial;text-align:center;color:#000"><h2 style="margin:0">'+escapeHtml(company)+'</h2>'+
+      '<div>'+escapeHtml(receipt.mode||titles[selectedMode])+'</div><div>الكاشير: '+escapeHtml(cashier)+'</div>'+
+      '<div>'+new Date(receipt.at||Date.now()).toLocaleString('ar-IQ')+'</div><hr>'+
+      '<div style="text-align:right">رقم الفاتورة: <b>'+escapeHtml(receipt.number||receipt.documentNumber||'')+'</b></div>'+
+      '<table style="width:100%;border-collapse:collapse;margin-top:8px"><thead><tr><th>المادة</th><th>الكمية</th><th>السعر</th><th>المجموع</th></tr></thead><tbody>'+
+      lines.map(l=>'<tr><td>'+escapeHtml(l.name||'مادة')+'</td><td>'+escapeHtml(l.quantity||'1')+'</td><td>'+escapeHtml(l.unitPrice||'0')+'</td><td>'+escapeHtml(multiply(l.quantity||'1',l.unitPrice||'0'))+'</td></tr>').join('')+
+      '</tbody></table><hr><div style="text-align:right"><div>الإجمالي: '+escapeHtml(receipt.gross||net)+' د.ع</div>'+
+      '<div>الخصم: '+escapeHtml(receipt.discount||'0')+' د.ع</div><div><b>الصافي: '+escapeHtml(net)+' د.ع</b></div>'+
+      '<div>المدفوع: '+escapeHtml(cash)+' د.ع</div><div>المتبقي/الآجل: '+escapeHtml(due)+' د.ع</div></div>'+
+      '<hr><p>شكرًا لزيارتكم</p></div>';
+  }
+
+  function reprintMarketInvoice(){
+    if(selectedMode!=='market')return;
+    const number=prompt('أدخل رقم الفاتورة لإعادة طباعتها:'); if(!number)return;
+    const a=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]'),x=a.find(z=>z.number===number);
+    if(!x)return alert('الفاتورة غير موجودة على هذا الجهاز');
+    localReceipt=x;renderReceipt(x);printReceipt();
   }
 
   function populateCustomers() {
@@ -360,6 +382,6 @@
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[character])); }
   function delay(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 
-  window.PosUI = { openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
+  window.PosUI = { openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
   void initialize();
 }());
