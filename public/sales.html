@@ -1,204 +1,23 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>المبيعات والعملاء - المحاسب برو</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Cairo', sans-serif; }
-        body {
-            min-height: 100vh;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            background-size: 400% 400%;
-            animation: gradientBG 15s ease infinite;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        @keyframes gradientBG {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-
-        .glass-container {
-            width: 100%; max-width: 1400px;
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(15px);
-            border-radius: 25px;
-            padding: 25px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
-        }
-
-        .header {
-            display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;
-            flex-wrap: wrap; gap: 15px;
-        }
-        .header h2 { color: #fbbf24; display: flex; align-items: center; gap: 10px; }
-        .btn {
-            padding: 8px 16px; border-radius: 10px; border: none; font-weight: bold;
-            cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 6px; color: #fff;
-        }
-        .btn-primary { background: #3b82f6; }
-        .btn-success { background: #22c55e; }
-        .btn-danger { background: #ef4444; }
-        .btn-warning { background: #f59e0b; }
-        .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #fff; }
-
-        .toolbar {
-            display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; align-items: center;
-        }
-        .search-box { display: flex; gap: 10px; align-items: center; margin-right: auto; }
-        .search-box input {
-            padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
-            background: #0f172a; color: #fff; outline: none; width: 200px;
-        }
-        .search-box input:focus { border-color: #fbbf24; }
-
-        .table-wrapper { overflow-x: auto; }
-        table {
-            width: 100%; border-collapse: collapse; color: #cbd5e1;
-        }
-        th, td { padding: 10px 12px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        th { color: #fbbf24; }
-
-        .badge {
-            padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold;
-        }
-        .badge-success { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
-        .badge-warning { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
-        .badge-danger { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
-
-        .modal-overlay {
-            display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); justify-content: center; align-items: center; z-index: 999;
-        }
-        .modal-overlay.open { display: flex; }
-        .modal-box {
-            background: #1e293b; padding: 25px; border-radius: 20px; width: 100%; max-width: 500px;
-            border: 1px solid rgba(255,255,255,0.1); color: #fff; animation: slideUp 0.3s ease;
-        }
-        .modal-box h3 { color: #fbbf24; margin-bottom: 15px; }
-        .form-group { margin-bottom: 12px; }
-        .form-group label { color: #94a3b8; font-size: 0.9rem; display: block; }
-        .form-group input, .form-group select {
-            width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
-            background: #0f172a; color: #fff; outline: none;
-        }
-
-        @media (max-width: 768px) {
-            .glass-container { padding: 15px; }
-            .search-box input { width: 120px; }
-        }
-    </style>
-</head>
-<body>
-
-    <div class="glass-container">
-        <div class="header">
-            <h2><i class="fas fa-users"></i> المبيعات والعملاء</h2>
-            <div>
-                <button class="btn btn-outline" onclick="window.location.href='/dashboard.html'"><i class="fas fa-arrow-left"></i> العودة</button>
-            </div>
-        </div>
-
-        <div class="toolbar">
-            <button class="btn btn-primary" onclick="openModal('addSaleModal')"><i class="fas fa-plus"></i> إضافة عملية بيع</button>
-            <button class="btn btn-success" onclick="openModal('addClientModal')"><i class="fas fa-user-plus"></i> إضافة عميل</button>
-            <div class="search-box">
-                <input type="text" placeholder="بحث عن عميل أو منتج...">
-                <button class="btn btn-outline"><i class="fas fa-search"></i></button>
-            </div>
-        </div>
-
-        <div class="table-wrapper">
-            <table>
-                <thead>
-                    <tr>
-                        <th>رقم العملية</th>
-                        <th>التاريخ</th>
-                        <th>العميل</th>
-                        <th>المنتج / الخدمة</th>
-                        <th>الكمية</th>
-                        <th>السعر الإجمالي ($)</th>
-                        <th>الحالة</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>SALE-001</td>
-                        <td>2026-01-21</td>
-                        <td>شركة الأرجوان</td>
-                        <td>خدمات استشارية</td>
-                        <td>1</td>
-                        <td>2,500.00</td>
-                        <td><span class="badge badge-success">مكتملة</span></td>
-                    </tr>
-                    <tr>
-                        <td>SALE-002</td>
-                        <td>2026-01-22</td>
-                        <td>مؤسسة النور</td>
-                        <td>دجاج مجمد (كجم)</td>
-                        <td>10</td>
-                        <td>60,000.00</td>
-                        <td><span class="badge badge-warning">قيد الانتظار</span></td>
-                    </tr>
-                    <tr>
-                        <td>SALE-003</td>
-                        <td>2026-01-23</td>
-                        <td>مكتب البراء</td>
-                        <td>تراخيص برمجيات</td>
-                        <td>2</td>
-                        <td>1,200.00</td>
-                        <td><span class="badge badge-success">مكتملة</span></td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- نافذة إضافة عملية بيع -->
-    <div class="modal-overlay" id="addSaleModal">
-        <div class="modal-box">
-            <h3><i class="fas fa-cart-plus"></i> إضافة عملية بيع</h3>
-            <div class="form-group"><label>العميل</label><input type="text" placeholder="اسم العميل"></div>
-            <div class="form-group"><label>المنتج / الخدمة</label><input type="text" placeholder="اسم المنتج"></div>
-            <div class="form-group"><label>الكمية</label><input type="number" placeholder="1"></div>
-            <div class="form-group"><label>السعر الإجمالي ($)</label><input type="number" placeholder="0.00"></div>
-            <div style="display:flex; gap:10px; margin-top:15px;">
-                <button class="btn btn-success" onclick="AlMahasibCommerce.saveSale()">تسجيل البيع</button>
-                <button class="btn btn-danger" style="background:#ef4444;" onclick="closeModal('addSaleModal')">إلغاء</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- نافذة إضافة عميل -->
-    <div class="modal-overlay" id="addClientModal">
-        <div class="modal-box">
-            <h3><i class="fas fa-user-plus"></i> إضافة عميل جديد</h3>
-            <div class="form-group"><label>اسم العميل</label><input type="text" placeholder="الاسم"></div>
-            <div class="form-group"><label>رقم الهاتف</label><input type="text" placeholder="الهاتف"></div>
-            <div class="form-group"><label>العنوان</label><input type="text" placeholder="العنوان"></div>
-            <div style="display:flex; gap:10px; margin-top:15px;">
-                <button class="btn btn-success" onclick="AlMahasibCommerce.saveCustomer()">حفظ العميل</button>
-                <button class="btn btn-danger" style="background:#ef4444;" onclick="closeModal('addClientModal')">إلغاء</button>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        function openModal(id) {
-            document.getElementById(id).classList.add('open');
-        }
-        function closeModal(id) {
-            document.getElementById(id).classList.remove('open');
-        }
-    </script>
-    <script src="/offline-sync.js" defer></script>
-    <script src="/commerce-ui.js" defer></script>
-</body>
-</html>
+<html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>مركز المبيعات والتحصيل - المحاسب برو</title>
+<style>
+*{box-sizing:border-box;font-family:Cairo,Tahoma,sans-serif}body{margin:0;background:#0b1729;color:#e5edf8}.wrap{max-width:1500px;margin:28px auto;padding:22px}.head,.filters,.cards,.actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.head{justify-content:space-between}.head h1{color:#fbbf24}.btn{border:0;border-radius:10px;padding:11px 16px;background:#6d45ff;color:#fff;font-weight:700;cursor:pointer}.btn.green{background:#15945e}.btn.gray{background:#23334c}.cards{margin:20px 0}.card{background:#12233c;border:1px solid #263c5b;border-radius:16px;padding:16px;min-width:180px;flex:1}.card span{color:#9fb0c7}.card b{display:block;font-size:24px;margin-top:7px}.panel{background:#10213a;border:1px solid #263c5b;border-radius:18px;padding:18px}.filters input,.filters select{background:#09172a;color:#fff;border:1px solid #304766;border-radius:10px;padding:11px;min-width:150px}.filters input{flex:1}.table{overflow:auto;margin-top:15px}table{width:100%;border-collapse:collapse;min-width:1100px}th{color:#fbbf24}th,td{padding:12px;border-bottom:1px solid #29405e;text-align:right}.paid{color:#35d07f}.pending{color:#fbbf24}.returned{color:#ff6675}.modal{display:none;position:fixed;inset:0;background:#000a;z-index:20;align-items:center;justify-content:center;padding:20px}.modal.open{display:flex}.box{background:#fff;color:#172033;width:min(900px,96vw);max-height:88vh;overflow:auto;border-radius:18px;padding:22px}.box table{min-width:0}.box th,.box td{border-color:#ccd4df;color:#172033}.box h2{color:#172033}.muted{color:#9fb0c7;font-size:13px}@media(max-width:700px){.wrap{padding:10px}.card{min-width:45%}}
+</style></head><body><main class="wrap">
+<div class="head"><div><h1>مركز المبيعات والتحصيل</h1><div class="muted">يجمع المبيعات النهائية من جميع الكاشيرات والفروع — الكاشير رقم 1 هو المحاسب الرئيسي للتسويات النهائية</div></div><button class="btn gray" onclick="location.href='/dashboard.html'">العودة</button></div>
+<div class="cards"><div class="card"><span>إجمالي المبيعات</span><b id="gross">0 د.ع</b></div><div class="card"><span>المقبوض</span><b id="received">0 د.ع</b></div><div class="card"><span>المتبقي/المعلق</span><b id="pending">0 د.ع</b></div><div class="card"><span>المرتجعات</span><b id="returns">0 د.ع</b></div><div class="card"><span>عدد العمليات</span><b id="count">0</b></div></div>
+<section class="panel"><div class="filters"><input id="q" placeholder="بحث برقم العملية، العميل، الكاشير، الفرع أو الصنف"><select id="cashier"><option value="">كل الكاشيرات</option></select><select id="type"><option value="">كل أنواع البيع</option><option value="table">داخل المطعم</option><option value="takeaway">سفري</option><option value="delivery">دلفري</option><option value="external">خارجي</option><option value="general">بيع عام</option></select><select id="status"><option value="">كل الحالات</option><option value="paid">مدفوع</option><option value="awaiting_driver">معلق</option><option value="returned">مرتجع</option></select></div>
+<div class="table"><table><thead><tr><th>رقم العملية</th><th>التاريخ والوقت</th><th>الفرع/المصدر</th><th>الكاشير</th><th>العميل</th><th>نوع البيع</th><th>الإجمالي</th><th>المقبوض</th><th>المتبقي</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody id="rows"></tbody></table></div></section>
+</main>
+<div class="modal" id="modal"><div class="box"><div class="head"><h2>تفاصيل عملية البيع</h2><button class="btn gray" onclick="closeDetail()">إغلاق</button></div><div id="detail"></div><div class="actions"><button class="btn" onclick="window.print()">طباعة</button><button class="btn green" onclick="exportCurrent()">حفظ CSV</button></div></div></div>
+<script>
+const $=id=>document.getElementById(id),money=n=>Number(n||0).toLocaleString('ar-IQ')+' د.ع',esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+function allSales(){let a=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(/^hawa_dijla_cash_shift_/.test(k)){try{const s=JSON.parse(localStorage.getItem(k));(s?.sales||[]).forEach(x=>a.push({...x,source:'كاشير '+(x.cashierId||k.split('_').pop()),branch:x.branch||'الرئيسي'}))}catch(e){}}}try{(JSON.parse(localStorage.getItem('hawa_dijla_invoices')||'[]')).forEach(x=>a.push({...x,source:'كاشير '+(x.cashierId||'1'),branch:x.branch||'الرئيسي'}))}catch(e){}try{(JSON.parse(localStorage.getItem('hawa_dijla_delivery_returns')||'[]')).forEach(x=>a.push({...x,paymentStatus:'returned',source:'كاشير '+(x.cashierId||'1'),branch:x.branch||'الرئيسي'}))}catch(e){}const m=new Map();a.forEach(x=>{const key=x.id||x.invoiceNo;if(!key)return;const old=m.get(key);if(!old||x.paymentStatus==='returned'||Number(x.received)>Number(old.received))m.set(key,x)});return [...m.values()].sort((a,b)=>new Date(b.at||b.settledAt)-new Date(a.at||a.settledAt))}
+let sales=[],current=null;
+const labels={table:'داخل المطعم',takeaway:'سفري',delivery:'دلفري',external:'خارجي',general:'بيع عام'};
+function render(){sales=allSales();const cs=[...new Set(sales.map(x=>x.cashierId||'1'))];$('cashier').innerHTML='<option value="">كل الكاشيرات</option>'+cs.map(x=>'<option value="'+esc(x)+'">كاشير '+esc(x)+'</option>').join('');const q=$('q').value.trim().toLowerCase(),c=$('cashier').value,t=$('type').value,st=$('status').value;const v=sales.filter(x=>(!c||String(x.cashierId||'1')===c)&&(!t||(x.orderType||'general')===t)&&(!st||(x.paymentStatus||'paid')===st)&&(!q||JSON.stringify(x).toLowerCase().includes(q)));$('rows').innerHTML=v.map(x=>{const total=Number(x.total||0),rec=Number(x.received||0),state=x.paymentStatus||'paid';return '<tr><td>'+esc(x.invoiceNo||x.id)+'</td><td>'+new Date(x.at||x.settledAt||Date.now()).toLocaleString('ar-IQ')+'</td><td>'+esc(x.branch||'الرئيسي')+'</td><td>'+esc(x.cashier||('كاشير '+(x.cashierId||'1')))+'</td><td>'+esc(x.customer?.name||'نقدي')+'</td><td>'+esc(labels[x.orderType]||'بيع عام')+'</td><td>'+money(total)+'</td><td>'+money(rec)+'</td><td>'+money(Math.max(0,total-rec))+'</td><td class="'+(state==='paid'?'paid':state==='returned'?'returned':'pending')+'">'+esc(state==='paid'?'مدفوع':state==='returned'?'مرتجع':'معلق')+'</td><td><button class="btn" onclick="detail(\''+esc(x.id||x.invoiceNo)+'\')">عرض</button></td></tr>'}).join('')||'<tr><td colspan="11">لا توجد عمليات مطابقة.</td></tr>';const valid=sales.filter(x=>(x.paymentStatus||'paid')!=='returned'),gross=valid.reduce((a,x)=>a+Number(x.total||0),0),rec=valid.reduce((a,x)=>a+Number(x.received||0),0),ret=sales.filter(x=>x.paymentStatus==='returned').reduce((a,x)=>a+Number(x.total||0),0);$('gross').textContent=money(gross);$('received').textContent=money(rec);$('pending').textContent=money(Math.max(0,gross-rec));$('returns').textContent=money(ret);$('count').textContent=sales.length}
+function detail(id){current=sales.find(x=>(x.id||x.invoiceNo)===id);if(!current)return;const items=current.items||[];$('detail').innerHTML='<p><b>رقم العملية:</b> '+esc(current.invoiceNo||current.id)+' &nbsp; <b>الكاشير:</b> '+esc(current.cashier||current.cashierId||'1')+' &nbsp; <b>العميل:</b> '+esc(current.customer?.name||'نقدي')+'</p><table><thead><tr><th>الصنف/الخدمة</th><th>الكمية</th><th>السعر</th><th>المجموع</th></tr></thead><tbody>'+items.map(i=>'<tr><td>'+esc(i.name)+'</td><td>'+esc(i.qty)+'</td><td>'+money(i.price)+'</td><td>'+money(Number(i.qty)*Number(i.price))+'</td></tr>').join('')+'</tbody></table><p><b>الإجمالي:</b> '+money(current.total)+' — <b>المقبوض:</b> '+money(current.received)+' — <b>المتبقي:</b> '+money(Math.max(0,Number(current.total)-Number(current.received)))+'</p>';$('modal').classList.add('open')}
+function closeDetail(){$('modal').classList.remove('open')}
+function exportCurrent(){if(!current)return;const lines=[['رقم العملية','الكاشير','العميل','الإجمالي','المقبوض'],[current.invoiceNo||current.id,current.cashier||current.cashierId,current.customer?.name||'نقدي',current.total,current.received],[],['الصنف','الكمية','السعر'],...(current.items||[]).map(i=>[i.name,i.qty,i.price])];const blob=new Blob(['\ufeff'+lines.map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(current.invoiceNo||'sale')+'.csv';a.click();URL.revokeObjectURL(a.href)}
+['q','cashier','type','status'].forEach(id=>$(id).addEventListener(id==='q'?'input':'change',render));render();window.addEventListener('storage',render);
+</script></body></html>
