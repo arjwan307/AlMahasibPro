@@ -122,11 +122,11 @@
 
         <!-- التبويبات -->
         <div class="tabs-nav">
-            <button class="tab-btn active" onclick="openTab('chart')"><i class="fas fa-list"></i> دليل الحسابات</button>
-            <button class="tab-btn" onclick="openTab('journal')"><i class="fas fa-pen"></i> قيد اليومية</button>
-            <button class="tab-btn" onclick="openTab('ledger')"><i class="fas fa-book"></i> الأستاذ العام</button>
-            <button class="tab-btn" onclick="openTab('cashbox')"><i class="fas fa-coins"></i> الصندوق</button>
-            <button class="tab-btn" onclick="openTab('pnl')"><i class="fas fa-chart-line"></i> الأرباح والخسائر</button>
+            <button class="tab-btn active" onclick="openTab('chart',this)"><i class="fas fa-list"></i> دليل الحسابات</button>
+            <button class="tab-btn" onclick="openTab('journal',this)"><i class="fas fa-pen"></i> قيد اليومية</button>
+            <button class="tab-btn" onclick="openTab('ledger',this)"><i class="fas fa-book"></i> الأستاذ العام</button>
+            <button class="tab-btn" onclick="openTab('cashbox',this)"><i class="fas fa-coins"></i> الصندوق</button>
+            <button class="tab-btn" onclick="openTab('pnl',this)"><i class="fas fa-chart-line"></i> الأرباح والخسائر</button>
         </div>
 
         <div class="content-area">
@@ -143,12 +143,7 @@
                 <div class="table-wrapper">
                     <table>
                         <thead><tr><th>رقم الحساب</th><th>اسم الحساب</th><th>النوع</th><th>الرصيد</th></tr></thead>
-                        <tbody>
-                            <tr><td>1</td><td>النقدية</td><td>أصول</td><td>15,000,000 د.ع</td></tr>
-                            <tr><td>2</td><td>البنك</td><td>أصول</td><td>50,000,000 د.ع</td></tr>
-                            <tr><td>3</td><td>الموردون</td><td>خصوم</td><td>10,000,000 د.ع</td></tr>
-                            <tr><td>4</td><td>العمليات الإيرادية</td><td>إيرادات</td><td>25,000,000 د.ع</td></tr>
-                        </tbody>
+                        <tbody id="accountsBody"></tbody>
                     </table>
                 </div>
             </div>
@@ -161,10 +156,7 @@
                 <div class="table-wrapper">
                     <table>
                         <thead><tr><th>التاريخ</th><th>الشرح</th><th>مدين</th><th>دائن</th></tr></thead>
-                        <tbody>
-                            <tr><td>2026-01-21</td><td>شراء بضاعة</td><td>5,000,000</td><td>5,000,000</td></tr>
-                            <tr><td>2026-01-20</td><td>بيع منتجات</td><td>2,500,000</td><td>2,500,000</td></tr>
-                        </tbody>
+                        <tbody id="journalBody"></tbody>
                     </table>
                 </div>
             </div>
@@ -180,10 +172,7 @@
                 <div class="table-wrapper">
                     <table>
                         <thead><tr><th>التاريخ</th><th>الشرح</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
-                        <tbody>
-                            <tr><td>2026-01-21</td><td>شراء بضاعة</td><td>5,000,000</td><td></td><td>5,000,000</td></tr>
-                            <tr><td>2026-01-20</td><td>بيع منتجات</td><td></td><td>2,500,000</td><td>2,500,000</td></tr>
-                        </tbody>
+                        <tbody id="ledgerBody"></tbody>
                     </table>
                 </div>
             </div>
@@ -196,10 +185,7 @@
                 <div class="table-wrapper">
                     <table>
                         <thead><tr><th>التاريخ</th><th>العملية</th><th>المبلغ</th><th>الرصيد التراكمي</th></tr></thead>
-                        <tbody>
-                            <tr><td>2026-01-21</td><td>مبيعات نقدية</td><td>+ 1,500,000</td><td>15,000,000</td></tr>
-                            <tr><td>2026-01-20</td><td>شراء مواد</td><td>- 500,000</td><td>13,500,000</td></tr>
-                        </tbody>
+                        <tbody id="cashBody"></tbody>
                     </table>
                 </div>
             </div>
@@ -210,11 +196,7 @@
                 <div class="table-wrapper">
                     <table>
                         <thead><tr><th>البيان</th><th>المبلغ (د.ع)</th></tr></thead>
-                        <tbody>
-                            <tr><td>إجمالي الإيرادات</td><td style="color: #22c55e;">25,000,000</td></tr>
-                            <tr><td>إجمالي المصروفات</td><td style="color: #ef4444;">15,000,000</td></tr>
-                            <tr><td style="font-weight: bold;">صافي الربح</td><td style="color: #fbbf24; font-weight: bold;">10,000,000</td></tr>
-                        </tbody>
+                        <tbody id="pnlBody"></tbody>
                     </table>
                 </div>
             </div>
@@ -252,11 +234,34 @@
     </div>
 
     <script>
-        function openTab(tabId) {
+        const FKEY='almahasib_finance_v2';
+        const baseAccounts=[{code:'1101',name:'الصندوق الرئيسي',type:'أصول'},{code:'1102',name:'البنوك',type:'أصول'},{code:'1201',name:'العملاء',type:'أصول'},{code:'2101',name:'الموردون',type:'خصوم'},{code:'4101',name:'إيرادات المبيعات',type:'إيرادات'},{code:'5101',name:'تكلفة المبيعات',type:'مصروفات'},{code:'5201',name:'مصروفات تشغيلية',type:'مصروفات'},{code:'3101',name:'رأس المال',type:'حقوق ملكية'}];
+        function salesData(){let a=[];try{a=JSON.parse(localStorage.getItem('hawa_dijla_invoices')||'[]')}catch(e){}return a}
+        function state(){let s;try{s=JSON.parse(localStorage.getItem(FKEY)||'null')}catch(e){}return s||{accounts:baseAccounts,journal:[]}}
+        function save(s){localStorage.setItem(FKEY,JSON.stringify(s))}
+        function syncAutomatic(){
+          const s=state(),seen=new Set(s.journal.map(x=>x.ref)),sales=salesData();
+          sales.forEach(x=>{const ref=x.invoiceNo||x.id;if(!ref||seen.has(ref))return;const total=Number(x.total||0),received=Number(x.received||0);s.journal.push({date:x.at||new Date().toISOString(),ref,desc:'بيع - '+(x.customer?.name||x.ref||'نقدي'),debit:total,credit:total,cash:received,type:'sale'});seen.add(ref)});
+          try{const inv=JSON.parse(localStorage.getItem('warehouse_receipts')||'[]');inv.forEach(x=>{const ref=x.transactionNo||x.id;if(ref&&!seen.has(ref)){const total=Number(x.total||x.amount||0);s.journal.push({date:x.at||x.date||new Date().toISOString(),ref,desc:'استلام مشتريات/مورد',debit:total,credit:total,cash:-Number(x.paid||0),type:'purchase'});seen.add(ref)}})}catch(e){}
+          save(s);return s
+        }
+        function fmt(n){return Number(n||0).toLocaleString('ar-IQ')+' د.ع'}
+        function renderFinance(){
+          const s=syncAutomatic(),sales=salesData(),revenue=sales.filter(x=>x.paymentStatus!=='returned').reduce((a,x)=>a+Number(x.total||0),0);
+          const expenses=s.journal.filter(x=>x.type==='purchase'||x.type==='expense').reduce((a,x)=>a+Number(x.debit||0),0);
+          const cash=s.journal.reduce((a,x)=>a+Number(x.cash||0),0);
+          document.getElementById('accountsBody').innerHTML=s.accounts.map(a=>'<tr><td>'+a.code+'</td><td>'+a.name+'</td><td>'+a.type+'</td><td>'+fmt(a.name==='الصندوق الرئيسي'?cash:a.name==='إيرادات المبيعات'?revenue:0)+'</td></tr>').join('');
+          document.getElementById('journalBody').innerHTML=s.journal.slice().reverse().map(x=>'<tr><td>'+new Date(x.date).toLocaleDateString('ar-IQ')+'</td><td>'+x.desc+'<br><small>'+x.ref+'</small></td><td>'+fmt(x.debit)+'</td><td>'+fmt(x.credit)+'</td></tr>').join('')||'<tr><td colspan="4">لا توجد قيود بعد</td></tr>';
+          let bal=0;document.getElementById('ledgerBody').innerHTML=s.journal.map(x=>{bal+=Number(x.debit||0)-Number(x.credit||0);return '<tr><td>'+new Date(x.date).toLocaleDateString('ar-IQ')+'</td><td>'+x.desc+'</td><td>'+fmt(x.debit)+'</td><td>'+fmt(x.credit)+'</td><td>'+fmt(bal)+'</td></tr>'}).join('');
+          let cb=0;document.getElementById('cashBody').innerHTML=s.journal.filter(x=>x.cash).map(x=>{cb+=Number(x.cash);return '<tr><td>'+new Date(x.date).toLocaleString('ar-IQ')+'</td><td>'+x.desc+'</td><td>'+fmt(x.cash)+'</td><td>'+fmt(cb)+'</td></tr>'}).join('');
+          document.getElementById('pnlBody').innerHTML='<tr><td>إجمالي الإيرادات</td><td style="color:#22c55e">'+fmt(revenue)+'</td></tr><tr><td>إجمالي المصروفات/المشتريات</td><td style="color:#ef4444">'+fmt(expenses)+'</td></tr><tr><td><b>صافي النتيجة</b></td><td style="color:#fbbf24"><b>'+fmt(revenue-expenses)+'</b></td></tr>';
+        }
+        window.addEventListener('storage',renderFinance);document.addEventListener('DOMContentLoaded',renderFinance);
+        function openTab(tabId,btn) {
             document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
             document.getElementById(tabId).classList.add('active');
-            event.target.classList.add('active');
+            if(btn) btn.classList.add('active');
         }
 
         function openModal(id) {
