@@ -332,6 +332,17 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   // Company-scoped market cloud snapshot. This deliberately stores the snapshot
   // through the existing sync change stream, so Mongo-backed stores persist it
   // with the same company isolation as every other synchronized entity.
+  app.get('/api/v1/market/transactions', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    let cursor = 0, rows = [], guard = 0;
+    do {
+      const page = await store.pullChanges(req.auth.company.id, cursor, 500);
+      rows.push(...(page.changes || []).filter((row) => row.entityType === 'market.transaction').map((row) => row.payload || row.data).filter(Boolean));
+      if (!page.hasMore || page.nextCursor === cursor) break;
+      cursor = page.nextCursor; guard += 1;
+    } while (guard < 200);
+    res.json({ transactions: rows.slice(-5000) });
+  }));
+
   app.get('/api/v1/market/snapshot', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
     let cursor = 0, latest = null, guard = 0;
     do {
