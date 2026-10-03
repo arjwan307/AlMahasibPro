@@ -10,7 +10,7 @@
         * { box-sizing:border-box; font-family:'Cairo',sans-serif; }
         body { margin:0; min-height:100vh; padding:20px; color:#fff; background:linear-gradient(135deg,#0f172a,#1e293b); }
         .shell { max-width:1300px; margin:auto; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); border-radius:32px; padding:25px; }
-        .header,.toolbar,.summary,.actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+        .market-topbar{display:none;position:sticky;top:0;z-index:1200;margin:-20px -20px 16px;padding:12px 18px;background:linear-gradient(135deg,#172554,#0f172a);box-shadow:0 8px 22px #0005;align-items:center;gap:12px;flex-wrap:wrap}.market-topbar.active{display:flex}.market-topbar span{background:#ffffff12;padding:7px 10px;border-radius:9px}.market-topbar b{color:#fbbf24}.market-topbar input{background:#fff;color:#0f172a;min-width:120px;width:140px}.header,.toolbar,.summary,.actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
         .header { justify-content:space-between; margin-bottom:20px; }
         .header h1 { margin:0; } .header h1 span { color:#fbbf24; }
         .badge { padding:7px 12px; border-radius:18px; background:#334155; } .online { background:#166534; } .offline { background:#991b1b; }
@@ -40,6 +40,7 @@
 <div id="menuAdmin" class="menu-admin hidden-pos"><h3>إضافة / تعديل صنف</h3><div class="toolbar"><input id="menuName" placeholder="اسم الصنف"><input id="menuCategory" placeholder="القسم"><input id="menuPrice" type="number" placeholder="السعر"><input id="menuImage" type="file" accept="image/*"><button class="btn btn-success" onclick="RestaurantPOS.saveItem()">حفظ</button></div><div class="muted">يمكن تغيير الاسم والصورة والسعر أو حذف الصنف لاحقًا. الصور التجريبية تعامل كصور رفعها صاحب المطعم.</div></div></main>
 <aside class="order-panel"><h2>الطلب الحالي</h2><label><b>نوع الطلب</b></label><select id="orderType" onchange="RestaurantPOS.orderTypeChanged()"><option value="table">داخل المطعم</option><option value="takeaway">سفري</option><option value="delivery">دلفري</option><option value="external">طلب خارجي</option></select><label for="orderReference"><b id="orderRefLabel">رقم الطاولة</b></label><input id="orderReference" inputmode="numeric" placeholder="مثال: 4"><div id="deliveryFields" class="hidden-pos"><input id="customerName" placeholder="اسم الزبون"><input id="customerPhone" inputmode="tel" placeholder="هاتف الزبون"><input id="customerAddress" placeholder="عنوان الزبون"><input id="driverName" placeholder="اسم الدلفري / السائق"><input id="driverPhone" inputmode="tel" placeholder="هاتف الدلفري / السائق"></div><label style="display:flex;gap:8px;align-items:center;margin:8px 0"><input id="autoPrintInvoice" type="checkbox" checked style="min-width:auto"> طباعة الفاتورة تلقائيًا عند التسوية</label><div style="font-size:.78rem;color:#64748b;margin-bottom:8px">الطباعة الحرارية المباشرة 80mm تعمل من تطبيق الكاشير/الطابعة. المتصفح قد يفرض معاينة الطباعة.</div><div id="restaurantCart"></div><div class="order-total">الإجمالي: <span id="restaurantTotal">0</span> د.ع</div><input id="receivedAmount" type="number" placeholder="المبلغ المستلم"><div class="cash-summary"><div class="cash-stat">افتتاح<b id="sumOpening">0</b></div><div class="cash-stat">مبيعات مستلمة<b id="sumSales">0</b></div><div class="cash-stat">مصروفات<b id="sumExpenses">0</b></div><div class="cash-stat">المجمع النهائي<b id="sumFinal">0</b></div></div><div class="expense-box"><b>تسجيل مصروف</b><input id="expenseNote" placeholder="بيان المصروف"><input id="expenseAmount" type="number" placeholder="المبلغ"><button class="btn btn-danger" onclick="RestaurantPOS.addExpense()">تسجيل الصرف</button></div><div class="actions"><button class="btn btn-primary" onclick="RestaurantPOS.hold()">حفظ الطلب</button><button class="btn btn-success" onclick="RestaurantPOS.checkout()">طلب الحساب</button><button class="btn" onclick="RestaurantPOS.clear()">طلب جديد</button><button class="btn" onclick="RestaurantPOS.showClosed()">مراجعة المغلقة</button></div><div id="heldOrders" style="margin-top:14px"></div><div id="closedOrders" class="hidden-pos" style="margin-top:14px"></div></aside></div></div>
 <div class="shell" id="legacyPos">
+        <div id="marketTopbar" class="market-topbar"><span><b id="marketCompanyName">المجمع</b></span><span>الكاشير: <b id="marketCashierName">الكاشير الرئيسي</b></span><span>الوقت: <b id="marketClock">--:--:--</b></span><span>التاريخ: <b id="marketDate">--</b></span><span>الرصيد الافتتاحي: <input id="marketOpeningBalance" type="number" min="0" value="0"></span></div>
         <div class="header">
             <div><h1><i class="fas fa-cash-register"></i> كاشير <span id="modeTitle"></span></h1><div id="shiftStatus">جارٍ التحميل...</div></div>
             <div class="actions">
@@ -76,5 +77,22 @@
     <div id="shiftCloseModal" class="shift-close-summary"><div class="shift-close-card"><h2 id="shiftCloseTitle">تسوية الشفت</h2><div id="shiftCloseBody"></div><div class="actions" style="margin-top:18px"><button class="btn btn-success" onclick="RestaurantPOS.confirmShiftClose()">تأكيد التسوية</button><button class="btn" onclick="RestaurantPOS.cancelShiftClose()">رجوع</button></div></div></div><div id="receipt"></div>
     <script src="/offline-sync.js" defer></script>
     <script src="/pos-ui.js" defer></script><script src="/restaurant-pos.js" defer></script>
-</body>
+<script>
+(function(){
+ const mode=new URLSearchParams(location.search).get('mode');
+ if(mode!=='market') return;
+ const bar=document.getElementById('marketTopbar'); if(bar) bar.classList.add('active');
+ let ctx={}; try{ctx=JSON.parse(localStorage.getItem('almahasib_company_context')||'{}')}catch(e){}
+ const scope=String(ctx.id||ctx.code||'unscoped').replace(/[^A-Za-z0-9_-]/g,'_');
+ const key='tenant:'+scope+':market_opening_balance';
+ document.getElementById('marketCompanyName').textContent=ctx.name||'الماركت والمجمع';
+ const cashier=new URLSearchParams(location.search).get('cashier')||'الكاشير الرئيسي';
+ document.getElementById('marketCashierName').textContent=cashier;
+ const bal=document.getElementById('marketOpeningBalance');
+ bal.value=localStorage.getItem(key)??'0';
+ bal.addEventListener('input',()=>localStorage.setItem(key,String(Number(bal.value||0))));
+ function tick(){const d=new Date();document.getElementById('marketClock').textContent=d.toLocaleTimeString('ar-IQ');document.getElementById('marketDate').textContent=d.toLocaleDateString('ar-IQ');}
+ tick();setInterval(tick,1000);
+})();
+</script></body>
 </html>
