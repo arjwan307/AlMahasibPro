@@ -76,9 +76,15 @@ const seed=[
 ['أركيلة ليمون ونعناع','أركيلة',10000,'https://images.unsplash.com/photo-1525268323446-0505b6fe7778?auto=format&fit=crop&w=500&q=80']
 ];
 let menu=JSON.parse(companyGet('restaurant_menu')||'null')||[];
-const seeded=seed.map((x,i)=>({id:'demo-v2-'+i,name:x[0],category:x[1],price:x[2],image:x[3],active:true}));
-const existingNames=new Set(menu.map(x=>x.name));
-seeded.forEach(x=>{if(!existingNames.has(x.name))menu.push(x)});
+// Demo restaurant catalog is opt-in and restricted to the Hawa Dijla demo tenant.
+// New companies always start with an empty catalog.
+const normalizedCompanyName=String(companyContext.name||'').trim();
+const isHawaDijlaDemo=/هوى\s*دجلة/.test(normalizedCompanyName);
+if(isHawaDijlaDemo){
+  const seeded=seed.map((x,i)=>({id:'demo-v2-'+i,name:x[0],category:x[1],price:x[2],image:x[3],active:true,demo:true}));
+  const existingNames=new Set(menu.map(x=>x.name));
+  seeded.forEach(x=>{if(!existingNames.has(x.name))menu.push(x)});
+}
 let cart=[],cat='الكل',editId=null; const $=id=>document.getElementById(id);
 const cashKey='hawa_dijla_cash_shift';
 const cashierId=new URLSearchParams(location.search).get('cashier')||'1';
