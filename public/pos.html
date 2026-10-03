@@ -58,7 +58,19 @@
             <div class="mode-context"><label id="contextLabel"></label><input id="contextValue" placeholder=""></div>
         </div>
         <div id="restaurantCatalog" class="restaurant-catalog"></div>
-        <div id="marketCatalog" class="restaurant-catalog" style="display:none"></div><table>
+        <div id="marketCatalog" class="restaurant-catalog" style="display:none"></div>
+<div id="marketSaleTools" style="display:none" class="card">
+  <div class="actions">
+    <button class="btn" onclick="PosUI.holdMarketSale()">تعليق الفاتورة</button>
+    <button class="btn" onclick="PosUI.showHeldMarketSales()">الفواتير المعلقة</button>
+    <button class="btn btn-danger" onclick="PosUI.returnMarketInvoice()">مرتجع فاتورة</button>
+  </div>
+  <div id="marketHeldList" style="display:none;margin-top:10px"></div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+    <label>المبلغ المستلم <input id="marketReceived" type="number" min="0" value="0" oninput="PosUI.updateMarketChange()"></label>
+    <strong>الباقي للزبون: <span id="marketChange">0</span> د.ع</strong>
+  </div>
+</div><table>
             <thead><tr><th>المادة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th><th></th></tr></thead>
             <tbody id="cartBody"><tr><td colspan="5">لا توجد مواد</td></tr></tbody>
         </table>
