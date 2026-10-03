@@ -514,6 +514,18 @@ export class MemoryStore {
           result.entityId = record.id;
           this.#change(context.company.id, 'financial_record', record.id, 'upsert', record);
         }
+      } else if (operation.type === 'market.snapshot') {
+        const catalog = Array.isArray(operation.payload?.catalog) ? operation.payload.catalog : null;
+        if (!catalog) {
+          result.status = 'rejected';
+          result.code = 'INVALID_MARKET_CATALOG';
+        } else {
+          const entityId = 'catalog';
+          result.entityId = entityId;
+          this.#change(context.company.id, 'market.snapshot', entityId, 'upsert', {
+            catalog: clone(catalog), updatedAt: operation.payload.updatedAt || operation.occurredAt
+          });
+        }
       } else if (operation.type.startsWith('draft.')) {
         const entityId = operation.payload.entityId || randomUUID();
         result.entityId = entityId;
