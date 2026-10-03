@@ -329,6 +329,33 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json(await store.syncStatus(req.auth.company.id, req.auth.user.id, req.auth.session.deviceId));
   }));
 
+  // Company-scoped market cloud snapshot. This deliberately stores the snapshot
+  // through the existing sync change stream, so Mongo-backed stores persist it
+  // with the same company isolation as every other synchronized entity.
+  app.get('/api/v1/market/snapshot', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    const page = await store.pullChanges(req.auth.company.id, 0, 10000);
+    const rows = (page.changes || []).filter((row) => row.entityType === 'market.snapshot');
+    const latest = rows.sort((a,b) => Number(b.sequence || b.id || 0) - Number(a.sequence || a.id || 0))[0] || null;
+    res.json({ snapshot: latest?.payload || latest?.data || null });
+  }));
+
+  app.post('/api/v1/market/snapshot', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    const catalog = Array.isArray(req.body?.catalog) ? req.body.catalog.slice(0, 10000).map((x) => ({
+      id: String(x.id || '').slice(0,128), name: String(x.name || '').slice(0,200),
+      category: String(x.category || 'غير مصنف').slice(0,100), barcode: String(x.barcode || '').slice(0,64),
+      cost: Number(x.cost || 0), price: Number(x.price || 0), qty: Number(x.qty || 0),
+      minQty: Number(x.minQty || 0), unit: String(x.unit || 'قطعة').slice(0,32), demo: x.demo === true
+    })) : null;
+    if (!catalog) throw new AppError(400, 'INVALID_MARKET_CATALOG', 'بيانات أصناف الماركت غير صالحة');
+    const operation = validateOperation({
+      operationId: crypto.randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
+      clientSequence: Date.now(), occurredAt: new Date().toISOString(), schemaVersion: 1,
+      dependencies: [], type: 'market.snapshot', payload: { catalog, updatedAt: new Date().toISOString() }
+    });
+    const results = await store.pushOperations(req.auth, [operation]);
+    res.json({ ok: true, result: results[0] });
+  }));
+
   app.use('/api', (req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'المسار غير موجود' } }));
   app.get('*', (req, res) => res.sendFile(path.join(publicDirectory, 'index.html')));
 
