@@ -393,6 +393,13 @@
                 });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error?.message || 'تعذر تسجيل الدخول');
+                const account = data.account || {};
+                const companyAccount = account.company || {};
+                const companyCode = companyAccount.code || company;
+                const companyId = companyAccount.id || companyCode;
+                const companyName = companyAccount.legalName || companyAccount.name || companyCode;
+                localStorage.setItem('almahasib_company_context', JSON.stringify({ id: companyId, code: companyCode, name: companyName }));
+                localStorage.setItem('almahasib_company_scope', String(companyId));
                 window.location.href = '/dashboard.html';
             } catch (error) {
                 alert(error.message);
