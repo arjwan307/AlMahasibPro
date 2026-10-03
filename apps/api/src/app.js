@@ -332,6 +332,37 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   // Company-scoped market cloud snapshot. This deliberately stores the snapshot
   // through the existing sync change stream, so Mongo-backed stores persist it
   // with the same company isolation as every other synchronized entity.
+  async function currentMarketSnapshot(companyId) {
+    let cursor=0,latestRow=null,guard=0;
+    do { const page=await store.pullChanges(companyId,cursor,500); for(const row of page.changes||[]) if(row.entityType==='market.snapshot') latestRow=row;
+      if(!page.hasMore||page.nextCursor===cursor)break; cursor=page.nextCursor; guard+=1;
+    } while(guard<200);
+    return latestRow?.payload||latestRow?.data||null;
+  }
+  async function marketTransactionExists(companyId,predicate) {
+    let cursor=0,guard=0;
+    do { const page=await store.pullChanges(companyId,cursor,500);
+      for(const row of page.changes||[]) if(row.entityType==='market.transaction'&&predicate(row.payload||row.data||{})) return true;
+      if(!page.hasMore||page.nextCursor===cursor)break; cursor=page.nextCursor; guard+=1;
+    } while(guard<200);
+    return false;
+  }
+
+  app.post('/api/v1/market/stock-reversal', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
+    const kind=String(req.body?.kind||''), invoice=String(req.body?.invoice||'');
+    if(!['return','cancel'].includes(kind)||!invoice) throw new AppError(400,'INVALID_MARKET_REVERSAL','عملية المرتجع أو الإلغاء غير صالحة');
+    if(await marketTransactionExists(req.auth.company.id,(x)=>x.invoice===invoice&&x.kind==='cancel')) throw new AppError(409,'MARKET_INVOICE_CANCELLED','الفاتورة ملغاة مسبقًا');
+    if(kind==='cancel'&&await marketTransactionExists(req.auth.company.id,(x)=>x.invoice===invoice&&x.kind==='return')) throw new AppError(409,'MARKET_INVOICE_HAS_RETURN','لا يمكن إلغاء فاتورة عليها مرتجع');
+    const snapshot=await currentMarketSnapshot(req.auth.company.id); if(!snapshot?.catalog) throw new AppError(409,'MARKET_CATALOG_NOT_SYNCED','المخزون المركزي غير متاح');
+    const catalog=structuredClone(snapshot.catalog),lines=Array.isArray(req.body?.lines)?req.body.lines:[];
+    if(!lines.length) throw new AppError(400,'INVALID_MARKET_REVERSAL','لا توجد مواد لإعادتها');
+    for(const line of lines){const item=catalog.find(x=>String(x.id)===String(line.itemId)),qty=Number(line.quantity||0);if(!item||!(qty>0))throw new AppError(409,'MARKET_ITEM_NOT_FOUND','أحد أصناف المرتجع غير موجود');item.qty=Number(item.qty||0)+qty}
+    const now=new Date().toISOString(),snap=validateOperation({operationId:crypto.randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now(),occurredAt:now,schemaVersion:1,dependencies:[],type:'market.snapshot',payload:{catalog,updatedAt:now}});
+    const tx=validateOperation({operationId:crypto.randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now()+1,occurredAt:now,schemaVersion:1,dependencies:[],type:'market.transaction.'+kind,payload:{...req.body,id:String(req.body?.id||crypto.randomUUID()),kind,occurredAt:now}});
+    const results=await store.pushOperations(req.auth,[snap,tx]);if(results.some(x=>x.status!=='acknowledged'))throw new AppError(409,'MARKET_REVERSAL_REJECTED','تعذر اعتماد العملية مركزيًا');
+    res.json({ok:true,snapshot:{catalog,updatedAt:now}});
+  }));
+
   app.post('/api/v1/market/sale', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
     const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
     if (!lines.length || lines.length > 500) throw new AppError(400, 'INVALID_MARKET_SALE', 'فاتورة البيع غير صالحة');
