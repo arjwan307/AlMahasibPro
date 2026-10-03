@@ -231,8 +231,9 @@
 
   function marketHeldKey(){return 'tenant:'+companyScope+':market_held_sales_v1'}
   function marketInvoicesKey(){return 'tenant:'+companyScope+':market_invoices_v1'}
-  function marketShiftKey(){return 'tenant:'+companyScope+':market_shift_v1'}
-  function marketShiftHistoryKey(){return 'tenant:'+companyScope+':market_shift_history_v1'}
+  function marketCashierId(){return (new URLSearchParams(location.search).get('cashierCode')||new URLSearchParams(location.search).get('cashier')||'main').replace(/[^A-Za-z0-9_\u0600-\u06FF-]/g,'_')}
+  function marketShiftKey(){return 'tenant:'+companyScope+':market_shift_'+marketCashierId()+'_v1'}
+  function marketShiftHistoryKey(){return 'tenant:'+companyScope+':market_shift_history_'+marketCashierId()+'_v1'}
   function getMarketShift(){try{return JSON.parse(localStorage.getItem(marketShiftKey())||'null')}catch{return null}}
   function marketOpenShift(){
     if(getMarketShift()?.status==='open')return alert('الكاشير مفتوح بالفعل');
@@ -275,7 +276,7 @@
     const a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]');el.style.display='block';
     el.innerHTML=a.length?a.map(x=>'<div style="display:flex;justify-content:space-between;gap:8px;padding:8px;border-bottom:1px solid #334"><span>'+escapeHtml(x.ref)+' — '+new Date(x.at).toLocaleString('ar-IQ')+'</span><span><button class="btn" onclick="PosUI.restoreHeldMarketSale(\''+x.id+'\')">استرجاع</button> <button class="btn btn-danger" onclick="PosUI.deleteHeldMarketSale(\''+x.id+'\')">حذف</button></span></div>').join(''):'لا توجد فواتير معلقة';
   }
-  function restoreHeldMarketSale(id){let a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]'),x=a.find(z=>z.id===id);if(!x)return;cart=x.cart||[];a=a.filter(z=>z.id!==id);localStorage.setItem(marketHeldKey(),JSON.stringify(a));renderCart();showHeldMarketSales()}
+  function restoreHeldMarketSale(id){let a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]'),x=a.find(z=>z.id===id);if(!x)return;if(cart.length&&!confirm('السلة الحالية تحتوي مواد. هل تريد استبدالها بالفاتورة المعلقة؟'))return;const catalog=marketCatalog();const bad=(x.cart||[]).find(l=>{const s=catalog.find(z=>z.id===l.itemId);return !s||Number(s.qty||0)<Number(l.quantity||0)});if(bad)return alert('لا يمكن الاسترجاع: رصيد الصنف غير كافٍ أو تم حذفه: '+bad.name);cart=x.cart||[];a=a.filter(z=>z.id!==id);localStorage.setItem(marketHeldKey(),JSON.stringify(a));renderCart();showHeldMarketSales()}
   function deleteHeldMarketSale(id){if(!confirm('حذف الفاتورة المعلقة؟'))return;let a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]').filter(z=>z.id!==id);localStorage.setItem(marketHeldKey(),JSON.stringify(a));showHeldMarketSales()}
   function updateMarketChange(){
     if(selectedMode!=='market')return;
