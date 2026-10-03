@@ -293,7 +293,7 @@
     const reason=prompt('سبب المرتجع:');if(!reason)return alert('سبب المرتجع مطلوب');
     const choice=prompt('اكتب "كامل" لإرجاع الفاتورة كلها، أو أدخل رقم تسلسل المادة (1،2،3...) لإرجاع مادة محددة:','كامل');if(!choice)return;
     let selected=[];
-    if(choice.trim()==='كامل') selected=(x.lines||[]).map((l,i)=>({line:l,index:i}));
+    if(choice.trim()==='كامل'){selected=(x.lines||[]).map((l,i)=>{const already=(x.partialReturns||[]).flatMap(r=>r.lines||[]).filter(z=>z.itemId===l.itemId).reduce((n,z)=>n+Number(z.quantity||0),0),remaining=Math.max(0,Number(l.quantity||0)-already);return remaining>0?{line:{...l,quantity:String(remaining)},index:i}:null}).filter(Boolean);if(!selected.length)return alert('تم إرجاع كامل الفاتورة مسبقًا')}
     else {const i=Number(choice)-1;if(!Number.isInteger(i)||!x.lines?.[i])return alert('رقم المادة غير صحيح');const line=x.lines[i];const already=(x.partialReturns||[]).flatMap(r=>r.lines||[]).filter(l=>l.itemId===line.itemId).reduce((n,l)=>n+Number(l.quantity||0),0),max=Math.max(0,Number(line.quantity||0)-already);if(max<=0)return alert('تم إرجاع كامل كمية هذه المادة مسبقًا');const q=Number(prompt('الكمية المرتجعة من '+line.name+' (المتبقي '+max+'):',String(max))||0);if(!(q>0&&q<=max))return alert('كمية المرتجع غير صحيحة');selected=[{line:{...line,quantity:String(q)},index:i}]}
     if(!confirm('تأكيد المرتجع وإعادة الكمية للمخزون؟'))return;
     let cat=marketCatalog(),amount=0;selected.forEach(({line})=>{const item=cat.find(z=>z.id===line.itemId);if(item)item.qty=Number(item.qty||0)+Number(line.quantity||0);amount+=Number(line.quantity||0)*Number(line.unitPrice||0)});
@@ -303,7 +303,7 @@
     localStorage.setItem(marketInvoicesKey(),JSON.stringify(a));renderMarketCatalog();alert('تم تسجيل المرتجع وإعادة الكمية للمخزون');
   }
   function cancelMarketInvoice(){
-    const number=prompt('رقم الفاتورة المراد إلغاؤها:');if(!number)return;const a=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]'),x=a.find(z=>z.number===number);if(!x)return alert('الفاتورة غير موجودة');if(x.returned||x.cancelled)return alert('الفاتورة مرتجعة أو ملغاة مسبقًا');
+    const number=prompt('رقم الفاتورة المراد إلغاؤها:');if(!number)return;const a=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]'),x=a.find(z=>z.number===number);if(!x)return alert('الفاتورة غير موجودة');if(x.returned||x.cancelled)return alert('الفاتورة مرتجعة أو ملغاة مسبقًا');if((x.partialReturns||[]).length)return alert('لا يمكن إلغاء فاتورة عليها مرتجع جزئي؛ أكمل المرتجع أو راجع السجل');
     const reason=prompt('سبب الإلغاء:');if(!reason)return alert('سبب الإلغاء مطلوب');if(!confirm('تأكيد إلغاء الفاتورة وإعادة جميع الكميات؟'))return;
     let cat=marketCatalog();(x.lines||[]).forEach(l=>{const item=cat.find(z=>z.id===l.itemId);if(item)item.qty=Number(item.qty||0)+Number(l.quantity||0)});localStorage.setItem(marketCatalogKey,JSON.stringify(cat));localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',new Date().toISOString());window.AlMahasibMarketOffline?.saveSnapshot('market-cancel');if(navigator.onLine)void window.AlMahasibMarketOffline?.syncCloud();x.cancelled=true;x.cancelledAt=new Date().toISOString();x.cancelReason=reason;localStorage.setItem(marketInvoicesKey(),JSON.stringify(a));renderMarketCatalog();alert('تم إلغاء الفاتورة وحفظ السبب وإعادة المخزون');
   }
@@ -389,7 +389,7 @@
     const company=companyContext.name||'المحاسب برو';
     const cashier=new URLSearchParams(location.search).get('cashier')||'الكاشير الرئيسي';
     const lines=receipt.lines||[];
-    const net=receipt.net||receipt.subtotal||'0.000000', cash=receipt.cash||'0.000000', due=receipt.due||'0.000000';
+    const net=receipt.net||receipt.subtotal||'0.000000', cash=receipt.cash||'0.000000', due=receipt.due||'0.000000', received=receipt.received||cash, change=receipt.change||'0.000000';
     document.getElementById('receipt').innerHTML =
       '<div style="font-family:Arial;text-align:center;color:#000"><h2 style="margin:0">'+escapeHtml(company)+'</h2>'+
       '<div>'+escapeHtml(receipt.mode||titles[selectedMode])+'</div><div>الكاشير: '+escapeHtml(cashier)+'</div>'+
@@ -399,7 +399,7 @@
       lines.map(l=>'<tr><td>'+escapeHtml(l.name||'مادة')+'</td><td>'+escapeHtml(l.quantity||'1')+'</td><td>'+escapeHtml(l.unitPrice||'0')+'</td><td>'+escapeHtml(multiply(l.quantity||'1',l.unitPrice||'0'))+'</td></tr>').join('')+
       '</tbody></table><hr><div style="text-align:right"><div>الإجمالي: '+escapeHtml(receipt.gross||net)+' د.ع</div>'+
       '<div>الخصم: '+escapeHtml(receipt.discount||'0')+' د.ع</div><div><b>الصافي: '+escapeHtml(net)+' د.ع</b></div>'+
-      '<div>المدفوع: '+escapeHtml(cash)+' د.ع</div><div>المتبقي/الآجل: '+escapeHtml(due)+' د.ع</div></div>'+
+      '<div>المدفوع: '+escapeHtml(cash)+' د.ع</div>'+(selectedMode==='market'?'<div>المستلم: '+escapeHtml(received)+' د.ع</div><div>الباقي للزبون: '+escapeHtml(change)+' د.ع</div>':'')+'<div>المتبقي/الآجل: '+escapeHtml(due)+' د.ع</div></div>'+
       '<hr><p>شكرًا لزيارتكم</p></div>';
   }
 
