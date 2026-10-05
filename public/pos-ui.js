@@ -16,6 +16,7 @@
   let cart = [];
   let saleInProgress = false;
   let marketReceivedManual = false;
+  let activeHeldMarketId = null;
   const standaloneCashier = document.body.dataset.standaloneCashier === "true";
   let localReceipt;
   const companyContext=(()=>{try{return JSON.parse(localStorage.getItem('almahasib_company_context')||'{}')}catch{return{}}})();
@@ -56,7 +57,7 @@
       const admin=document.getElementById('marketCatalogButton'); if(admin) admin.style.display='';
       const tools=document.getElementById('marketSaleTools'); if(tools) tools.style.display='block';
       const list=document.getElementById('marketCatalog'); if(list) list.style.display='grid';
-      renderMarketCatalog();renderMarketShift();
+      renderMarketCatalog();renderMarketShift();if(standaloneCashier)showHeldMarketSales();
       window.addEventListener('storage',(e)=>{if(e.key===marketCatalogKey)renderMarketCatalog()});
       window.addEventListener('almahasib:market-update',renderMarketCatalog);
       // Market has a tenant-scoped IndexedDB/cloud runtime and must not be
@@ -242,6 +243,7 @@
       if(receivedInput&&!marketReceivedManual)receivedInput.value=String(Number(fromScaled(net>0n?net:0n)));
     }
     document.getElementById('netTotal').textContent = (standaloneCashier ? Number(fromScaled(net > 0n ? net : 0n)).toLocaleString("ar-IQ") : fromScaled(net > 0n ? net : 0n)); if(selectedMode==='market')updateMarketChange();
+    if(selectedMode==='market'&&activeHeldMarketId){const draft=loadHeldMarketSales().find(x=>x.id===activeHeldMarketId);if(draft){storeHeldMarketDraft(activeHeldMarketId,draft.ref);showHeldMarketSales()}}
   }
 
   function remove(index) { if(saleInProgress)return; cart.splice(index, 1); saveRestaurantCart(); renderCart(); if(selectedMode==='market')updateMarketChange(); }
@@ -281,21 +283,47 @@
     alert((handover?'تم تسليم الشفت':'تم إغلاق وتسوية الشفت')+'\nفرق الصندوق: '+s.difference.toLocaleString('ar-IQ')+' د.ع');
   }
   function renderMarketShift(){if(selectedMode!=='market')return;const s=getMarketShift(),el=document.getElementById('marketShiftInfo');if(!el)return;el.textContent=!s?'لا يوجد شفت مفتوح':s.status==='open'?'الشفت مفتوح منذ '+new Date(s.openedAt).toLocaleTimeString('ar-IQ'):'آخر شفت مغلق — فرق الصندوق '+Number(s.difference||0).toLocaleString('ar-IQ')+' د.ع';}
+  function loadHeldMarketSales(){try{return JSON.parse(localStorage.getItem(marketHeldKey())||'[]')}catch{return[]}}
+  function storeHeldMarketDraft(id,ref){
+    const a=loadHeldMarketSales(),old=a.find(x=>x.id===id);
+    const draft={id,ref,at:old?.at||new Date().toISOString(),updatedAt:new Date().toISOString(),cart:structuredClone(cart),discount:document.getElementById('discountInput').value||'0',received:document.getElementById('marketReceived')?.value||'0',receivedManual:marketReceivedManual};
+    const index=a.findIndex(x=>x.id===id);if(index<0)a.unshift(draft);else a[index]=draft;
+    localStorage.setItem(marketHeldKey(),JSON.stringify(a));
+  }
   function holdMarketSale(){
     if(saleInProgress)return;
     if(!cart.length)return alert('لا توجد مواد لتعليقها');
-    const a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]');
-    const ref=prompt('اسم أو رقم الفاتورة المعلقة:','معلق '+(a.length+1)); if(ref===null)return;
-    a.unshift({id:crypto.randomUUID(),ref:ref.trim()||('معلق '+(a.length+1)),at:new Date().toISOString(),cart:structuredClone(cart)});
-    localStorage.setItem(marketHeldKey(),JSON.stringify(a));cart=[];renderCart();showHeldMarketSales();
+    const a=loadHeldMarketSales(),old=a.find(x=>x.id===activeHeldMarketId);
+    const ref=prompt('اسم أو رقم فاتورة الانتظار:',old?.ref||('انتظار '+(a.length+1)));if(ref===null)return;
+    storeHeldMarketDraft(activeHeldMarketId||crypto.randomUUID(),ref.trim()||old?.ref||('انتظار '+(a.length+1)));
+    activeHeldMarketId=null;cart=[];marketReceivedManual=false;document.getElementById('discountInput').value='0';renderCart();showHeldMarketSales();
   }
   function showHeldMarketSales(){
     const el=document.getElementById('marketHeldList');if(!el)return;
-    const a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]');el.style.display='block';
-    el.innerHTML=a.length?a.map(x=>'<div style="display:flex;justify-content:space-between;gap:8px;padding:8px;border-bottom:1px solid #334"><span>'+escapeHtml(x.ref)+' — '+new Date(x.at).toLocaleString('ar-IQ')+'</span><span><button class="btn" onclick="PosUI.restoreHeldMarketSale(\''+x.id+'\')">استرجاع</button> <button class="btn btn-danger" onclick="PosUI.deleteHeldMarketSale(\''+x.id+'\')">حذف</button></span></div>').join(''):'لا توجد فواتير معلقة';
+    const a=loadHeldMarketSales();el.style.display='block';
+    el.innerHTML='<h3>فواتير الانتظار</h3><div class="held-market-grid">'+(a.length?a.map(x=>{
+      const lines=x.cart||[],total=lines.reduce((sum,l)=>sum+toScaled(multiply(l.quantity,l.unitPrice)),0n)-toScaled(x.discount||'0');
+      return '<article class="held-market-card'+(x.id===activeHeldMarketId?' editing':'')+'"><b>'+escapeHtml(x.ref)+'</b><small>'+escapeHtml(new Date(x.updatedAt||x.at).toLocaleString('ar-IQ'))+'</small><p>'+lines.length+' أصناف — '+Number(fromScaled(total>0n?total:0n)).toLocaleString('ar-IQ')+' د.ع</p><div class="actions"><button class="btn btn-primary" data-held-open="'+escapeHtml(x.id)+'">'+(x.id===activeHeldMarketId?'قيد الإضافة':'فتح وإضافة مواد')+'</button><button class="btn btn-danger" data-held-delete="'+escapeHtml(x.id)+'">حذف</button></div></article>';
+    }).join(''):'<p class="muted">لا توجد فواتير بالانتظار</p>')+'</div>';
+    el.onclick=(event)=>{const open=event.target.closest('[data-held-open]'),remove=event.target.closest('[data-held-delete]');if(open)restoreHeldMarketSale(open.dataset.heldOpen);if(remove)deleteHeldMarketSale(remove.dataset.heldDelete)};
+    const label=document.getElementById('activeInvoiceLabel');if(label)label.textContent=activeHeldMarketId?'إضافة إلى: '+(a.find(x=>x.id===activeHeldMarketId)?.ref||'فاتورة انتظار'):'فاتورة جديدة';
   }
-  function restoreHeldMarketSale(id){if(saleInProgress)return;let a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]'),x=a.find(z=>z.id===id);if(!x)return;if(cart.length&&!confirm('السلة الحالية تحتوي مواد. هل تريد استبدالها بالفاتورة المعلقة؟'))return;const catalog=marketCatalog();const bad=(x.cart||[]).find(l=>{const s=catalog.find(z=>z.id===l.itemId);return !s||Number(s.qty||0)<Number(l.quantity||0)});if(bad)return alert('لا يمكن الاسترجاع: رصيد الصنف غير كافٍ أو تم حذفه: '+bad.name);marketReceivedManual=false;cart=x.cart||[];a=a.filter(z=>z.id!==id);localStorage.setItem(marketHeldKey(),JSON.stringify(a));renderCart();showHeldMarketSales()}
-  function deleteHeldMarketSale(id){if(!confirm('حذف الفاتورة المعلقة؟'))return;let a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]').filter(z=>z.id!==id);localStorage.setItem(marketHeldKey(),JSON.stringify(a));showHeldMarketSales()}
+  function restoreHeldMarketSale(id){
+    if(saleInProgress||id===activeHeldMarketId)return;
+    const a=loadHeldMarketSales(),x=a.find(z=>z.id===id);if(!x)return;
+    const catalog=marketCatalog(),bad=(x.cart||[]).find(l=>{const stock=catalog.find(z=>z.id===l.itemId);return !stock||Number(stock.qty||0)<Number(l.quantity||0)});
+    if(bad)return alert('لا يمكن الفتح: رصيد الصنف غير كافٍ أو تم حذفه: '+bad.name);
+    if(cart.length&&!activeHeldMarketId){if(!confirm('حفظ الفاتورة الحالية بالانتظار وفتح الفاتورة المختارة؟'))return;storeHeldMarketDraft(crypto.randomUUID(),'انتظار '+(a.length+1))}
+    if(activeHeldMarketId){const old=a.find(z=>z.id===activeHeldMarketId);if(old)storeHeldMarketDraft(activeHeldMarketId,old.ref)}
+    activeHeldMarketId=id;cart=structuredClone(x.cart||[]);document.getElementById('discountInput').value=x.discount||'0';
+    marketReceivedManual=!!x.receivedManual;const received=document.getElementById('marketReceived');if(received)received.value=x.received||'0';
+    renderCart();showHeldMarketSales();document.getElementById('barcodeInput').focus();
+  }
+  function deleteHeldMarketSale(id){
+    if(saleInProgress||!confirm('حذف فاتورة الانتظار؟'))return;
+    const a=loadHeldMarketSales().filter(z=>z.id!==id);localStorage.setItem(marketHeldKey(),JSON.stringify(a));
+    if(activeHeldMarketId===id){activeHeldMarketId=null;cart=[];document.getElementById('discountInput').value='0';renderCart()}showHeldMarketSales();
+  }
   function updateMarketChange(){
     if(selectedMode!=='market')return;
     const gross=cart.reduce((s,l)=>s+toScaled(multiply(l.quantity,l.unitPrice)),0n);
@@ -365,7 +393,8 @@
         }
         localReceipt={number,lines:structuredClone(cart),gross:fromScaled(gross),discount,net,cash:net,due:'0.000000',received,change:salePayload.change,mode:titles[selectedMode],at:saleAt,returned:false,cancelled:false,cashier:shift.cashier,cashierCode:marketCashierId()};
         const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');invoices.unshift(localReceipt);localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices.slice(0,1000)));
-        renderMarketCatalog();renderReceipt(localReceipt);cart=[];renderCart();const r=document.getElementById('marketReceived');if(r)r.value='0';updateMarketChange();
+        if(activeHeldMarketId){localStorage.setItem(marketHeldKey(),JSON.stringify(loadHeldMarketSales().filter(x=>x.id!==activeHeldMarketId)));activeHeldMarketId=null;}
+        renderMarketCatalog();renderReceipt(localReceipt);cart=[];renderCart();if(standaloneCashier)showHeldMarketSales();const r=document.getElementById('marketReceived');if(r)r.value='0';updateMarketChange();
         alert('✅ تم حفظ البيع وخصم المخزون'+(navigator.onLine?' وإرساله للمزامنة.':' أوف لاين وسيزامن عند عودة الاتصال.'));if(printAfter)printReceipt();document.getElementById('barcodeInput').focus();return;
       }
 
