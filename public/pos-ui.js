@@ -289,7 +289,7 @@
   }
   function printMarketStatement(){
     const s=getMarketShift();if(!s)return alert('لا يوجد شفت حالي');const m=marketShiftSummary(s),company=companyContext.name||'الشركة';
-    const w=open('','_blank');if(!w)return alert('اسمح بفتح نافذة الكشف للطباعة');w.document.write('<html dir="rtl"><head><title>كشف الصندوق</title><style>body{font-family:Arial;padding:28px;color:#000}h1{text-align:center}table{width:100%;border-collapse:collapse}td,th{border:1px solid #777;padding:7px}.sum{font-size:18px;line-height:2}</style></head><body><h1>'+escapeHtml(company)+'</h1><h2>كشف الصندوق / الشفت</h2><p>الكاشير: '+escapeHtml(s.cashier)+'</p><p>فتح: '+new Date(s.openedAt).toLocaleString('ar-IQ')+(s.closedAt?' — إغلاق: '+new Date(s.closedAt).toLocaleString('ar-IQ'):'')+'</p><div class="sum">الرصيد الافتتاحي: '+s.opening.toLocaleString('ar-IQ')+' د.ع<br>المبيعات: '+m.sales.toLocaleString('ar-IQ')+' د.ع<br>المقبوض من البيع: '+m.cashSales.toLocaleString('ar-IQ')+' د.ع<br>البيع غير المقبوض: '+m.creditSales.toLocaleString('ar-IQ')+' د.ع<br>المبالغ المضافة للصندوق: '+m.cashIn.toLocaleString('ar-IQ')+' د.ع<br>تحصيل الآجل والمندوبين: '+m.collections.toLocaleString('ar-IQ')+' د.ع<br>المرتجعات: '+m.returns.toLocaleString('ar-IQ')+' د.ع<br>الإلغاءات: '+m.cancelled.toLocaleString('ar-IQ')+' د.ع<br>المصروفات: '+m.expenses.toLocaleString('ar-IQ')+' د.ع<br><b>النقد المتوقع: '+m.expected.toLocaleString('ar-IQ')+' د.ع</b>'+(s.counted!=null?'<br>النقد الفعلي: '+Number(s.counted).toLocaleString('ar-IQ')+' د.ع<br>فرق الصندوق: '+Number(s.difference).toLocaleString('ar-IQ')+' د.ع':'')+'</div><h3>الفواتير</h3><table><tr><th>الرقم</th><th>الوقت</th><th>الصافي</th><th>الحالة</th></tr>'+m.invoices.map(x=>'<tr><td>'+escapeHtml(x.number)+'</td><td>'+new Date(x.at).toLocaleString('ar-IQ')+'</td><td>'+Number(x.net||0).toLocaleString('ar-IQ')+'</td><td>'+(x.cancelled?'ملغاة':x.returned?'مرتجع':'بيع')+'</td></tr>').join('')+'</table><h3>المصروفات</h3><table><tr><th>البيان</th><th>المبلغ</th><th>الوقت</th></tr>'+(s.expenses||[]).map(x=>'<tr><td>'+escapeHtml(x.title)+'</td><td>'+Number(x.amount).toLocaleString('ar-IQ')+'</td><td>'+new Date(x.at).toLocaleString('ar-IQ')+'</td></tr>').join('')+'</table><h3>حركات دخول الصندوق والتحصيل</h3><table><tr><th>الحركة</th><th>البيان / الحساب</th><th>الفاتورة</th><th>المبلغ</th><th>الوقت</th></tr>'+((window.MarketCashierLedger?.read('cash_movements')||[]).filter(x=>x.shiftId===s.id&&x.state!=='rejected').map(x=>'<tr><td>'+(x.kind==='cash_in'?'إضافة للصندوق':'تحصيل')+'</td><td>'+escapeHtml(x.title||x.party||'')+'</td><td>'+escapeHtml(x.invoice||'')+'</td><td>'+Number(x.amount).toLocaleString('ar-IQ')+'</td><td>'+new Date(x.occurredAt).toLocaleString('ar-IQ')+'</td></tr>').join(''))+'</table><br><p>توقيع الكاشير: ____________ &nbsp;&nbsp; توقيع المستلم: ____________</p></body></html>');w.document.close();w.print();
+    const w=open('','_blank');if(!w)return alert('اسمح بفتح نافذة الكشف للطباعة');w.document.write('<html dir="rtl"><head><title>كشف الصندوق</title><style>body{font-family:Arial;padding:28px;color:#000}h1{text-align:center}table{width:100%;border-collapse:collapse}td,th{border:1px solid #777;padding:7px}.sum{font-size:18px;line-height:2}</style></head><body><h1>'+escapeHtml(company)+'</h1><h2>كشف الصندوق / الشفت</h2><p>الكاشير: '+escapeHtml(s.cashier)+'</p><p>فتح: '+new Date(s.openedAt).toLocaleString('ar-IQ')+(s.closedAt?' — إغلاق: '+new Date(s.closedAt).toLocaleString('ar-IQ'):'')+'</p><div class="sum">الرصيد الافتتاحي: '+s.opening.toLocaleString('ar-IQ')+' د.ع<br>المبيعات: '+m.sales.toLocaleString('ar-IQ')+' د.ع<br>المقبوض من البيع: '+m.cashSales.toLocaleString('ar-IQ')+' د.ع<br>البيع غير المقبوض: '+m.creditSales.toLocaleString('ar-IQ')+' د.ع<br>المبالغ المضافة للصندوق: '+m.cashIn.toLocaleString('ar-IQ')+' د.ع<br>تحصيل الآجل والمندوبين: '+m.collections.toLocaleString('ar-IQ')+' د.ع<br>المرتجعات: '+m.returns.toLocaleString('ar-IQ')+' د.ع<br>الإلغاءات: '+m.cancelled.toLocaleString('ar-IQ')+' د.ع<br>المصروفات: '+m.expenses.toLocaleString('ar-IQ')+' د.ع<br><b>النقد المتوقع: '+m.expected.toLocaleString('ar-IQ')+' د.ع</b>'+(s.counted!=null?'<br>النقد الفعلي: '+Number(s.counted).toLocaleString('ar-IQ')+' د.ع<br>فرق الصندوق: '+Number(s.difference).toLocaleString('ar-IQ')+' د.ع':'')+'</div><h3>الفواتير</h3><table><tr><th>الرقم</th><th>الوقت</th><th>الصافي</th><th>الحالة</th></tr>'+m.invoices.map(x=>'<tr><td>'+escapeHtml(x.number)+'</td><td>'+new Date(x.at).toLocaleString('ar-IQ')+'</td><td>'+Number(x.net||0).toLocaleString('ar-IQ')+'</td><td>'+(x.cancelled?'ملغاة':x.returned?'مرتجع':'بيع')+'</td></tr>').join('')+'</table><h3>المصروفات</h3><table><tr><th>البيان</th><th>المبلغ</th><th>الوقت</th></tr>'+(s.expenses||[]).map(x=>'<tr><td>'+escapeHtml(x.title)+'</td><td>'+Number(x.amount).toLocaleString('ar-IQ')+'</td><td>'+new Date(x.at).toLocaleString('ar-IQ')+'</td></tr>').join('')+'</table><h3>حركات دخول الصندوق والتحصيل</h3><table><tr><th>الحركة</th><th>البيان / الحساب</th><th>الفاتورة</th><th>المبلغ</th><th>الوقت</th></tr>'+((window.MarketCashierLedger?.read('cash_movements')||[]).filter(x=>x.shiftId===s.id&&x.state!=='rejected').map(x=>'<tr><td>'+(x.kind==='cash_in'?'إضافة للصندوق':'تحصيل')+'</td><td>'+escapeHtml(x.title||x.party||'')+'</td><td>'+escapeHtml(x.invoice||'')+'</td><td>'+Number(x.amount).toLocaleString('ar-IQ')+'</td><td>'+new Date(x.occurredAt).toLocaleString('ar-IQ')+'</td></tr>').join(''))+'</table><h3>فتح الصندوق بدون بيع — F7</h3><table><tr><th>العملية</th><th>الوقت</th><th>المبلغ</th><th>الإرسال</th></tr>'+((window.MarketCashierLedger?.read('drawer_events')||[]).filter(x=>x.shiftId===s.id&&x.kind==='drawer_open').map(x=>{const result=(window.MarketCashierLedger.read('drawer_events')||[]).find(y=>y.requestId===x.id);return '<tr><td>F7</td><td>'+new Date(x.occurredAt).toLocaleString('ar-IQ')+'</td><td></td><td>'+(result?.status==='sent'?'أُرسل أمر الفتح':result?.status==='failed'?'تعذر الإرسال':'بانتظار الإرسال')+'</td></tr>'}).join(''))+'</table><br><p>توقيع الكاشير: ____________ &nbsp;&nbsp; توقيع المستلم: ____________</p></body></html>');w.document.close();w.print();
   }
   async function closeMarketShift(handover=false){
     const s=getMarketShift();if(!s||s.status!=='open')return alert('لا يوجد شفت مفتوح');const m=marketShiftSummary(s),answer=prompt('النقد الفعلي في الصندوق:',String(m.expected));if(answer===null)return;const counted=Number(answer);if(!Number.isFinite(counted)||counted<0)return alert('أدخل مبلغًا صحيحًا');
@@ -414,7 +414,7 @@
         const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');invoices.unshift(localReceipt);localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices));
         if(activeHeldMarketId){window.MarketCashierLedger?.record('waiting_close',{waitingId:activeHeldMarketId});localStorage.setItem(marketHeldKey(),JSON.stringify(loadHeldMarketSales().filter(x=>x.id!==activeHeldMarketId)));activeHeldMarketId=null;}
         renderMarketCatalog();renderReceipt(localReceipt);cart=[];document.getElementById('discountInput').value='0';const nextParty=document.getElementById('marketParty');if(nextParty)nextParty.value='';const nextType=document.getElementById('marketPaymentType');if(nextType)nextType.value='cash';renderCart();if(standaloneCashier)showHeldMarketSales();const r=document.getElementById('marketReceived');if(r)r.value='0';updateMarketChange();
-        renderMarketSalesTotal();renderMarketShift();saveMarketWork();if(printAfter){saleInProgress=false;if(checkoutButton)checkoutButton.disabled=false;printReceipt();}document.getElementById('barcodeInput').focus();return;
+        renderMarketSalesTotal();renderMarketShift();saveMarketWork();if(printAfter){if(cashDrawerPort?.writable)void pulseCashDrawer().catch(error=>alert('تم حفظ البيع؛ تعذر فتح الصندوق: '+error.message));saleInProgress=false;if(checkoutButton)checkoutButton.disabled=false;printReceipt();}document.getElementById('barcodeInput').focus();return;
       }
 
       state = await offline.getPosState();
@@ -459,6 +459,35 @@
       alert(navigator.onLine ? '✅ أُرسل إغلاق الشفت للتسوية.' : '⏳ الإغلاق بانتظار المزامنة والاعتماد.');
     } catch (error) { alert(error.message); }
   }
+
+  let cashDrawerPort=null,drawerBusy=false;
+  async function connectCashDrawer(){
+    try{
+      if(!navigator.serial)throw new Error('ربط الصندوق المباشر يحتاج Chrome ومنفذ طابعة حرارية تسلسلي ESC/POS');
+      const port=await navigator.serial.requestPort();await port.open({baudRate:9600});cashDrawerPort=port;
+      const status=document.getElementById('cashDrawerStatus');if(status)status.textContent='منفذ الصندوق مرتبط';
+    }catch(error){alert(error.message)}
+  }
+  async function pulseCashDrawer(){
+    if(!cashDrawerPort?.writable)throw new Error('اربط منفذ الصندوق أولًا. فتح الصندوق عند طباعة F8 يمكن تفعيله من إعدادات الطابعة؛ F7 يحتاج ربطًا مباشرًا.');
+    const writer=cashDrawerPort.writable.getWriter();try{await writer.write(new Uint8Array([27,112,0,50,250]))}finally{writer.releaseLock()}
+  }
+  async function openCashDrawerOnly(){
+    if(drawerBusy||saleInProgress)return;drawerBusy=true;
+    try{
+      const shift=getMarketShift();if(!shift||shift.status!=='open')throw new Error('افتح الشفت أولًا');
+      // Record before dispatch; failure remains visible and never affects cash totals.
+      if(!cashDrawerPort?.writable)throw new Error('اربط منفذ الصندوق أولًا باستخدام زر ربط الصندوق');
+      const event=window.MarketCashierLedger.record('drawer_open',{key:'F7',shiftId:shift.id,cashier:shift.cashier,cashierCode:marketCashierId(),status:'requested'});
+      try{await pulseCashDrawer();window.MarketCashierLedger.record('drawer_result',{requestId:event.id,status:'sent',shiftId:shift.id})}
+      catch(error){window.MarketCashierLedger.record('drawer_result',{requestId:event.id,status:'failed',shiftId:shift.id});throw error}
+    }catch(error){alert(error.message)}finally{drawerBusy=false}
+  }
+  document.addEventListener('keydown',event=>{
+    if(selectedMode!=='market'||event.ctrlKey||event.altKey||event.metaKey||!['F7','F8'].includes(event.key))return;
+    event.preventDefault();if(event.repeat||document.querySelector('dialog[open]'))return;
+    if(event.key==='F7')void openCashDrawerOnly();else void completeSale(true);
+  });
 
   let receiptPrintQueue = Promise.resolve();
   function printReceipt() {
@@ -581,7 +610,7 @@
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[character])); }
   function delay(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 
-  window.PosUI = { showMarketTrialCatalog, addMarketTrialCatalog, manualMarketSync, marketCashIn, paymentTypeChanged, saveMarketWork, backupMarketCashier, restoreMarketBackup, stopPhoneScanner, scanBarcode, setMarketQty, pairPhoneScanner, cancelMarketInvoice, marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
+  window.PosUI = { connectCashDrawer, openCashDrawerOnly, showMarketTrialCatalog, addMarketTrialCatalog, manualMarketSync, marketCashIn, paymentTypeChanged, saveMarketWork, backupMarketCashier, restoreMarketBackup, stopPhoneScanner, scanBarcode, setMarketQty, pairPhoneScanner, cancelMarketInvoice, marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
   void initialize();
 }());
 

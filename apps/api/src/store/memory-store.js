@@ -527,7 +527,7 @@ export class MemoryStore {
           }
         }
         if(marketError){result.status='rejected';result.code=marketError;}
-        else if (!['sale','return','cancel','shift_open','shift_close','expense','cash_in','collection','waiting_update','waiting_close'].includes(String(p.kind || ''))) {
+        else if (!['sale','return','cancel','shift_open','shift_close','expense','cash_in','collection','waiting_update','waiting_close','drawer_open','drawer_result'].includes(String(p.kind || ''))) {
           result.status = 'rejected'; result.code = 'INVALID_MARKET_TRANSACTION';
         } else {
           result.entityId = entityId;

@@ -20,6 +20,7 @@ function apply(row){
   upsert('waiting_versions',{id,at,closed:row.kind==='waiting_close'});
   const held=read('held_sales').filter(x=>x.id!==id);if(row.kind==='waiting_update'&&row.draft)held.push(row.draft);write('held_sales',held);
  }else if(row.kind==='cash_in'||row.kind==='collection')upsert('cash_movements',row);
+ else if(row.kind==='drawer_open'||row.kind==='drawer_result')upsert('drawer_events',row);
  else if(row.kind==='cancel'){
   const a=read('invoices'),x=a.find(x=>x.number===row.invoice);if(x){x.cancelled=true;x.cancelledAt=row.occurredAt;write('invoices',a)}
  }else if(row.kind==='return')upsert('returns',{...row,at:row.at||row.occurredAt});
