@@ -297,7 +297,8 @@
     if(saleInProgress)return;
     if(!cart.length)return alert('لا توجد مواد لتعليقها');
     const a=loadHeldMarketSales(),old=a.find(x=>x.id===activeHeldMarketId);
-    const ref=prompt('اسم أو رقم فاتورة الانتظار:',old?.ref||('انتظار '+(a.length+1)));if(ref===null)return;
+    let next=1;while(a.some(x=>x.ref==='انتظار '+next))next+=1;
+    const ref=old?.ref||('انتظار '+next);
     storeHeldMarketDraft(activeHeldMarketId||crypto.randomUUID(),ref.trim()||old?.ref||('انتظار '+(a.length+1)));
     activeHeldMarketId=null;cart=[];marketReceivedManual=false;document.getElementById('discountInput').value='0';renderCart();showHeldMarketSales();
   }
