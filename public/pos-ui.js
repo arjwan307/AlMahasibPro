@@ -251,14 +251,16 @@
   function marketHeldKey(){return 'tenant:'+companyScope+':market_held_sales_v1'}
   function marketInvoicesKey(){return 'tenant:'+companyScope+':market_invoices_v1'}
   function marketCashierId(){return (new URLSearchParams(location.search).get('cashierCode')||new URLSearchParams(location.search).get('cashier')||'main').replace(/[^A-Za-z0-9_\u0600-\u06FF-]/g,'_')}
+  function marketCashierName(){return getMarketShift()?.cashier||localStorage.getItem('tenant:'+companyScope+':market_cashier_name_'+marketCashierId())||new URLSearchParams(location.search).get('cashier')||'الكاشير الرئيسي'}
+  function updateMarketCashierLabel(){const label=document.getElementById('cashierName');if(label)label.textContent='الكاشير: '+marketCashierName()}
   function marketShiftKey(){return 'tenant:'+companyScope+':market_shift_'+marketCashierId()+'_v1'}
   function marketShiftHistoryKey(){return 'tenant:'+companyScope+':market_shift_history_'+marketCashierId()+'_v1'}
   function getMarketShift(){try{return JSON.parse(localStorage.getItem(marketShiftKey())||'null')}catch{return null}}
   function marketOpenShift(){
     if(getMarketShift()?.status==='open')return alert('الكاشير مفتوح بالفعل');
     const opening=Number(document.getElementById('marketOpeningBalance')?.value||prompt('الرصيد الافتتاحي:','0')||0);
-    const cashier=new URLSearchParams(location.search).get('cashier')||'الكاشير الرئيسي';
-    const s={id:crypto.randomUUID(),status:'open',cashier,opening,openedAt:new Date().toISOString(),expenses:[]};
+    const cashier=prompt('اسم الموظف الكاشير:',marketCashierName());if(cashier===null||!cashier.trim())return;localStorage.setItem('tenant:'+companyScope+':market_cashier_name_'+marketCashierId(),cashier.trim());
+    const s={id:crypto.randomUUID(),status:'open',cashier:cashier.trim(),opening,openedAt:new Date().toISOString(),expenses:[]};
     localStorage.setItem(marketShiftKey(),JSON.stringify(s));localStorage.setItem('tenant:'+companyScope+':market_opening_balance',String(opening));window.AlMahasibMarketOffline?.queueTransaction('shift_open',{id:s.id,shiftId:s.id,cashier:s.cashier,cashierCode:marketCashierId(),opening:s.opening,occurredAt:s.openedAt});renderMarketShift();alert('تم فتح شفت الكاشير');
   }
   function marketExpense(){
@@ -276,13 +278,14 @@
     const s=getMarketShift();if(!s)return alert('لا يوجد شفت حالي');const m=marketShiftSummary(s),company=companyContext.name||'الشركة';
     const w=open('','_blank');w.document.write('<html dir="rtl"><head><title>كشف الكاشير</title><style>body{font-family:Arial;padding:28px;color:#000}h1{text-align:center}table{width:100%;border-collapse:collapse}td,th{border:1px solid #777;padding:7px}.sum{font-size:18px;line-height:2}</style></head><body><h1>'+escapeHtml(company)+'</h1><h2>كشف الكاشير / الشفت</h2><p>الكاشير: '+escapeHtml(s.cashier)+'</p><p>فتح: '+new Date(s.openedAt).toLocaleString('ar-IQ')+(s.closedAt?' — إغلاق: '+new Date(s.closedAt).toLocaleString('ar-IQ'):'')+'</p><div class="sum">الرصيد الافتتاحي: '+s.opening.toLocaleString('ar-IQ')+' د.ع<br>المبيعات: '+m.sales.toLocaleString('ar-IQ')+' د.ع<br>المرتجعات: '+m.returns.toLocaleString('ar-IQ')+' د.ع<br>الإلغاءات: '+m.cancelled.toLocaleString('ar-IQ')+' د.ع<br>المصروفات: '+m.expenses.toLocaleString('ar-IQ')+' د.ع<br><b>النقد المتوقع: '+m.expected.toLocaleString('ar-IQ')+' د.ع</b>'+(s.counted!=null?'<br>النقد الفعلي: '+Number(s.counted).toLocaleString('ar-IQ')+' د.ع<br>فرق الصندوق: '+Number(s.difference).toLocaleString('ar-IQ')+' د.ع':'')+'</div><h3>الفواتير</h3><table><tr><th>الرقم</th><th>الوقت</th><th>الصافي</th><th>الحالة</th></tr>'+m.invoices.map(x=>'<tr><td>'+escapeHtml(x.number)+'</td><td>'+new Date(x.at).toLocaleString('ar-IQ')+'</td><td>'+Number(x.net||0).toLocaleString('ar-IQ')+'</td><td>'+(x.returned?'مرتجع':'بيع')+'</td></tr>').join('')+'</table><h3>المصروفات</h3><table><tr><th>البيان</th><th>المبلغ</th><th>الوقت</th></tr>'+(s.expenses||[]).map(x=>'<tr><td>'+escapeHtml(x.title)+'</td><td>'+Number(x.amount).toLocaleString('ar-IQ')+'</td><td>'+new Date(x.at).toLocaleString('ar-IQ')+'</td></tr>').join('')+'</table><br><p>توقيع الكاشير: ____________ &nbsp;&nbsp; توقيع المستلم: ____________</p></body></html>');w.document.close();w.print();
   }
-  function closeMarketShift(handover=false){
-    const s=getMarketShift();if(!s||s.status!=='open')return alert('لا يوجد شفت مفتوح');const m=marketShiftSummary(s),counted=Number(prompt('النقد الفعلي في الصندوق:',String(m.expected))||0);
+  async function closeMarketShift(handover=false){
+    const s=getMarketShift();if(!s||s.status!=='open')return alert('لا يوجد شفت مفتوح');const m=marketShiftSummary(s),answer=prompt('النقد الفعلي في الصندوق:',String(m.expected));if(answer===null)return;const counted=Number(answer);if(!Number.isFinite(counted)||counted<0)return alert('أدخل مبلغًا صحيحًا');
+    if(navigator.onLine){try{await disconnectPhoneScanner(s.id)}catch(e){return alert('تعذر إيقاف الماسح. أعد المحاولة قبل إغلاق الشفت.')}}
     s.status='closed';s.closedAt=new Date().toISOString();s.counted=counted;s.difference=counted-m.expected;s.closeType=handover?'handover':'close';
     const h=JSON.parse(localStorage.getItem(marketShiftHistoryKey())||'[]');h.unshift({...s,summary:m});localStorage.setItem(marketShiftHistoryKey(),JSON.stringify(h.slice(0,200)));localStorage.setItem(marketShiftKey(),JSON.stringify(s));window.AlMahasibMarketOffline?.queueTransaction('shift_close',{id:crypto.randomUUID(),shiftId:s.id,cashier:s.cashier,cashierCode:marketCashierId(),opening:s.opening,counted:s.counted,difference:s.difference,closeType:s.closeType,summary:m,occurredAt:s.closedAt});renderMarketShift();
     alert((handover?'تم تسليم الشفت':'تم إغلاق وتسوية الشفت')+'\nفرق الصندوق: '+s.difference.toLocaleString('ar-IQ')+' د.ع');
   }
-  function renderMarketShift(){if(selectedMode!=='market')return;const s=getMarketShift(),el=document.getElementById('marketShiftInfo');if(!el)return;el.textContent=!s?'لا يوجد شفت مفتوح':s.status==='open'?'الشفت مفتوح منذ '+new Date(s.openedAt).toLocaleTimeString('ar-IQ'):'آخر شفت مغلق — فرق الصندوق '+Number(s.difference||0).toLocaleString('ar-IQ')+' د.ع';}
+  function renderMarketShift(){if(selectedMode!=='market')return;updateMarketCashierLabel();const s=getMarketShift(),el=document.getElementById('marketShiftInfo');if(!el)return;el.textContent=!s?'لا يوجد شفت مفتوح':s.status==='open'?'الشفت مفتوح منذ '+new Date(s.openedAt).toLocaleTimeString('ar-IQ'):'آخر شفت مغلق — فرق الصندوق '+Number(s.difference||0).toLocaleString('ar-IQ')+' د.ع';}
   function loadHeldMarketSales(){try{return JSON.parse(localStorage.getItem(marketHeldKey())||'[]')}catch{return[]}}
   function storeHeldMarketDraft(id,ref){
     const a=loadHeldMarketSales(),old=a.find(x=>x.id===id);
@@ -449,7 +452,7 @@
 
   function renderReceipt(receipt) {
     const company=companyContext.name||'المحاسب برو';
-    const cashier=new URLSearchParams(location.search).get('cashier')||'الكاشير الرئيسي';
+    const cashier=receipt.cashier||marketCashierName();
     const lines=receipt.lines||[];
     const net=receipt.net||receipt.subtotal||'0.000000', cash=receipt.cash||'0.000000', due=receipt.due||'0.000000', received=receipt.received||cash, change=receipt.change||'0.000000';
     document.getElementById('receipt').innerHTML =
@@ -476,7 +479,9 @@
   let marketScannerToken=null,marketScannerTimer=null,scannerPolling=false;
   async function pairPhoneScanner(){
     try{
-      const terminal=marketCashierId(),r=await fetch('/api/v1/market/scanner/pair',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({terminal})}),b=await r.json().catch(()=>({}));
+      const shift=getMarketShift();if(!shift||shift.status!=='open')throw new Error('افتح شفت الكاشير أولًا');
+      await window.AlMahasibMarketOffline?.syncTransactions();
+      const terminal=marketCashierId(),r=await fetch('/api/v1/market/scanner/pair',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({terminal,shiftId:shift.id,cashier:shift.cashier})}),b=await r.json().catch(()=>({}));
       if(!r.ok)throw new Error(b?.error?.message||'تعذر إنشاء ربط الهاتف');
       marketScannerToken=b.token;const el=document.getElementById('marketScannerStatus');if(el)el.textContent='رمز الهاتف: '+marketScannerToken.slice(0,8);
       const url=location.origin+'/market-scanner.html#'+encodeURIComponent(marketScannerToken);
@@ -484,7 +489,7 @@
       const dialog=document.createElement('dialog');dialog.id='scannerPairDialog';
       dialog.style.cssText='max-width:420px;width:95%;border:0;border-radius:18px;padding:24px;text-align:center;background:white;color:#152238';
       const heading=document.createElement('h2');heading.textContent='ربط الماسح بالكاشير';dialog.append(heading);
-      const hint=document.createElement('p');hint.textContent='افتح الماسح واضغط مسح رمز الربط ثم وجّه الكاميرا إلى هذا الرمز. صالح 15 دقيقة.';dialog.append(hint);
+      const hint=document.createElement('p');hint.textContent='افتح الماسح واضغط مسح رمز الربط ثم وجّه الكاميرا إلى هذا الرمز. صالح طوال الشفت حتى إغلاقه أو إيقاف الماسح.';dialog.append(hint);
       const qr=qrcode(0,'M');qr.addData(url);qr.make();
       const image=document.createElement('img');image.src=qr.createDataURL(6,24);image.alt='رمز QR لربط الماسح';image.style.cssText='width:280px;max-width:100%;image-rendering:pixelated';dialog.append(image);
       const token=document.createElement('input');token.value=marketScannerToken;token.readOnly=true;token.dir='ltr';token.style.cssText='width:100%;padding:10px;margin:14px 0';dialog.append(token);
@@ -493,6 +498,14 @@
       clearInterval(marketScannerTimer);marketScannerTimer=setInterval(pollPhoneScanner,350);
     }catch(e){alert(e.message)}
   }
+  async function disconnectPhoneScanner(shiftId=getMarketShift()?.id){
+    if(!shiftId)return;
+    const response=await fetch('/api/v1/market/scanner/disconnect',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({shiftId})});
+    if(!response.ok)throw new Error('تعذر إيقاف الماسح');
+    clearInterval(marketScannerTimer);marketScannerToken=null;document.getElementById('scannerPairDialog')?.remove();
+    const status=document.getElementById('marketScannerStatus');if(status)status.textContent='الماسح متوقف';
+  }
+  async function stopPhoneScanner(){try{await disconnectPhoneScanner()}catch(e){alert(e.message)}}
   async function pollPhoneScanner(){
     if(!marketScannerToken||!navigator.onLine||saleInProgress||scannerPolling)return;
     scannerPolling=true;
@@ -526,7 +539,7 @@
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[character])); }
   function delay(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 
-  window.PosUI = { scanBarcode, setMarketQty, pairPhoneScanner, cancelMarketInvoice, marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
+  window.PosUI = { stopPhoneScanner, scanBarcode, setMarketQty, pairPhoneScanner, cancelMarketInvoice, marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
   void initialize();
 }());
 

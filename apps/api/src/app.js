@@ -317,6 +317,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       if (operation.type.startsWith('representative.')) { operation.payload = validateRepresentativePayload(operation.type, operation.payload); requireRepresentativePermission(req.auth, operation.type); }
     }
     const results = await store.pushOperations(req.auth, operations);
+    for(const operation of operations){if(operation.type==='market.transaction.shift_close'&&results.some(r=>r.operationId===operation.operationId&&r.status==='acknowledged'))await revokeScannerShift(req.auth.company.id,operation.payload.shiftId);}
     res.json({ results });
   }));
 
@@ -364,24 +365,49 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   }));
 
   const marketScannerLinks = new Map();
+  const scannerCollection = store.db?.collection('market_scanner_links');
+  async function getScannerLink(token){
+    return scannerCollection ? scannerCollection.findOne({_id:token,revoked:false}) : marketScannerLinks.get(token);
+  }
+  async function revokeScannerShift(companyId,shiftId){
+    if(scannerCollection)await scannerCollection.updateMany({companyId,shiftId,revoked:false},{$set:{revoked:true},$unset:{codes:''}});
+    else for(const [token,link] of marketScannerLinks)if(link.companyId===companyId&&link.shiftId===shiftId)marketScannerLinks.delete(token);
+  }
+  function requireScannerLink(link){
+    if(!link||link.revoked)throw new AppError(410,'SCANNER_LINK_EXPIRED','تم إيقاف الربط أو إغلاق الشفت');
+    return link;
+  }
   app.post('/api/v1/market/scanner/pair', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
-    const terminal=String(req.body?.terminal||'main'),token=crypto.randomUUID().replace(/-/g,'');
-    marketScannerLinks.set(token,{companyId:req.auth.company.id,terminal,createdAt:Date.now(),codes:[]});
-    res.json({token,expiresIn:900});
+    const terminal=String(req.body?.terminal||'main').slice(0,128),shiftId=uuid(req.body?.shiftId,'shiftId');
+    const opened=await marketTransactionExists(req.auth.company.id,x=>x.kind==='shift_open'&&x.shiftId===shiftId);
+    const closed=await marketTransactionExists(req.auth.company.id,x=>x.kind==='shift_close'&&x.shiftId===shiftId);
+    if(!opened||closed)throw new AppError(409,'SCANNER_SHIFT_NOT_OPEN','افتح الشفت وزامنه قبل ربط الماسح');
+    await revokeScannerShift(req.auth.company.id,shiftId);
+    const token=crypto.randomUUID().replace(/-/g,''),link={_id:token,companyId:req.auth.company.id,terminal,shiftId,cashier:String(req.body?.cashier||'').slice(0,100),createdAt:new Date().toISOString(),revoked:false,codes:[]};
+    if(scannerCollection)await scannerCollection.insertOne(link);else marketScannerLinks.set(token,link);
+    res.set('Cache-Control','no-store').json({token,expiresIn:null,validUntil:'shift_close_or_disconnect'});
   }));
   app.get('/api/v1/market/scanner/:token/status', asyncRoute(async (req,res)=>{
-    const link=marketScannerLinks.get(req.params.token);
-    if(!link||Date.now()-link.createdAt>900000)throw new AppError(410,'SCANNER_LINK_EXPIRED','انتهى ربط الهاتف');
-    res.set('Cache-Control','no-store').json({ok:true,expiresIn:Math.max(0,Math.floor((900000-(Date.now()-link.createdAt))/1000))});
+    requireScannerLink(await getScannerLink(req.params.token));
+    res.set('Cache-Control','no-store').json({ok:true,expiresIn:null});
   }));
   app.post('/api/v1/market/scanner/:token/scan', asyncRoute(async (req,res)=>{
-    const link=marketScannerLinks.get(req.params.token);if(!link||Date.now()-link.createdAt>900000)throw new AppError(410,'SCANNER_LINK_EXPIRED','انتهى ربط الهاتف');
+    requireScannerLink(await getScannerLink(req.params.token));
     const barcode=String(req.body?.barcode||'').trim();if(!barcode||barcode.length>128)throw new AppError(400,'INVALID_BARCODE','باركود غير صالح');
-    link.codes.push({barcode,at:new Date().toISOString()});if(link.codes.length>100)link.codes.splice(0,link.codes.length-100);res.json({ok:true});
+    const code={barcode,at:new Date().toISOString()};
+    if(scannerCollection){const result=await scannerCollection.updateOne({_id:req.params.token,revoked:false},{$push:{codes:{$each:[code],$slice:-100}}});if(!result.matchedCount)requireScannerLink(null);}
+    else{const link=requireScannerLink(marketScannerLinks.get(req.params.token));link.codes.push(code);if(link.codes.length>100)link.codes.splice(0,link.codes.length-100);}
+    res.json({ok:true});
   }));
   app.get('/api/v1/market/scanner/:token/poll', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
-    const link=marketScannerLinks.get(req.params.token);if(!link||link.companyId!==req.auth.company.id||Date.now()-link.createdAt>900000)throw new AppError(410,'SCANNER_LINK_EXPIRED','انتهى ربط الهاتف');
-    const codes=link.codes.splice(0);res.json({codes});
+    const link=requireScannerLink(await getScannerLink(req.params.token));if(link.companyId!==req.auth.company.id)requireScannerLink(null);
+    let codes;
+    if(scannerCollection){const old=await scannerCollection.findOneAndUpdate({_id:req.params.token,companyId:req.auth.company.id,revoked:false},{$set:{codes:[]}},{returnDocument:'before'});requireScannerLink(old);codes=old.codes||[];}
+    else codes=link.codes.splice(0);
+    res.set('Cache-Control','no-store').json({codes});
+  }));
+  app.post('/api/v1/market/scanner/disconnect', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
+    const shiftId=uuid(req.body?.shiftId,'shiftId');await revokeScannerShift(req.auth.company.id,shiftId);res.json({ok:true});
   }));
 
   app.post('/api/v1/market/sale', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
