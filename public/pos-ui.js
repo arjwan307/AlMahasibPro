@@ -480,7 +480,9 @@
   async function pairPhoneScanner(){
     try{
       const shift=getMarketShift();if(!shift||shift.status!=='open')throw new Error('افتح شفت الكاشير أولًا');
-      await window.AlMahasibMarketOffline?.syncTransactions();
+      if(!window.AlMahasibMarketOffline)throw new Error('انتظر تحميل نظام المزامنة ثم أعد المحاولة');
+      await window.AlMahasibMarketOffline.ensureShiftOpen(shift,marketCashierId());
+      await window.AlMahasibMarketOffline.syncTransactions();
       const terminal=marketCashierId(),r=await fetch('/api/v1/market/scanner/pair',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({terminal,shiftId:shift.id,cashier:shift.cashier})}),b=await r.json().catch(()=>({}));
       if(!r.ok)throw new Error(b?.error?.message||'تعذر إنشاء ربط الهاتف');
       marketScannerToken=b.token;const el=document.getElementById('marketScannerStatus');if(el)el.textContent='رمز الهاتف: '+marketScannerToken.slice(0,8);
