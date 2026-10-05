@@ -47,11 +47,21 @@
         android:padding="8dp"
         android:gravity="center"/>
 
-    <androidx.camera.view.PreviewView
-        android:id="@+id/preview"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        app:scaleType="fillCenter"/>
-
+        android:layout_weight="1">
+        <androidx.camera.view.PreviewView
+            android:id="@+id/preview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            app:scaleType="fillCenter"/>
+        <View
+            android:id="@+id/scanFlash"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            android:clickable="false"
+            android:importantForAccessibility="no"/>
+    </FrameLayout>
 </LinearLayout>

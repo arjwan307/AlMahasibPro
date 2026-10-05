@@ -171,11 +171,27 @@ public class MainActivity extends AppCompatActivity {
                 connection.setFixedLengthStreamingMode(body.length);
                 try (OutputStream output = connection.getOutputStream()) { output.write(body); }
                 int code = connection.getResponseCode();
-                if (code >= 200 && code < 300) show("تم إرسال: " + barcode);
-                else if (code == 401 || code == 403 || code == 404 || code == 410) show("رمز الربط غير صالح أو انتهت صلاحيته. أنشئ رمزًا جديدًا من الكاشير.");
-                else show("تعذر إرسال الباركود (" + code + "). حاول مرة أخرى.");
-            } catch (Exception e) { show("تعذر الاتصال بالخادم. تحقق من الإنترنت وحاول مرة أخرى."); }
+                if (code >= 200 && code < 300) flashResult(true, "جاهز للمسح");
+                else if (code == 401 || code == 403 || code == 404 || code == 410) flashResult(false, "رمز الربط غير صالح أو انتهت صلاحيته. أنشئ رمزًا جديدًا من الكاشير.");
+                else flashResult(false, "تعذر إرسال الباركود (" + code + "). حاول مرة أخرى.");
+            } catch (Exception e) { flashResult(false, "تعذر الاتصال بالخادم. تحقق من الإنترنت وحاول مرة أخرى."); }
             finally { if (connection != null) connection.disconnect(); sending = false; }
+        });
+    }
+
+    private void flashResult(boolean success, String message) {
+        runOnUiThread(() -> {
+            if (destroyed) return;
+            status.setText(message);
+            status.setTextColor(android.graphics.Color.parseColor(success ? "#53E39A" : "#FF7189"));
+            android.view.View flash = findViewById(R.id.scanFlash);
+            flash.animate().cancel();
+            flash.setBackgroundColor(android.graphics.Color.parseColor(success ? "#8830D998" : "#99FF3855"));
+            flash.setAlpha(1f);
+            flash.setVisibility(android.view.View.VISIBLE);
+            flash.animate().alpha(0f).setDuration(350).withEndAction(() -> {
+                if (!destroyed) flash.setVisibility(android.view.View.GONE);
+            }).start();
         });
     }
 
