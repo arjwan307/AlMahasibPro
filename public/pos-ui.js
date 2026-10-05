@@ -399,7 +399,7 @@
         const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');invoices.unshift(localReceipt);localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices.slice(0,1000)));
         if(activeHeldMarketId){localStorage.setItem(marketHeldKey(),JSON.stringify(loadHeldMarketSales().filter(x=>x.id!==activeHeldMarketId)));activeHeldMarketId=null;}
         renderMarketCatalog();renderReceipt(localReceipt);cart=[];renderCart();if(standaloneCashier)showHeldMarketSales();const r=document.getElementById('marketReceived');if(r)r.value='0';updateMarketChange();
-        alert('✅ تم حفظ البيع وخصم المخزون'+(navigator.onLine?' وإرساله للمزامنة.':' أوف لاين وسيزامن عند عودة الاتصال.'));if(printAfter)printReceipt();document.getElementById('barcodeInput').focus();return;
+        if(printAfter)printReceipt();document.getElementById('barcodeInput').focus();return;
       }
 
       state = await offline.getPosState();
