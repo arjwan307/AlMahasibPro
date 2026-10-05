@@ -369,6 +369,11 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     marketScannerLinks.set(token,{companyId:req.auth.company.id,terminal,createdAt:Date.now(),codes:[]});
     res.json({token,expiresIn:900});
   }));
+  app.get('/api/v1/market/scanner/:token/status', asyncRoute(async (req,res)=>{
+    const link=marketScannerLinks.get(req.params.token);
+    if(!link||Date.now()-link.createdAt>900000)throw new AppError(410,'SCANNER_LINK_EXPIRED','انتهى ربط الهاتف');
+    res.set('Cache-Control','no-store').json({ok:true,expiresIn:Math.max(0,Math.floor((900000-(Date.now()-link.createdAt))/1000))});
+  }));
   app.post('/api/v1/market/scanner/:token/scan', asyncRoute(async (req,res)=>{
     const link=marketScannerLinks.get(req.params.token);if(!link||Date.now()-link.createdAt>900000)throw new AppError(410,'SCANNER_LINK_EXPIRED','انتهى ربط الهاتف');
     const barcode=String(req.body?.barcode||'').trim();if(!barcode||barcode.length>128)throw new AppError(400,'INVALID_BARCODE','باركود غير صالح');
@@ -736,3 +741,4 @@ async function passwordHashOrValidation(password) {
     throw error;
   }
 }
+

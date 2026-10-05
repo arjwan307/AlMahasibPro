@@ -92,7 +92,8 @@
     </div>
     <div id="shiftCloseModal" class="shift-close-summary"><div class="shift-close-card"><h2 id="shiftCloseTitle">تسوية الشفت</h2><div id="shiftCloseBody"></div><div class="actions" style="margin-top:18px"><button class="btn btn-success" onclick="RestaurantPOS.confirmShiftClose()">تأكيد التسوية</button><button class="btn" onclick="RestaurantPOS.cancelShiftClose()">رجوع</button></div></div></div><div id="receipt"></div>
     <script src="/offline-sync.js" defer></script>
-    <script src="/pos-ui.js" defer></script><script src="/restaurant-pos.js" defer></script>
+    <script src="/scanner-qrcode.js" defer></script>
+    <script src="/pos-ui.js?v=scanner-qr-2" defer></script><script src="/restaurant-pos.js" defer></script>
 <script>
 (function(){
  const mode=new URLSearchParams(location.search).get('mode');
@@ -112,3 +113,4 @@
 })();
 </script></body>
 </html>
+

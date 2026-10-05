@@ -430,13 +430,22 @@
       if(!r.ok)throw new Error(b?.error?.message||'تعذر إنشاء ربط الهاتف');
       marketScannerToken=b.token;const el=document.getElementById('marketScannerStatus');if(el)el.textContent='رمز الهاتف: '+marketScannerToken.slice(0,8);
       const url=location.origin+'/market-scanner.html#'+encodeURIComponent(marketScannerToken);
-      prompt('افتح هذا الرابط في الهاتف. رمز الربط صالح 15 دقيقة:',url);
+      document.getElementById('scannerPairDialog')?.remove();
+      const dialog=document.createElement('dialog');dialog.id='scannerPairDialog';
+      dialog.style.cssText='max-width:420px;width:95%;border:0;border-radius:18px;padding:24px;text-align:center;background:white;color:#152238';
+      const heading=document.createElement('h2');heading.textContent='ربط الماسح بالكاشير';dialog.append(heading);
+      const hint=document.createElement('p');hint.textContent='افتح الماسح واضغط مسح رمز الربط ثم وجّه الكاميرا إلى هذا الرمز. صالح 15 دقيقة.';dialog.append(hint);
+      const qr=qrcode(0,'M');qr.addData(url);qr.make();
+      const image=document.createElement('img');image.src=qr.createDataURL(6,24);image.alt='رمز QR لربط الماسح';image.style.cssText='width:280px;max-width:100%;image-rendering:pixelated';dialog.append(image);
+      const token=document.createElement('input');token.value=marketScannerToken;token.readOnly=true;token.dir='ltr';token.style.cssText='width:100%;padding:10px;margin:14px 0';dialog.append(token);
+      const close=document.createElement('button');close.textContent='إغلاق';close.className='btn';close.onclick=()=>{dialog.close();dialog.remove()};dialog.append(close);
+      document.body.append(dialog);dialog.showModal();
       clearInterval(marketScannerTimer);marketScannerTimer=setInterval(pollPhoneScanner,350);
     }catch(e){alert(e.message)}
   }
   async function pollPhoneScanner(){
     if(!marketScannerToken||!navigator.onLine)return;
-    try{const r=await fetch('/api/v1/market/scanner/'+encodeURIComponent(marketScannerToken)+'/poll',{credentials:'same-origin'});if(r.status===410){clearInterval(marketScannerTimer);marketScannerToken=null;const el=document.getElementById('marketScannerStatus');if(el)el.textContent='انتهى ربط الهاتف';return}if(!r.ok)return;const b=await r.json();for(const row of b.codes||[]){const item=marketCatalog().find(x=>String(x.barcode)===String(row.barcode));if(item){addMarketProduct(item.id);const el=document.getElementById('marketScannerStatus');if(el)el.textContent='✓ '+item.name}else{const el=document.getElementById('marketScannerStatus');if(el)el.textContent='غير معروف: '+row.barcode}}}catch{}
+    try{const r=await fetch('/api/v1/market/scanner/'+encodeURIComponent(marketScannerToken)+'/poll',{credentials:'same-origin'});if(r.status===410){clearInterval(marketScannerTimer);marketScannerToken=null;const el=document.getElementById('marketScannerStatus');if(el)el.textContent='انتهى ربط الهاتف';document.getElementById('scannerPairDialog')?.remove();return}if(!r.ok)return;const b=await r.json();for(const row of b.codes||[]){const item=marketCatalog().find(x=>String(x.barcode)===String(row.barcode));if(item){addMarketProduct(item.id);const el=document.getElementById('marketScannerStatus');if(el)el.textContent='✓ '+item.name}else{const el=document.getElementById('marketScannerStatus');if(el)el.textContent='غير معروف: '+row.barcode}}}catch{}
   }
 
   function populateCustomers() {
@@ -469,3 +478,4 @@
   window.PosUI = { pairPhoneScanner, cancelMarketInvoice, marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
   void initialize();
 }());
+
