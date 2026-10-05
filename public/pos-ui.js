@@ -285,7 +285,8 @@
     const h=JSON.parse(localStorage.getItem(marketShiftHistoryKey())||'[]');h.unshift({...s,summary:m});localStorage.setItem(marketShiftHistoryKey(),JSON.stringify(h.slice(0,200)));localStorage.setItem(marketShiftKey(),JSON.stringify(s));window.AlMahasibMarketOffline?.queueTransaction('shift_close',{id:crypto.randomUUID(),shiftId:s.id,cashier:s.cashier,cashierCode:marketCashierId(),opening:s.opening,counted:s.counted,difference:s.difference,closeType:s.closeType,summary:m,occurredAt:s.closedAt});renderMarketShift();
     alert((handover?'تم تسليم الشفت':'تم إغلاق وتسوية الشفت')+'\nفرق الصندوق: '+s.difference.toLocaleString('ar-IQ')+' د.ع');
   }
-  function renderMarketShift(){if(selectedMode!=='market')return;updateMarketCashierLabel();const s=getMarketShift(),el=document.getElementById('marketShiftInfo');if(!el)return;el.textContent=!s?'لا يوجد شفت مفتوح':s.status==='open'?'الشفت مفتوح منذ '+new Date(s.openedAt).toLocaleTimeString('ar-IQ'):'آخر شفت مغلق — فرق الصندوق '+Number(s.difference||0).toLocaleString('ar-IQ')+' د.ع';}
+  function renderMarketSalesTotal(){const el=document.getElementById('marketShiftSalesTotal');if(!el)return;const s=getMarketShift();const rows=s?JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]').filter(x=>!x.cancelled&&(x.shiftId?x.shiftId===s.id:(x.cashierCode===marketCashierId()||(!x.cashierCode&&x.cashier===s.cashier))&&new Date(x.at)>=new Date(s.openedAt)&&(!s.closedAt||new Date(x.at)<=new Date(s.closedAt)))):[];const total=rows.reduce((sum,x)=>sum+toScaled(normalize(x.net||'0')),0n);el.textContent=Number(fromScaled(total)).toLocaleString('ar-IQ')+' د.ع';const count=document.getElementById('marketShiftSalesCount');if(count)count.textContent=rows.length+' فاتورة مكتملة';}
+  function renderMarketShift(){if(selectedMode!=='market')return;updateMarketCashierLabel();renderMarketSalesTotal();const s=getMarketShift(),el=document.getElementById('marketShiftInfo');if(!el)return;el.textContent=!s?'لا يوجد شفت مفتوح':s.status==='open'?'الشفت مفتوح منذ '+new Date(s.openedAt).toLocaleTimeString('ar-IQ'):'آخر شفت مغلق — فرق الصندوق '+Number(s.difference||0).toLocaleString('ar-IQ')+' د.ع';}
   function loadHeldMarketSales(){try{return JSON.parse(localStorage.getItem(marketHeldKey())||'[]')}catch{return[]}}
   function storeHeldMarketDraft(id,ref){
     const a=loadHeldMarketSales(),old=a.find(x=>x.id===id);
@@ -395,11 +396,11 @@
           localStorage.setItem(marketCatalogKey,JSON.stringify(catalog));localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',saleAt);
           await window.AlMahasibMarketOffline?.queueTransaction('sale',salePayload);await window.AlMahasibMarketOffline?.saveSnapshot('market-sale');
         }
-        localReceipt={number,lines:structuredClone(cart),gross:fromScaled(gross),discount,net,cash:net,due:'0.000000',received,change:salePayload.change,mode:titles[selectedMode],at:saleAt,returned:false,cancelled:false,cashier:shift.cashier,cashierCode:marketCashierId()};
+        localReceipt={number,lines:structuredClone(cart),gross:fromScaled(gross),discount,net,cash:net,due:'0.000000',received,change:salePayload.change,mode:titles[selectedMode],at:saleAt,returned:false,cancelled:false,cashier:shift.cashier,cashierCode:marketCashierId(),shiftId:shift.id};
         const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');invoices.unshift(localReceipt);localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices.slice(0,1000)));
         if(activeHeldMarketId){localStorage.setItem(marketHeldKey(),JSON.stringify(loadHeldMarketSales().filter(x=>x.id!==activeHeldMarketId)));activeHeldMarketId=null;}
         renderMarketCatalog();renderReceipt(localReceipt);cart=[];renderCart();if(standaloneCashier)showHeldMarketSales();const r=document.getElementById('marketReceived');if(r)r.value='0';updateMarketChange();
-        if(printAfter)printReceipt();document.getElementById('barcodeInput').focus();return;
+        renderMarketSalesTotal();if(printAfter)printReceipt();document.getElementById('barcodeInput').focus();return;
       }
 
       state = await offline.getPosState();
