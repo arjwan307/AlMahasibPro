@@ -158,7 +158,6 @@ public class MainActivity extends AppCompatActivity {
         if (sending || destroyed || pairMode || validating || pairingToken.isEmpty()) return;
         sending = true;
         final String token = pairingToken;
-        show("جارٍ إرسال الباركود…");
         networkExecutor.execute(() -> {
             HttpURLConnection connection = null;
             try {
