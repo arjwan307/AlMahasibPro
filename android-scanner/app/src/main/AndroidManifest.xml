@@ -7,7 +7,7 @@
         android:name="android.hardware.camera"
         android:required="true"/>
 
-    <application
+    <application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme"
         android:label="AlMahasibPro Scanner"
         android:usesCleartextTraffic="false">
