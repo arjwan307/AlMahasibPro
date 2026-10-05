@@ -43,4 +43,14 @@ async function cashierTest(){
  console.log('PASS: F7 sends drawer pulse, journals timestamp without money, preserves cash and ignores held-key repeats');
  console.log('PASS: active cart/payment restored, credit sale deducts stock once, only collected cash enters box, zero-stock product cannot sell');
 }
-(async()=>{await ledgerTest();await retryTest();await serverTest();await cashierTest()})().catch(error=>{console.error(error);process.exitCode=1});
+async function saleRouteTest(){
+ const source=fs.readFileSync(path.join(root,'apps/api/src/app.js'),'utf8');
+ assert(source.includes("import { randomUUID } from 'node:crypto'"));
+ const start=source.indexOf("  app.post('/api/v1/market/sale'");const body=source.slice(source.indexOf('async (req, res) => {',start)+'async (req, res) => {'.length,source.indexOf('\n  }));',start));
+ const validator=source.slice(source.indexOf('function validateOperation('),source.indexOf('\nfunction ',source.indexOf('function validateOperation(')+1));
+ let committed,response;const c={randomUUID:crypto.randomUUID,structuredClone,AppError:class extends Error{},payloadHash:payload=>crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex'),req:{body:{id:'sale',invoice:'MKT-test',lines:[{itemId:'rice',quantity:'1',unitPrice:'4000'}],net:'4000',cash:'4000'},auth:{company:{id:'company'},session:{deviceId:'web'}}},res:{json:x=>response=x},store:{pullChanges:async()=>({changes:[{entityType:'market.snapshot',payload:{catalog:[{id:'rice',qty:2}]}}],hasMore:false}),pushOperations:async(_,rows)=>{committed=rows;return rows.map(()=>({status:'acknowledged'}))}}};
+ vm.createContext(c);await vm.runInContext(validator+'\n(async()=>{'+body+'})()',c);
+ assert.equal(response.ok,true);assert.equal(response.snapshot.catalog[0].qty,1);assert.equal(committed[1].payload.cash,'4000');assert.equal(committed.length,2);
+ console.log('PASS: online checkout creates snapshot and sale without a global crypto dependency');
+}
+(async()=>{await ledgerTest();await retryTest();await serverTest();await cashierTest();await saleRouteTest()})().catch(error=>{console.error(error);process.exitCode=1});

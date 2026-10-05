@@ -414,7 +414,7 @@
         const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');invoices.unshift(localReceipt);localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices));
         if(activeHeldMarketId){window.MarketCashierLedger?.record('waiting_close',{waitingId:activeHeldMarketId});localStorage.setItem(marketHeldKey(),JSON.stringify(loadHeldMarketSales().filter(x=>x.id!==activeHeldMarketId)));activeHeldMarketId=null;}
         renderMarketCatalog();renderReceipt(localReceipt);cart=[];document.getElementById('discountInput').value='0';const nextParty=document.getElementById('marketParty');if(nextParty)nextParty.value='';const nextType=document.getElementById('marketPaymentType');if(nextType)nextType.value='cash';renderCart();if(standaloneCashier)showHeldMarketSales();const r=document.getElementById('marketReceived');if(r)r.value='0';updateMarketChange();
-        renderMarketSalesTotal();renderMarketShift();saveMarketWork();if(printAfter){if(cashDrawerPort?.writable)void pulseCashDrawer().catch(error=>alert('تم حفظ البيع؛ تعذر فتح الصندوق: '+error.message));saleInProgress=false;if(checkoutButton)checkoutButton.disabled=false;printReceipt();}document.getElementById('barcodeInput').focus();return;
+        renderMarketSalesTotal();renderMarketShift();saveMarketWork();if(printAfter){if(cashDrawerPort?.writable)void pulseCashDrawer().catch(()=>{const status=document.getElementById('cashDrawerStatus');if(status)status.textContent='تم حفظ البيع والطباعة؛ تعذر إرسال أمر فتح الدرج'});saleInProgress=false;if(checkoutButton)checkoutButton.disabled=false;printReceipt();}document.getElementById('barcodeInput').focus();return;
       }
 
       state = await offline.getPosState();

@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { AppError, asyncRoute, normalizeCode, normalizeUsername, requireFields } from './lib/http.js';
 import { decimal, decimalString } from './lib/decimal.js';
@@ -358,8 +359,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     const catalog=structuredClone(snapshot.catalog),lines=Array.isArray(req.body?.lines)?req.body.lines:[];
     if(!lines.length) throw new AppError(400,'INVALID_MARKET_REVERSAL','لا توجد مواد لإعادتها');
     for(const line of lines){const item=catalog.find(x=>String(x.id)===String(line.itemId)),qty=Number(line.quantity||0);if(!item||!(qty>0))throw new AppError(409,'MARKET_ITEM_NOT_FOUND','أحد أصناف المرتجع غير موجود');item.qty=Number(item.qty||0)+qty}
-    const now=new Date().toISOString(),snap=validateOperation({operationId:crypto.randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now(),occurredAt:now,schemaVersion:1,dependencies:[],type:'market.snapshot',payload:{catalog,updatedAt:now}});
-    const tx=validateOperation({operationId:crypto.randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now()+1,occurredAt:now,schemaVersion:1,dependencies:[],type:'market.transaction.'+kind,payload:{...req.body,id:String(req.body?.id||crypto.randomUUID()),kind,occurredAt:now}});
+    const now=new Date().toISOString(),snap=validateOperation({operationId:randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now(),occurredAt:now,schemaVersion:1,dependencies:[],type:'market.snapshot',payload:{catalog,updatedAt:now}});
+    const tx=validateOperation({operationId:randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now()+1,occurredAt:now,schemaVersion:1,dependencies:[],type:'market.transaction.'+kind,payload:{...req.body,id:String(req.body?.id||randomUUID()),kind,occurredAt:now}});
     const results=await store.pushOperations(req.auth,[snap,tx]);if(results.some(x=>x.status!=='acknowledged'))throw new AppError(409,'MARKET_REVERSAL_REJECTED','تعذر اعتماد العملية مركزيًا');
     res.json({ok:true,snapshot:{catalog,updatedAt:now}});
   }));
@@ -383,7 +384,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     const closed=await marketTransactionExists(req.auth.company.id,x=>x.kind==='shift_close'&&x.shiftId===shiftId);
     if(!opened||closed)throw new AppError(409,'SCANNER_SHIFT_NOT_OPEN','افتح الشفت وزامنه قبل ربط الماسح');
     await revokeScannerShift(req.auth.company.id,shiftId);
-    const token=crypto.randomUUID().replace(/-/g,''),link={_id:token,companyId:req.auth.company.id,terminal,shiftId,cashier:String(req.body?.cashier||'').slice(0,100),createdAt:new Date().toISOString(),revoked:false,codes:[]};
+    const token=randomUUID().replace(/-/g,''),link={_id:token,companyId:req.auth.company.id,terminal,shiftId,cashier:String(req.body?.cashier||'').slice(0,100),createdAt:new Date().toISOString(),revoked:false,codes:[]};
     if(scannerCollection)await scannerCollection.insertOne(link);else marketScannerLinks.set(token,link);
     res.set('Cache-Control','no-store').json({token,expiresIn:null,validUntil:'shift_close_or_disconnect'});
   }));
@@ -434,12 +435,12 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       item.qty = Number(item.qty || 0) - Number(line.quantity || 0);
     }
     const now = new Date().toISOString(), snapshotOperation = validateOperation({
-      operationId: crypto.randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
+      operationId: randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
       clientSequence: Date.now(), occurredAt: now, schemaVersion: 1, dependencies: [], type: 'market.snapshot',
       payload: { catalog, updatedAt: now }
     });
-    const saleId = String(req.body?.id || crypto.randomUUID()), saleOperation = validateOperation({
-      operationId: crypto.randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
+    const saleId = String(req.body?.id || randomUUID()), saleOperation = validateOperation({
+      operationId: randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
       clientSequence: Date.now() + 1, occurredAt: now, schemaVersion: 1, dependencies: [], type: 'market.transaction.sale',
       payload: { ...req.body, id: saleId, kind: 'sale', occurredAt: now }
     });
@@ -496,7 +497,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     })) : null;
     if (!catalog) throw new AppError(400, 'INVALID_MARKET_CATALOG', 'بيانات أصناف الماركت غير صالحة');
     const operation = validateOperation({
-      operationId: crypto.randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
+      operationId: randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
       clientSequence: Date.now(), occurredAt: new Date().toISOString(), schemaVersion: 1,
       dependencies: [], type: 'market.snapshot', payload: { catalog, updatedAt: String(req.body?.clientUpdatedAt || new Date().toISOString()) }
     });
