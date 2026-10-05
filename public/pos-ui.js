@@ -265,8 +265,9 @@
   }
   function marketExpense(){
     const s=getMarketShift();if(!s||s.status!=='open')return alert('افتح الشفت أولًا');
-    const title=prompt('بيان المصروف:');if(!title)return;const amount=Number(prompt('المبلغ:','0')||0);if(!(amount>0))return;
-    const expense={id:crypto.randomUUID(),title,amount,at:new Date().toISOString()};s.expenses.push(expense);localStorage.setItem(marketShiftKey(),JSON.stringify(s));window.AlMahasibMarketOffline?.queueTransaction('expense',{id:expense.id,shiftId:s.id,cashier:s.cashier,cashierCode:marketCashierId(),title,amount,occurredAt:expense.at});renderMarketShift();
+    const titleInput=document.getElementById('marketExpenseTitle'),amountInput=document.getElementById('marketExpenseAmount');
+    const title=String(titleInput?titleInput.value:prompt('بيان المصروف:')||'').trim();if(!title)return alert('أدخل بيان المصروف');const amount=Number(amountInput?amountInput.value:prompt('المبلغ:','0')||0);if(!Number.isFinite(amount)||!(amount>0))return alert('أدخل مبلغ مصروف صحيح');
+    const expense={id:crypto.randomUUID(),title,amount,at:new Date().toISOString()};s.expenses=s.expenses||[];s.expenses.push(expense);localStorage.setItem(marketShiftKey(),JSON.stringify(s));window.AlMahasibMarketOffline?.queueTransaction('expense',{id:expense.id,shiftId:s.id,cashier:s.cashier,cashierCode:marketCashierId(),title,amount,occurredAt:expense.at});if(titleInput)titleInput.value='';if(amountInput)amountInput.value='';renderMarketShift();
   }
   function marketShiftSummary(s=getMarketShift()){
     if(!s)return null;const inShift=x=>x.shiftId?x.shiftId===s.id:(x.cashierCode===marketCashierId()||(!x.cashierCode&&x.cashier===s.cashier))&&new Date(x.at)>=new Date(s.openedAt)&&(!s.closedAt||new Date(x.at)<=new Date(s.closedAt));const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]').filter(inShift);
@@ -286,7 +287,7 @@
     alert((handover?'تم تسليم الشفت':'تم إغلاق وتسوية الشفت')+'\nفرق الصندوق: '+s.difference.toLocaleString('ar-IQ')+' د.ع');
   }
   function renderMarketSalesTotal(){const el=document.getElementById('marketShiftSalesTotal');if(!el)return;const s=getMarketShift();const rows=s?JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]').filter(x=>!x.cancelled&&(x.shiftId?x.shiftId===s.id:(x.cashierCode===marketCashierId()||(!x.cashierCode&&x.cashier===s.cashier))&&new Date(x.at)>=new Date(s.openedAt)&&(!s.closedAt||new Date(x.at)<=new Date(s.closedAt)))):[];const total=rows.reduce((sum,x)=>sum+toScaled(normalize(x.net||'0')),0n);el.textContent=Number(fromScaled(total)).toLocaleString('ar-IQ')+' د.ع';const count=document.getElementById('marketShiftSalesCount');if(count)count.textContent=rows.length+' فاتورة مكتملة';}
-  function renderMarketShift(){if(selectedMode!=='market')return;updateMarketCashierLabel();renderMarketSalesTotal();const s=getMarketShift(),el=document.getElementById('marketShiftInfo');if(!el)return;el.textContent=!s?'لا يوجد شفت مفتوح':s.status==='open'?'الشفت مفتوح منذ '+new Date(s.openedAt).toLocaleTimeString('ar-IQ'):'آخر شفت مغلق — فرق الصندوق '+Number(s.difference||0).toLocaleString('ar-IQ')+' د.ع';}
+  function renderMarketShift(){if(selectedMode!=='market')return;updateMarketCashierLabel();renderMarketSalesTotal();const expenseTotal=document.getElementById('marketExpenseTotal');if(expenseTotal)expenseTotal.textContent=Number((getMarketShift()?.expenses||[]).reduce((n,x)=>n+Number(x.amount||0),0)).toLocaleString('ar-IQ')+' د.ع';const s=getMarketShift(),el=document.getElementById('marketShiftInfo');if(!el)return;el.textContent=!s?'لا يوجد شفت مفتوح':s.status==='open'?'الشفت مفتوح منذ '+new Date(s.openedAt).toLocaleTimeString('ar-IQ'):'آخر شفت مغلق — فرق الصندوق '+Number(s.difference||0).toLocaleString('ar-IQ')+' د.ع';}
   function loadHeldMarketSales(){try{return JSON.parse(localStorage.getItem(marketHeldKey())||'[]')}catch{return[]}}
   function storeHeldMarketDraft(id,ref){
     const a=loadHeldMarketSales(),old=a.find(x=>x.id===id);
