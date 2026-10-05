@@ -1,4 +1,6 @@
 import { MongoClient } from 'mongodb';
+import { serialize, deserialize } from 'node:v8';
+import { createHash } from 'node:crypto';
 import { MemoryStore } from './memory-store.js';
 
 const MAP_FIELDS = [
@@ -28,6 +30,7 @@ export class MongoStore extends MemoryStore {
     this.client = client;
     this.db = db;
     this.state = db.collection('_app_state');
+    this.stateChunks = db.collection('_app_state_chunks');
     this.persistQueue = Promise.resolve();
 
     for (const name of WRITE_METHODS) {
@@ -52,9 +55,21 @@ export class MongoStore extends MemoryStore {
   async #load() {
     const document = await this.state.findOne({ _id: 'primary' });
     if (!document) return;
-    for (const field of MAP_FIELDS) this[field] = new Map(document[field] || []);
-    for (const field of ARRAY_FIELDS) this[field] = document[field] || [];
-    this.changeSequence = Number(document.changeSequence || 0);
+    let restored = document;
+    if (document.storageFormat === 'chunks-v1') {
+      const buffers = [];
+      for (const id of document.chunkIds || []) {
+        const chunk = await this.stateChunks.findOne({ _id: id });
+        if (!chunk) throw new Error('Missing database state chunk: ' + id);
+        const bytes = Buffer.isBuffer(chunk.data) ? chunk.data : Buffer.from(chunk.data.buffer);
+        if (createHash('sha256').update(bytes).digest('hex') !== id) throw new Error('Invalid database state chunk');
+        buffers.push(bytes);
+      }
+      restored = deserialize(Buffer.concat(buffers));
+    }
+    for (const field of MAP_FIELDS) this[field] = new Map(restored[field] || []);
+    for (const field of ARRAY_FIELDS) this[field] = restored[field] || [];
+    this.changeSequence = Number(restored.changeSequence || 0);
   }
 
   #snapshot() {
@@ -66,9 +81,19 @@ export class MongoStore extends MemoryStore {
 
   async #persist() {
     const snapshot = this.#snapshot();
-    this.persistQueue = this.persistQueue.then(() =>
-      this.state.replaceOne({ _id: 'primary' }, { _id: 'primary', ...snapshot }, { upsert: true })
-    );
+    delete snapshot.updatedAt;
+    const bytes = serialize(snapshot);
+    this.persistQueue = this.persistQueue.catch(() => {}).then(async () => {
+      const chunkIds = [];
+      for (let offset = 0; offset < bytes.length; offset += 2 * 1024 * 1024) {
+        const data = bytes.subarray(offset, offset + 2 * 1024 * 1024);
+        const id = createHash('sha256').update(data).digest('hex');
+        chunkIds.push(id);
+        await this.stateChunks.updateOne({ _id: id }, { $setOnInsert: { data: Buffer.from(data), createdAt: new Date() } }, { upsert: true });
+      }
+      // Publish only after every chunk is durable. Legacy primary remains intact until then.
+      await this.state.replaceOne({ _id: 'primary' }, { _id: 'primary', storageFormat: 'chunks-v1', chunkIds, changeSequence: snapshot.changeSequence, updatedAt: new Date() }, { upsert: true });
+    });
     await this.persistQueue;
   }
 
@@ -77,3 +102,4 @@ export class MongoStore extends MemoryStore {
     await this.client.close();
   }
 }
+
