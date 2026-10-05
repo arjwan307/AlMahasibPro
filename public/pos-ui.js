@@ -414,7 +414,7 @@
         const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');invoices.unshift(localReceipt);localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices));
         if(activeHeldMarketId){window.MarketCashierLedger?.record('waiting_close',{waitingId:activeHeldMarketId});localStorage.setItem(marketHeldKey(),JSON.stringify(loadHeldMarketSales().filter(x=>x.id!==activeHeldMarketId)));activeHeldMarketId=null;}
         renderMarketCatalog();renderReceipt(localReceipt);cart=[];document.getElementById('discountInput').value='0';const nextParty=document.getElementById('marketParty');if(nextParty)nextParty.value='';const nextType=document.getElementById('marketPaymentType');if(nextType)nextType.value='cash';renderCart();if(standaloneCashier)showHeldMarketSales();const r=document.getElementById('marketReceived');if(r)r.value='0';updateMarketChange();
-        renderMarketSalesTotal();renderMarketShift();saveMarketWork();if(printAfter)printReceipt();document.getElementById('barcodeInput').focus();return;
+        renderMarketSalesTotal();renderMarketShift();saveMarketWork();if(printAfter){saleInProgress=false;if(checkoutButton)checkoutButton.disabled=false;printReceipt();}document.getElementById('barcodeInput').focus();return;
       }
 
       state = await offline.getPosState();
@@ -460,13 +460,37 @@
     } catch (error) { alert(error.message); }
   }
 
+  let receiptPrintQueue = Promise.resolve();
   function printReceipt() {
     if (!localReceipt && state?.lastReceipt) renderReceipt(state.lastReceipt.payload.document);
-    if (!document.getElementById('receipt').innerHTML) return alert('لا يوجد وصل للطباعة');
-    window.print();
+    const html = document.getElementById('receipt').innerHTML;
+    if (!html) return alert('لا يوجد وصل للطباعة');
+    // Capture now: a subsequent sale must never replace a queued receipt.
+    receiptPrintQueue = receiptPrintQueue.catch(() => {}).then(() => new Promise((resolve) => {
+      const frame = document.createElement('iframe');
+      frame.title = 'وصل حراري';
+      frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:302px;height:1px;border:0';
+      document.body.appendChild(frame);
+      const doc = frame.contentDocument;
+      doc.open();
+      doc.write('<!doctype html><html dir="rtl"><head><meta charset="utf-8"><style>@page{size:80mm 200mm;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;background:white;color:black}body{width:80mm;padding:3mm;font:11px Arial,sans-serif}h2{font-size:16px}table{table-layout:fixed}th,td{font-size:10px;padding:3px 1px;border-bottom:1px solid #ddd;white-space:normal;overflow-wrap:anywhere}th:first-child,td:first-child{width:40%}p{margin:6px 0}hr{border:0;border-top:1px dashed black}</style></head><body>'+html+'</body></html>');
+      doc.close();
+      let finished = false;
+      const finish = () => { if(finished)return;finished=true;frame.remove();resolve(); };
+      frame.contentWindow.addEventListener('afterprint',finish,{once:true});
+      const ready = doc.fonts?.ready || Promise.resolve();
+      ready.then(() => setTimeout(() => {
+        const height = Math.max(40, Math.ceil(doc.body.scrollHeight * 25.4 / 96) + 3);
+        const style=doc.createElement('style');style.textContent='@page{size:80mm '+height+'mm;margin:0}';doc.head.appendChild(style);
+        try { frame.contentWindow.focus();frame.contentWindow.print(); }
+        catch(error){finish();alert('تعذرت الطباعة: '+error.message);return;}
+        // Chromium emits afterprint when printing or cancellation completes.
+      },0));
+    }));
   }
 
   function renderReceipt(receipt) {
+    const receiptNumber = value => escapeHtml(String(value ?? '0').replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1'));
     const company=companyContext.name||'المحاسب برو';
     const cashier=receipt.cashier||marketCashierName();
     const lines=receipt.lines||[];
@@ -477,10 +501,10 @@
       '<div>'+new Date(receipt.at||Date.now()).toLocaleString('ar-IQ')+'</div><hr>'+
       '<div style="text-align:right">رقم الفاتورة: <b>'+escapeHtml(receipt.number||receipt.documentNumber||'')+'</b></div>'+
       '<table style="width:100%;border-collapse:collapse;margin-top:8px"><thead><tr><th>المادة</th><th>الكمية</th><th>السعر</th><th>المجموع</th></tr></thead><tbody>'+
-      lines.map(l=>'<tr><td>'+escapeHtml(l.name||'مادة')+'</td><td>'+escapeHtml(l.quantity||'1')+'</td><td>'+escapeHtml(l.unitPrice||'0')+'</td><td>'+escapeHtml(multiply(l.quantity||'1',l.unitPrice||'0'))+'</td></tr>').join('')+
-      '</tbody></table><hr><div style="text-align:right"><div>الإجمالي: '+escapeHtml(receipt.gross||net)+' د.ع</div>'+
-      '<div>الخصم: '+escapeHtml(receipt.discount||'0')+' د.ع</div><div><b>الصافي: '+escapeHtml(net)+' د.ع</b></div>'+
-      '<div>المدفوع: '+escapeHtml(cash)+' د.ع</div>'+(selectedMode==='market'?'<div>المستلم: '+escapeHtml(received)+' د.ع</div><div>الباقي للزبون: '+escapeHtml(change)+' د.ع</div>':'')+'<div>المتبقي/الآجل: '+escapeHtml(due)+' د.ع</div></div>'+
+      lines.map(l=>'<tr><td>'+escapeHtml(l.name||'مادة')+'</td><td>'+receiptNumber(l.quantity||'1')+'</td><td>'+receiptNumber(l.unitPrice||'0')+'</td><td>'+receiptNumber(multiply(l.quantity||'1',l.unitPrice||'0'))+'</td></tr>').join('')+
+      '</tbody></table><hr><div style="text-align:right"><div>الإجمالي: '+receiptNumber(receipt.gross||net)+' د.ع</div>'+
+      '<div>الخصم: '+receiptNumber(receipt.discount||'0')+' د.ع</div><div><b>الصافي: '+receiptNumber(net)+' د.ع</b></div>'+
+      '<div>المدفوع: '+receiptNumber(cash)+' د.ع</div>'+(selectedMode==='market'?'<div>المستلم: '+receiptNumber(received)+' د.ع</div><div>الباقي للزبون: '+receiptNumber(change)+' د.ع</div>':'')+'<div>المتبقي/الآجل: '+receiptNumber(due)+' د.ع</div></div>'+
       '<hr><p>شكرًا لزيارتكم</p></div>';
   }
 
