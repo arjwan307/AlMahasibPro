@@ -483,14 +483,30 @@
       catch(error){window.MarketCashierLedger.record('drawer_result',{requestId:event.id,status:'failed',shiftId:shift.id});throw error}
     }catch(error){alert(error.message)}finally{drawerBusy=false}
   }
+  const marketPrintingKey='tenant:'+companyScope+':market_printing_enabled';
+  function marketPrintingEnabled(){return localStorage.getItem(marketPrintingKey)!=='false'}
+  function updatePrintingButton(){const button=document.getElementById('marketPrintingToggle');if(button){button.textContent=marketPrintingEnabled()?'الطباعة مفعلة — إيقاف':'الطباعة متوقفة — تشغيل';button.setAttribute('aria-pressed',String(marketPrintingEnabled()))}}
+  function toggleMarketPrinting(){localStorage.setItem(marketPrintingKey,String(!marketPrintingEnabled()));updatePrintingButton()}
+  let controlAlone=false;
   document.addEventListener('keydown',event=>{
-    if(selectedMode!=='market'||event.ctrlKey||event.altKey||event.metaKey||!['F7','F8'].includes(event.key))return;
+    if(selectedMode!=='market')return;
+    if(event.key==='Control'){if(!event.repeat)controlAlone=!event.altKey&&!event.metaKey&&!event.shiftKey;return}
+    controlAlone=false;
+    if(event.key!=='F7'||event.ctrlKey||event.altKey||event.metaKey)return;
     event.preventDefault();if(event.repeat||document.querySelector('dialog[open]'))return;
-    if(event.key==='F7')void openCashDrawerOnly();else void completeSale(true);
+    void openCashDrawerOnly();
   });
+  document.addEventListener('keyup',event=>{
+    if(event.key!=='Control')return;
+    const submit=controlAlone;controlAlone=false;
+    if(submit&&selectedMode==='market'&&!event.altKey&&!event.metaKey&&!event.shiftKey&&!document.querySelector('dialog[open]')){event.preventDefault();void completeSale(true)}
+  });
+  window.addEventListener('blur',()=>{controlAlone=false});
+  updatePrintingButton();
 
   let receiptPrintQueue = Promise.resolve();
   function printReceipt() {
+    if(selectedMode==='market'&&!marketPrintingEnabled())return;
     if (!localReceipt && state?.lastReceipt) renderReceipt(state.lastReceipt.payload.document);
     const html = document.getElementById('receipt').innerHTML;
     if (!html) return alert('لا يوجد وصل للطباعة');
@@ -610,7 +626,7 @@
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[character])); }
   function delay(milliseconds) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 
-  window.PosUI = { connectCashDrawer, openCashDrawerOnly, showMarketTrialCatalog, addMarketTrialCatalog, manualMarketSync, marketCashIn, paymentTypeChanged, saveMarketWork, backupMarketCashier, restoreMarketBackup, stopPhoneScanner, scanBarcode, setMarketQty, pairPhoneScanner, cancelMarketInvoice, marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
+  window.PosUI = { toggleMarketPrinting, connectCashDrawer, openCashDrawerOnly, showMarketTrialCatalog, addMarketTrialCatalog, manualMarketSync, marketCashIn, paymentTypeChanged, saveMarketWork, backupMarketCashier, restoreMarketBackup, stopPhoneScanner, scanBarcode, setMarketQty, pairPhoneScanner, cancelMarketInvoice, marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
   void initialize();
 }());
 
