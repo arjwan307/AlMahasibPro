@@ -15,6 +15,7 @@
   let master;
   let cart = [];
   let saleInProgress = false;
+  let marketReceivedManual = false;
   const standaloneCashier = document.body.dataset.standaloneCashier === "true";
   let localReceipt;
   const companyContext=(()=>{try{return JSON.parse(localStorage.getItem('almahasib_company_context')||'{}')}catch{return{}}})();
@@ -50,6 +51,7 @@
       if (event.key === 'Enter') { event.preventDefault(); scanBarcode(); }
     });
     document.getElementById('discountInput').addEventListener('input', renderCart);
+    document.getElementById('marketReceived')?.addEventListener('input', () => { marketReceivedManual = true; updateMarketChange(); });
     if(selectedMode==='market'){
       const admin=document.getElementById('marketCatalogButton'); if(admin) admin.style.display='';
       const tools=document.getElementById('marketSaleTools'); if(tools) tools.style.display='block';
@@ -234,6 +236,11 @@
     const discount = normalize(document.getElementById('discountInput').value || '0');
     const gross = cart.reduce((sum, line) => sum + toScaled(multiply(line.quantity, line.unitPrice)), 0n);
     const net = gross - toScaled(discount);
+    if(selectedMode==='market'){
+      if(!cart.length)marketReceivedManual=false;
+      const receivedInput=document.getElementById('marketReceived');
+      if(receivedInput&&!marketReceivedManual)receivedInput.value=String(Number(fromScaled(net>0n?net:0n)));
+    }
     document.getElementById('netTotal').textContent = (standaloneCashier ? Number(fromScaled(net > 0n ? net : 0n)).toLocaleString("ar-IQ") : fromScaled(net > 0n ? net : 0n)); if(selectedMode==='market')updateMarketChange();
   }
 
@@ -287,7 +294,7 @@
     const a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]');el.style.display='block';
     el.innerHTML=a.length?a.map(x=>'<div style="display:flex;justify-content:space-between;gap:8px;padding:8px;border-bottom:1px solid #334"><span>'+escapeHtml(x.ref)+' — '+new Date(x.at).toLocaleString('ar-IQ')+'</span><span><button class="btn" onclick="PosUI.restoreHeldMarketSale(\''+x.id+'\')">استرجاع</button> <button class="btn btn-danger" onclick="PosUI.deleteHeldMarketSale(\''+x.id+'\')">حذف</button></span></div>').join(''):'لا توجد فواتير معلقة';
   }
-  function restoreHeldMarketSale(id){if(saleInProgress)return;let a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]'),x=a.find(z=>z.id===id);if(!x)return;if(cart.length&&!confirm('السلة الحالية تحتوي مواد. هل تريد استبدالها بالفاتورة المعلقة؟'))return;const catalog=marketCatalog();const bad=(x.cart||[]).find(l=>{const s=catalog.find(z=>z.id===l.itemId);return !s||Number(s.qty||0)<Number(l.quantity||0)});if(bad)return alert('لا يمكن الاسترجاع: رصيد الصنف غير كافٍ أو تم حذفه: '+bad.name);cart=x.cart||[];a=a.filter(z=>z.id!==id);localStorage.setItem(marketHeldKey(),JSON.stringify(a));renderCart();showHeldMarketSales()}
+  function restoreHeldMarketSale(id){if(saleInProgress)return;let a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]'),x=a.find(z=>z.id===id);if(!x)return;if(cart.length&&!confirm('السلة الحالية تحتوي مواد. هل تريد استبدالها بالفاتورة المعلقة؟'))return;const catalog=marketCatalog();const bad=(x.cart||[]).find(l=>{const s=catalog.find(z=>z.id===l.itemId);return !s||Number(s.qty||0)<Number(l.quantity||0)});if(bad)return alert('لا يمكن الاسترجاع: رصيد الصنف غير كافٍ أو تم حذفه: '+bad.name);marketReceivedManual=false;cart=x.cart||[];a=a.filter(z=>z.id!==id);localStorage.setItem(marketHeldKey(),JSON.stringify(a));renderCart();showHeldMarketSales()}
   function deleteHeldMarketSale(id){if(!confirm('حذف الفاتورة المعلقة؟'))return;let a=JSON.parse(localStorage.getItem(marketHeldKey())||'[]').filter(z=>z.id!==id);localStorage.setItem(marketHeldKey(),JSON.stringify(a));showHeldMarketSales()}
   function updateMarketChange(){
     if(selectedMode!=='market')return;
