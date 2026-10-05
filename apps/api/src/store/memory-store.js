@@ -516,7 +516,18 @@ export class MemoryStore {
         }
       } else if (operation.type.startsWith('market.transaction.')) {
         const p = operation.payload || {}, entityId = String(p.id || operation.operationId);
-        if (!['sale','return','cancel','shift_open','shift_close','expense'].includes(String(p.kind || ''))) {
+        let marketError=null;
+        if(['cash_in','collection'].includes(p.kind)){
+          const amount=Number(p.amount);
+          if(!Number.isFinite(amount)||amount<=0||!p.shiftId)marketError='INVALID_MARKET_CASH';
+          if(p.kind==='collection'){
+            const records=this.changes.filter(x=>x.companyId===context.company.id&&x.entityType==='market.transaction').map(x=>x.payload||x.data||{}),sale=records.find(x=>x.kind==='sale'&&x.invoice===p.invoice);
+            const paid=records.filter(x=>x.kind==='collection'&&x.invoice===p.invoice).reduce((n,x)=>n+Number(x.amount||0),0),returns=records.filter(x=>x.kind==='return'&&x.invoice===p.invoice).reduce((n,x)=>n+Number(x.amount||0),0);
+            if(!sale||records.some(x=>x.kind==='cancel'&&x.invoice===p.invoice)||amount>Math.max(0,Number(sale.net||0)-Number(sale.cash??sale.net??0)-paid-returns)+0.0000001)marketError='MARKET_COLLECTION_EXCEEDS_BALANCE';
+          }
+        }
+        if(marketError){result.status='rejected';result.code=marketError;}
+        else if (!['sale','return','cancel','shift_open','shift_close','expense','cash_in','collection','waiting_update','waiting_close'].includes(String(p.kind || ''))) {
           result.status = 'rejected'; result.code = 'INVALID_MARKET_TRANSACTION';
         } else {
           result.entityId = entityId;
@@ -900,3 +911,4 @@ export class MemoryStore {
 }
 
 export { PERMISSIONS };
+

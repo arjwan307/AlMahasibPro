@@ -448,6 +448,11 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({ ok: true, saleId, snapshot: { catalog, updatedAt: now } });
   }));
 
+  app.get('/api/v1/market/cashier-events', authenticate(store), permit('sync.use'), asyncRoute(async(req,res)=>{
+    const cursor=Math.max(0,Number.parseInt(req.query.cursor||'0',10)||0),page=await store.pullChanges(req.auth.company.id,cursor,500);
+    res.set('Cache-Control','no-store').json({events:(page.changes||[]).filter(x=>x.entityType==='market.transaction').map(x=>x.payload||x.data),nextCursor:page.nextCursor,hasMore:page.hasMore});
+  }));
+
   app.get('/api/v1/market/transactions', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
     let cursor = 0, rows = [], guard = 0;
     do {
@@ -767,4 +772,5 @@ async function passwordHashOrValidation(password) {
     throw error;
   }
 }
+
 
