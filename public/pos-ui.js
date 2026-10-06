@@ -399,17 +399,12 @@
         for(const l of cart){const x=catalog.find(z=>z.id===l.itemId);if(!x)throw new Error('أحد الأصناف غير موجود');if(Number(x.qty||0)<Number(l.quantity||0))throw new Error('الرصيد غير كافٍ للصنف: '+l.name)}
         const number='MKT-'+Date.now()+'-'+crypto.randomUUID().slice(0,6),saleId=crypto.randomUUID(),saleAt=new Date().toISOString();
         const salePayload={id:saleId,invoice:number,shiftId:shift.id,cashier:shift.cashier,cashierCode:marketCashierId(),gross:fromScaled(gross),discount,net,cash,due,paymentType,party,heldId:activeHeldMarketId,received,change:fromScaled(toScaled(received)>toScaled(net)?toScaled(received)-toScaled(net):0n),lines:structuredClone(cart),occurredAt:saleAt};
-        if(navigator.onLine){
-          const response=await fetch('/api/v1/market/sale',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(salePayload)});
-          const body=await response.json().catch(()=>({}));
-          if(!response.ok)throw new Error(body?.error?.message||body?.message||'تعذر اعتماد البيع من المخزون المركزي');
-          catalog=body.snapshot.catalog;localStorage.setItem(marketCatalogKey,JSON.stringify(catalog));localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',body.snapshot.updatedAt);
-          await window.AlMahasibMarketOffline?.saveLocalSnapshot(catalog,body.snapshot.updatedAt);
-        }else{
-          cart.forEach(l=>{const x=catalog.find(z=>z.id===l.itemId);x.qty=Number(x.qty||0)-Number(l.quantity||0)});
-          localStorage.setItem(marketCatalogKey,JSON.stringify(catalog));localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',saleAt);
-          await window.AlMahasibMarketOffline?.queueTransaction('sale',salePayload);await window.AlMahasibMarketOffline?.saveSnapshot('market-sale');
-        }
+        // Commit locally first so the next invoice opens immediately. The server sync is background work.
+        cart.forEach(l=>{const x=catalog.find(z=>z.id===l.itemId);x.qty=Number(x.qty||0)-Number(l.quantity||0)});
+        localStorage.setItem(marketCatalogKey,JSON.stringify(catalog));localStorage.setItem('tenant:'+companyScope+':market_catalog_updated_at',saleAt);
+        await window.AlMahasibMarketOffline?.queueTransaction('sale',salePayload);
+        await window.AlMahasibMarketOffline?.saveSnapshot('market-sale');
+        if(navigator.onLine)void window.AlMahasibMarketOffline?.syncTransactions().catch(error=>{console.warn('sale background sync pending',error);const status=document.getElementById('cashierActionStatus');if(status)status.textContent='الفاتورة محفوظة محليًا وتنتظر المزامنة'});
         localReceipt={number,lines:structuredClone(cart),gross:fromScaled(gross),discount,net,cash,due,paymentType,party,received,change:salePayload.change,mode:titles[selectedMode],at:saleAt,returned:false,cancelled:false,cashier:shift.cashier,cashierCode:marketCashierId(),shiftId:shift.id};
         const invoices=JSON.parse(localStorage.getItem(marketInvoicesKey())||'[]');invoices.unshift(localReceipt);localStorage.setItem(marketInvoicesKey(),JSON.stringify(invoices));
         if(activeHeldMarketId){window.MarketCashierLedger?.record('waiting_close',{waitingId:activeHeldMarketId});localStorage.setItem(marketHeldKey(),JSON.stringify(loadHeldMarketSales().filter(x=>x.id!==activeHeldMarketId)));activeHeldMarketId=null;}
