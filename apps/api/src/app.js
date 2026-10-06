@@ -104,6 +104,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   app.get('/api/v1/bootstrap', authenticate(store), (req, res) => {
     res.json({
       ...publicContext(req.auth),
+      salesProfile:store.salesSettings?.get('user:'+req.auth.user.id)||null,
       sync: { pushUrl: '/api/v1/sync/push', pullUrl: '/api/v1/sync/pull', statusUrl: '/api/v1/sync/status' },
       offlineSessionExpiresAt: req.auth.session.expiresAt,
       serverTime: new Date().toISOString()
@@ -163,7 +164,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     const user = await store.createUser(req.auth.company.id, {
       username: normalizeUsername(req.body.username), displayName: req.body.displayName.trim(),
       passwordHash: await passwordHashOrValidation(req.body.password), roleCode: req.body.roleCode,
-      permissions: req.body.permissions, scopes: validateScopes(req.body.scopes, req.auth.company)
+      salesProfile: req.body.salesProfile, status:req.body.status, permissions: req.body.permissions, scopes: validateScopes(req.body.scopes, req.auth.company)
     }, req.auth.user.id);
     res.status(201).json({ user });
   }));
@@ -178,7 +179,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     if (!store.updateUser) throw new AppError(501, 'STORE_UNSUPPORTED', 'تعديل الحسابات غير متاح لهذا الخادم بعد');
     res.json({ user: await store.updateUser(req.auth.company.id, req.params.userId, {
       username: normalizeUsername(req.body.username), displayName: String(req.body.displayName).trim().slice(0, 120),
-      roleCode: req.body.roleCode, status: req.body.status, permissions: req.body.permissions,
+      roleCode: req.body.roleCode, status: req.body.status, permissions: req.body.permissions, salesProfile: req.body.salesProfile,
       passwordHash: req.body.password ? await passwordHashOrValidation(req.body.password) : undefined
     }, req.auth.user.id) });
   }));

@@ -279,20 +279,36 @@ export class MemoryStore {
     return clone(role);
   }
 
+  #validatedUserSalesProfile(companyId,input,roleCode,userId=null){
+    if(input===undefined)return undefined;
+    if(!input||typeof input!=='object'||!['none','representative','manager'].includes(input.kind))throw new AppError(400,'INVALID_SALES_PROFILE','حدد نوع الحساب');
+    if(input.kind==='none'){if(roleCode==='representative')throw new AppError(400,'SALES_CHANNEL_REQUIRED','حدد مندوب مفرد أو جملة');return {companyId,channel:'retail',salesManager:false,managerUserId:null};}
+    if(!['retail','wholesale'].includes(input.channel))throw new AppError(400,'SALES_CHANNEL_REQUIRED','حدد مفرد أو جملة');
+    if(input.kind==='representative'&&roleCode!=='representative'||input.kind==='manager'&&roleCode==='representative')throw new AppError(400,'SALES_ROLE_MISMATCH','الدور لا يطابق نوع حساب المبيعات');
+    const maxDiscountPercent=decimalString(decimal(input.maxDiscountPercent||'0',{nonNegative:true}));if(decimal(maxDiscountPercent)>decimal('100'))throw new AppError(400,'INVALID_DISCOUNT','الخصم لا يتجاوز ١٠٠٪');
+    const result={companyId,channel:input.channel,salesManager:input.kind==='manager',managerUserId:null,phone:String(input.phone||'').slice(0,40),location:String(input.location||'').slice(0,200),maxDiscountPercent};
+    if(input.kind==='representative'&&input.managerUserId){const manager=this.users.get(input.managerUserId),profile=this.salesSettings.get('user:'+input.managerUserId);if(input.managerUserId===userId||!manager||manager.companyId!==companyId||manager.status!=='active'||!profile?.salesManager||profile.channel!==input.channel)throw new AppError(400,'INVALID_SALES_MANAGER','اختر مدير مبيعات نشطًا من نفس النوع وفي شركتك');result.managerUserId=manager.id;}
+    return result;
+  }
+
   async createUser(companyId, input, actorUserId) {
     if ([...this.users.values()].some((user) => user.companyId === companyId && user.username === input.username)) {
       throw new AppError(409, 'USERNAME_EXISTS', 'اسم المستخدم مستخدم في الشركة');
     }
     const role = [...this.roles.values()].find((candidate) => candidate.companyId === companyId && candidate.code === input.roleCode);
     if (!role) throw new AppError(400, 'ROLE_NOT_FOUND', 'الدور غير موجود');
+    const salesProfile=this.#validatedUserSalesProfile(companyId,input.salesProfile,input.roleCode);
+    if(input.status!==undefined&&!['active','disabled'].includes(input.status))throw new AppError(400,'INVALID_STATUS','حالة الحساب غير صالحة');
+    const defaultSalesPermissions=['catalog.read','customers.read','inventory.read','sales.read','sales.create','sales.approve','sales.return','sync.use'];
     if (input.permissions != null && (!Array.isArray(input.permissions) || input.permissions.some(value => !PERMISSIONS.includes(value) || value === 'company.approve'))) throw new AppError(400, 'INVALID_PERMISSIONS', 'الصلاحيات غير صالحة');
     const user = {
       id: randomUUID(), companyId, username: input.username, displayName: input.displayName,
-      passwordHash: input.passwordHash, platformAdmin: false, status: 'active', roleIds: [role.id], ...(input.permissions != null ? {permissions: [...input.permissions]} : {}),
+      passwordHash: input.passwordHash, platformAdmin: false, status: input.status||'active', roleIds: [role.id], ...(input.permissions != null ? {permissions: [...input.permissions]} : salesProfile?.salesManager?{permissions:defaultSalesPermissions}:{}),
       scopes: input.scopes?.length ? clone(input.scopes) : [{ type: 'company', id: companyId }],
       createdAt: new Date().toISOString()
     };
     this.users.set(user.id, user);
+    if(salesProfile)await this.saveSalesSetting('user:'+user.id,salesProfile,actorUserId);
     this.#audit(companyId, actorUserId, 'user.created', 'user', user.id, { roleCode: input.roleCode });
     this.#change(companyId, 'user', user.id, 'upsert', this.#publicUser(user));
     return this.#publicUser(user);
@@ -301,6 +317,7 @@ export class MemoryStore {
   async listUsers(companyId) {
     return [...this.users.values()].filter(user => user.companyId === companyId).map(user => ({
       ...this.#publicUser(user), roleCode: this.roles.get(user.roleIds[0])?.code,
+      salesProfile: {...clone(this.salesSettings.get('user:'+user.id)||{}),kind:this.salesSettings.get('user:'+user.id)?.salesManager?'manager':this.roles.get(user.roleIds[0])?.code==='representative'?'representative':'none'},
       permissions: user.permissions ?? [...new Set(user.roleIds.flatMap(id => this.roles.get(id)?.permissions || []))]
     }));
   }
@@ -312,12 +329,14 @@ export class MemoryStore {
     if (!role) throw new AppError(400, 'ROLE_NOT_FOUND', 'الدور غير موجود');
     if ([...this.users.values()].some(row => row.companyId === companyId && row.id !== userId && row.username === input.username)) throw new AppError(409, 'USERNAME_EXISTS', 'اسم المستخدم مستخدم في الشركة');
     if (!['active', 'disabled'].includes(input.status)) throw new AppError(400, 'INVALID_STATUS', 'حالة الحساب غير صالحة');
-    const permissions = input.permissions ?? role.permissions;
+    const salesProfile=this.#validatedUserSalesProfile(companyId,input.salesProfile,input.roleCode,userId);
+    const permissions = input.permissions ?? (salesProfile?.salesManager?['catalog.read','customers.read','inventory.read','sales.read','sales.create','sales.approve','sales.return','sync.use']:role.permissions);
     if (!Array.isArray(permissions) || permissions.some(value => !PERMISSIONS.includes(value) || value === 'company.approve')) throw new AppError(400, 'INVALID_PERMISSIONS', 'الصلاحيات غير صالحة');
     if (userId === actorUserId && (input.status !== 'active' || !permissions.includes('users.manage'))) throw new AppError(409, 'SELF_LOCKOUT', 'لا يمكنك إيقاف حسابك أو إزالة صلاحية إدارة المستخدمين منه');
     const managers = await this.listUsers(companyId);
     if (user.status === 'active' && managers.find(row => row.id === userId)?.permissions.includes('users.manage') && (input.status !== 'active' || !permissions.includes('users.manage')) && !managers.some(row => row.id !== userId && row.status === 'active' && row.permissions.includes('users.manage'))) throw new AppError(409, 'LAST_MANAGER', 'يجب إبقاء مسؤول نشط لإدارة المستخدمين');
     Object.assign(user, { username: input.username, displayName: input.displayName, status: input.status, roleIds: [role.id], permissions: [...permissions], updatedAt: new Date().toISOString() });
+    if(salesProfile)await this.saveSalesSetting('user:'+userId,salesProfile,actorUserId);
     if (input.passwordHash) user.passwordHash = input.passwordHash;
     if (input.passwordHash || input.status === 'disabled') for (const session of this.sessions.values()) if (session.userId === userId) session.revokedAt = new Date().toISOString();
     this.#audit(companyId, actorUserId, 'user.updated', 'user', userId, { roleCode: input.roleCode, status: input.status, permissions, passwordChanged: Boolean(input.passwordHash) });
