@@ -12,9 +12,10 @@ const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, '../../../public');
 const loginAttempts = new Map();
 
-export function createApp({ store, sessionDays = 14, secureCookies = false, allowedOrigins = [] }) {
+export function createApp({ store, sessionDays = 14, secureCookies = false, allowedOrigins = [], cookieName = 'almahasib_session', cookiePath = '/' }) {
   const app = express();
   app.disable('x-powered-by');
+  app.use((req, res, next) => { req.sessionCookieName = cookieName; next(); });
   app.use(cors({
     origin(origin, callback) {
       if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
@@ -57,7 +58,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     if (!platform && !String(req.body.companyCode || '').trim()) {
       throw new AppError(400, 'COMPANY_CODE_REQUIRED', 'رمز الشركة مطلوب');
     }
-    const attemptKey = `${req.ip}:${String(req.body.companyCode || 'platform')}:${String(req.body.username).toLowerCase()}`;
+    const attemptKey = `${cookieName}:${req.ip}:${String(req.body.companyCode || 'platform')}:${String(req.body.username).toLowerCase()}`;
     checkLoginRate(attemptKey);
     const login = await store.findLogin({
       companyCode: platform ? null : normalizeCode(req.body.companyCode),
@@ -87,14 +88,14 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       tokenHash: hashToken(token), userId: login.user.id,
       deviceId: String(req.body.deviceId || 'web-browser').slice(0, 128), expiresAt
     });
-    setSessionCookie(res, token, sessionDays, secureCookies);
+    setSessionCookie(res, token, sessionDays, secureCookies, cookieName, cookiePath);
     const context = await store.getSessionContext(hashToken(token));
     res.json({ token, expiresAt, account: publicContext(context) });
   }));
 
   app.post('/api/v1/auth/logout', authenticate(store), asyncRoute(async (req, res) => {
     await store.revokeSession(req.auth.tokenHash, req.auth.user.id);
-    res.setHeader('Set-Cookie', 'almahasib_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0');
+    res.setHeader('Set-Cookie', `${cookieName}=; Path=${cookiePath}; HttpOnly; SameSite=Strict; Max-Age=0${secureCookies ? '; Secure' : ''}`);
     res.status(204).end();
   }));
 
@@ -592,7 +593,7 @@ function authenticate(store) {
   return asyncRoute(async (req, res, next) => {
     const authorization = req.get('authorization');
     const bearer = authorization?.startsWith('Bearer ') ? authorization.slice(7) : null;
-    const token = bearer || parseCookies(req.get('cookie')).almahasib_session;
+    const token = bearer || parseCookies(req.get('cookie'))[req.sessionCookieName || 'almahasib_session'];
     if (!token) throw new AppError(401, 'AUTH_REQUIRED', 'تسجيل الدخول مطلوب');
     const tokenHash = hashToken(token);
     const context = await store.getSessionContext(tokenHash);
@@ -809,8 +810,8 @@ function parseCookies(header = '') {
   return Object.fromEntries(header.split(';').map((part) => part.trim().split('=').map(decodeURIComponent)).filter(([key]) => key));
 }
 
-function setSessionCookie(res, token, days, secure) {
-  const attributes = [`almahasib_session=${encodeURIComponent(token)}`, 'Path=/', 'HttpOnly', 'SameSite=Strict', `Max-Age=${days * 86400}`];
+function setSessionCookie(res, token, days, secure, name, cookiePath) {
+  const attributes = [`${name}=${encodeURIComponent(token)}`, `Path=${cookiePath}`, 'HttpOnly', 'SameSite=Strict', `Max-Age=${days * 86400}`];
   if (secure) attributes.push('Secure');
   res.setHeader('Set-Cookie', attributes.join('; '));
 }

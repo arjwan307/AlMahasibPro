@@ -1,6 +1,6 @@
 // Keep the two products' page surfaces separate while sharing the accounting engine.
 const companyFiles = new Set(['enterprise.html','enterprise.js','enterprise.css','representative.html','representative-ui.js','offline-sync.js']);
-const retailFiles = new Set(['retail.html','retail-login.html','retail-login.js','enterprise.css','pos.html','pos-ui.js','offline-sync.js','restaurant-pos.js','restaurant-warehouse.js','market-cashier.html','market-admin.html','market-offline.js','market-cashier-ledger.js','scanner-qrcode.js','market-scanner.html','market-trial-catalog.json','market-service-worker.js']);
+const retailFiles = new Set(['retail.html','retail-login.html','retail-login.js','retail-scope.js','enterprise.css','pos.html','pos-ui.js','offline-sync.js','restaurant-pos.js','restaurant-warehouse.js','market-cashier.html','market-admin.html','market-offline.js','market-cashier-ledger.js','scanner-qrcode.js','market-scanner.html','market-trial-catalog.json','market-service-worker.js']);
 export function productPages(product = 'company') {
  const files = product === 'retail' ? retailFiles : companyFiles;
  const login = product === 'retail' ? '/retail-login.html' : '/enterprise.html';
