@@ -1,6 +1,7 @@
 <!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>المحاسب برو المحلي</title>
 <style>body{background:#081423;color:#eaf1fa;font:18px Tahoma;max-width:700px;margin:50px auto;padding:20px}button,a{display:block;background:#17604e;color:white;padding:16px;margin:16px 0;border:0;border-radius:10px;text-decoration:none}input{padding:16px}small{color:#aebed0}</style>
 <h1>المحاسب برو — تشغيل محلي</h1><p>واجهة الكاشير والحسابات تُحمّل من جهازك، حتى بدون إنترنت.</p>
+<section id="newCompany"><h2>إنشاء محل محلي</h2><input id="companyName" maxlength="120" placeholder="اسم المحل"><label><input id="sampleCatalog" type="checkbox"> إضافة مواد تجريبية متنوعة</label><button id="createCompany">إنشاء وفتح الكاشير</button></section>
 <p>لأول تشغيل: اختر نسخة الكاشير الاحتياطية المحفوظة من حساب شركتك. لا تُنقل البيانات تلقائيًا بين عنوان الموقع وهذا التطبيق.</p>
 <input id="backup" type="file" accept="application/json"><button id="prepare">تهيئة الشركة من النسخة الاحتياطية</button>
 <a id="open" hidden href="/market-cashier.html?mode=market">فتح الكاشير المحلي</a><p id="status" role="status"></p>
@@ -8,6 +9,16 @@
 <script>
 let context;try{context=JSON.parse(localStorage.getItem('almahasib_company_context')||'null')}catch{}
 document.getElementById('open').hidden=!context;
+document.getElementById('newCompany').hidden=!!context;
+document.getElementById('createCompany').onclick=async()=>{const status=document.getElementById('status');try{
+if(localStorage.getItem('almahasib_company_context'))throw new Error('يوجد محل مجهز مسبقًا؛ افتح الكاشير');
+const name=document.getElementById('companyName').value.trim();if(!name)throw new Error('أدخل اسم المحل');
+const id='local_'+crypto.randomUUID();let catalog=[];
+if(document.getElementById('sampleCatalog').checked){const response=await fetch('/market-trial-catalog.json');if(!response.ok)throw new Error('تعذر تحميل المواد المحلية');catalog=await response.json();if(!Array.isArray(catalog))throw new Error('قائمة المواد غير صالحة')}
+localStorage.setItem('tenant:'+id+':market_catalog_v1',JSON.stringify(catalog));
+localStorage.setItem('almahasib_company_context',JSON.stringify({id,name,localOnly:true}));
+location.href='/market-cashier.html?mode=market';
+}catch(e){status.textContent=e.message}};
 document.getElementById('prepare').onclick=async()=>{const status=document.getElementById('status');try{
 const file=document.getElementById('backup').files[0];if(!file)throw new Error('اختر النسخة الاحتياطية أولًا');
 const data=JSON.parse(await file.text());if(data.format!=='almahasib-cashier-backup'||data.version!==1||!data.companyScope||!data.indexed||data.indexed.scope!==data.companyScope)throw new Error('نسخة غير صالحة');
