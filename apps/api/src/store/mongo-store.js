@@ -1,6 +1,7 @@
 import { MongoClient } from 'mongodb';
 import { serialize, deserialize } from 'node:v8';
 import { createHash } from 'node:crypto';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { MemoryStore } from './memory-store.js';
 
 const MAP_FIELDS = [
@@ -56,7 +57,7 @@ export class MongoStore extends MemoryStore {
     const document = await this.state.findOne({ _id: 'primary' });
     if (!document) return;
     let restored = document;
-    if (document.storageFormat === 'chunks-v1') {
+    if (['chunks-v1', 'chunks-v2-gzip'].includes(document.storageFormat)) {
       const buffers = [];
       for (const id of document.chunkIds || []) {
         const chunk = await this.stateChunks.findOne({ _id: id });
@@ -65,7 +66,8 @@ export class MongoStore extends MemoryStore {
         if (createHash('sha256').update(bytes).digest('hex') !== id) throw new Error('Invalid database state chunk');
         buffers.push(bytes);
       }
-      restored = deserialize(Buffer.concat(buffers));
+      const bytes = Buffer.concat(buffers);
+      restored = deserialize(document.storageFormat === 'chunks-v2-gzip' ? gunzipSync(bytes) : bytes);
     }
     for (const field of MAP_FIELDS) this[field] = new Map(restored[field] || []);
     for (const field of ARRAY_FIELDS) this[field] = restored[field] || [];
@@ -82,7 +84,7 @@ export class MongoStore extends MemoryStore {
   async #persist() {
     const snapshot = this.#snapshot();
     delete snapshot.updatedAt;
-    const bytes = serialize(snapshot);
+    const bytes = gzipSync(serialize(snapshot));
     this.persistQueue = this.persistQueue.catch(() => {}).then(async () => {
       const chunkIds = [];
       for (let offset = 0; offset < bytes.length; offset += 2 * 1024 * 1024) {
@@ -92,7 +94,7 @@ export class MongoStore extends MemoryStore {
         await this.stateChunks.updateOne({ _id: id }, { $setOnInsert: { data: Buffer.from(data), createdAt: new Date() } }, { upsert: true });
       }
       // Publish only after every chunk is durable. Legacy primary remains intact until then.
-      await this.state.replaceOne({ _id: 'primary' }, { _id: 'primary', storageFormat: 'chunks-v1', chunkIds, changeSequence: snapshot.changeSequence, updatedAt: new Date() }, { upsert: true });
+      await this.state.replaceOne({ _id: 'primary' }, { _id: 'primary', storageFormat: 'chunks-v2-gzip', chunkIds, changeSequence: snapshot.changeSequence, updatedAt: new Date() }, { upsert: true });
     });
     await this.persistQueue;
   }
@@ -102,4 +104,3 @@ export class MongoStore extends MemoryStore {
     await this.client.close();
   }
 }
-
