@@ -30,6 +30,11 @@ test('sales workspace isolates channels, enforces exact approvals, reservations,
   await create('/api/v1/catalog/prices',{itemId:item.id,unitId:unit.id,priceType:'sale_wholesale',currency:'IQD',amount:'8'});
   const seller=(await request('/api/v1/auth/login',{companyCode:'company',username:'seller',password:'Strong-Seller-123'})).cookie;
   const wholeCookie=(await request('/api/v1/auth/login',{companyCode:'company',username:'wholesale',password:'Strong-Seller-123'})).cookie;
+  const retailManager=(await create('/api/v1/users',{username:'retail-manager',displayName:'مدير المفرد',roleCode:'cashier',password:'Strong-Manager-123'})).user;
+  const wholeManager=(await create('/api/v1/users',{username:'whole-manager',displayName:'مدير الجملة',roleCode:'cashier',password:'Strong-Manager-123'})).user;
+  await setting('user',retailManager.id,{channel:'retail',salesManager:true});await setting('user',wholeManager.id,{channel:'wholesale',salesManager:true});
+  const retailManagerCookie=(await request('/api/v1/auth/login',{companyCode:'company',username:'retail-manager',password:'Strong-Manager-123'})).cookie;
+  const wholeManagerCookie=(await request('/api/v1/auth/login',{companyCode:'company',username:'whole-manager',password:'Strong-Manager-123'})).cookie;
   const personal=[{id:'note-1',kind:'note',text:'ملاحظتي الخاصة',done:false},{id:'reminder-1',kind:'reminder',text:'اتصال بالزبون',dueAt:'2026-10-08T10:00:00Z',done:false}];
   assert.equal((await request('/api/v1/sales/personal-board',{cards:personal,userId:other.id},seller,'PUT')).status,200);
   assert.equal((await request('/api/v1/sales/bootstrap',null,wholeCookie)).data.personalCards.length,0);
@@ -46,10 +51,10 @@ test('sales workspace isolates channels, enforces exact approvals, reservations,
   assert.equal((await commit({...sale,lines:[{...sale.lines[0],unitPrice:'8'}]},seller)).data.result.code,'PRICE_CHANGED');
   const asked=await request('/api/v1/sales/approvals',{document:sale},seller);assert.equal(asked.status,201,JSON.stringify(asked.data));const id=asked.data.approval.id;
   assert.equal((await request('/api/v1/sales/approvals/'+id+'/decision',{status:'approved'},seller)).status,403);
-  assert.equal((await request('/api/v1/sales/approvals/'+id+'/decision',{status:'approved'},manager)).status,200);
+  assert.equal(asked.data.approval.managerUserId,retailManager.id);assert.equal((await request('/api/v1/sales/bootstrap',null,wholeManagerCookie)).data.approvals.length,0);assert.equal((await request('/api/v1/sales/approvals/'+id+'/decision',{status:'approved'},wholeManagerCookie)).status,403);assert.equal((await request('/api/v1/sales/approvals/'+id+'/decision',{status:'approved'},retailManagerCookie)).status,200);
   assert.equal((await commit({...sale,approvalId:id,lines:[{...sale.lines[0],quantity:'5'}]},seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
   assert.equal((await commit({...sale,approvalId:id,partyId:wholesale.id},wholeCookie)).data.result.code,'PRICE_CHANGED');
-  const op=crypto.randomUUID(),posted=await commit({...sale,approvalId:id},seller,op);assert.equal(posted.status,201,JSON.stringify(posted.data));assert.equal(posted.data.result.document.subtotal,'36.000000');assert.equal(posted.data.result.document.dueAmount,'26.000000');assert.equal(posted.data.result.document.delivery.mode,'both');
+  const op=crypto.randomUUID(),posted=await commit({...sale,approvalId:id},seller,op);assert.equal(posted.status,201,JSON.stringify(posted.data));assert.equal(posted.data.result.document.assignedSalesManagerId,retailManager.id);assert.equal(posted.data.result.document.subtotal,'36.000000');assert.equal(posted.data.result.document.dueAmount,'26.000000');assert.equal(posted.data.result.document.delivery.mode,'both');
   assert.equal((await commit({...sale,approvalId:id},seller,op)).data.result.entityId,posted.data.result.entityId);
   assert.equal((await commit({...sale,approvalId:id,documentNumber:'REUSE'},seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
   assert.equal((await request('/api/v1/sales/customer-review',{customerId:wholesale.id},seller)).status,403);

@@ -1,4 +1,4 @@
-import { installSalesRoutes, salesRep } from './sales-workspace.js';
+import { installSalesRoutes, salesRep, salesScoped } from './sales-workspace.js';
 import express from 'express';
 import { PERMISSIONS } from './permissions.js';
 import cors from 'cors';
@@ -185,7 +185,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
 
   app.get('/api/v1/master-data', authenticate(store), permitAny(['catalog.read', 'customers.read', 'suppliers.read', 'inventory.read']), asyncRoute(async (req, res) => {
     const m=await store.listMasterData(req.auth.company.id);
-    if(salesRep(req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';m.customers=m.customers.filter(x=>(store.salesSettings.get('customer:'+x.id)?.channel||'retail')===channel);m.suppliers=[];m.prices=m.prices.filter(x=>['sale','sale_'+channel].includes(x.priceType));m.stock=m.stock.map(({averageCost,...x})=>x);}
+    if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';m.customers=m.customers.filter(x=>(store.salesSettings.get('customer:'+x.id)?.channel||'retail')===channel);m.suppliers=[];m.prices=m.prices.filter(x=>['sale','sale_'+channel].includes(x.priceType));m.stock=m.stock.map(({averageCost,...x})=>x);}
     res.json(m);
   }));
 
@@ -282,7 +282,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
 
   app.get('/api/v1/representatives/bootstrap', authenticate(store), permit('representatives.read'), asyncRoute(async (req, res) => {
     const data=await store.getRepresentativeBootstrap(req.auth,req.query.representativeId?uuid(req.query.representativeId,'representativeId'):null);
-    if(salesRep(req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';data.customers=data.customers.filter(x=>(store.salesSettings.get('customer:'+x.id)?.channel||'retail')===channel);const ids=new Set(data.customers.map(x=>x.id));data.orders=(data.orders||[]).filter(x=>ids.has(x.customerId));if(data.catalog?.prices)data.catalog.prices=data.catalog.prices.filter(x=>['sale','sale_'+channel].includes(x.priceType));data.routes=(data.routes||[]).map(x=>({...x,stops:(x.stops||[]).filter(y=>ids.has(y.customerId))}));}
+    if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';data.customers=data.customers.filter(x=>(store.salesSettings.get('customer:'+x.id)?.channel||'retail')===channel);const ids=new Set(data.customers.map(x=>x.id));data.orders=(data.orders||[]).filter(x=>ids.has(x.customerId));if(data.catalog?.prices)data.catalog.prices=data.catalog.prices.filter(x=>['sale','sale_'+channel].includes(x.priceType));data.routes=(data.routes||[]).map(x=>({...x,stops:(x.stops||[]).filter(y=>ids.has(y.customerId))}));}
     res.json(data);
   }));
 
@@ -308,7 +308,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
 
   app.get('/api/v1/commerce/documents', authenticate(store), permitAny(['sales.read', 'purchasing.read']), asyncRoute(async (req, res) => {
     let documents=await store.listCommerceDocuments(req.auth.company.id);
-    if(salesRep(req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';documents=documents.filter(x=>x.documentType.startsWith('sale')&&x.customerId&&(store.salesSettings.get('customer:'+x.customerId)?.channel||'retail')===channel).map(x=>({...x,lines:x.lines.map(({unitCost,...line})=>line)}));}
+    if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';documents=documents.filter(x=>x.documentType.startsWith('sale')&&x.customerId&&(store.salesSettings.get('customer:'+x.customerId)?.channel||'retail')===channel).map(x=>({...x,lines:x.lines.map(({unitCost,...line})=>line)}));}
     res.json({documents});
   }));
 
@@ -372,7 +372,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   app.get('/api/v1/sync/pull', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
     const cursor = Math.max(0, Number.parseInt(req.query.cursor || '0', 10) || 0);
     const page=await store.pullChanges(req.auth.company.id,cursor,100);
-    if(salesRep(req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';page.changes=page.changes.filter(x=>x.entityType==='unit'||x.entityType==='item'||x.entityType==='item_unit'||(x.entityType==='price'&&['sale','sale_'+channel].includes(x.payload?.priceType))||(x.entityType==='customer'&&(store.salesSettings.get('customer:'+x.entityId)?.channel||'retail')===channel));}
+    if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';page.changes=page.changes.filter(x=>x.entityType==='unit'||x.entityType==='item'||x.entityType==='item_unit'||(x.entityType==='price'&&['sale','sale_'+channel].includes(x.payload?.priceType))||(x.entityType==='customer'&&(store.salesSettings.get('customer:'+x.entityId)?.channel||'retail')===channel));}
     res.json(page);
   }));
 
