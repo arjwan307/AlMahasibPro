@@ -17,7 +17,12 @@ function createLocalServer(){return http.createServer(async(req,res)=>{
     if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405);res.end();return}
     const file=url.pathname==='/'?'market-local-setup.html':url.pathname.slice(1);
     if(!ALLOWED.has(file)){res.writeHead(404);res.end('Not found');return}
-    const body=await fs.readFile(path.join(PUBLIC,file));
+    let body=await fs.readFile(path.join(PUBLIC,file));
+    // Local runtime is intentionally disconnected from the cloud even when
+    // the OS has internet. Keep returns and shift closing on the local path.
+    if(file.endsWith('.js'))body=Buffer.from(body.toString().replaceAll('navigator.onLine','(!window.AlMahasibLocalMode && navigator.onLine)'));
+    if(file.endsWith('.html'))body=Buffer.from(body.toString().replace('<script>','<script>window.AlMahasibLocalMode=true;</script><script>'));
+    if(file==='market-cashier.html')body=Buffer.from(body.toString().replace('<head>','<head><script>window.AlMahasibLocalMode=true;</script>'));
     res.writeHead(200,{'Content-Type':TYPES[path.extname(file)]||'application/octet-stream'});res.end(req.method==='HEAD'?undefined:body);
   }catch{res.writeHead(404);res.end('Not found')}
 })}
