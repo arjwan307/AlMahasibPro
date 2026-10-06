@@ -199,12 +199,26 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(201).json({ unit });
   }));
 
+  app.post('/api/v1/catalog/categories', authenticate(store), permit('catalog.manage'), asyncRoute(async(req,res)=>{res.status(201).json({category:await store.createItemCategory(req.auth.company.id,req.body.name,req.auth.user.id)});}));
   app.post('/api/v1/catalog/items', authenticate(store), permit('catalog.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['sku', 'name', 'baseUnitId']);
+    if(req.body.category&&!((await store.listItemCategories(req.auth.company.id)).includes(req.body.category)))throw new AppError(400,'INVALID_CATEGORY','اختر تصنيفًا موجودًا أو أضفه أولًا');
     const item = await store.createItem(req.auth.company.id, {
-      sku: entityCode(req.body.sku), name: req.body.name.trim(), baseUnitId: uuid(req.body.baseUnitId, 'baseUnitId')
+      sku: entityCode(req.body.sku), name: req.body.name.trim(), category: req.body.category||'', description: typeof req.body.description==='string'?req.body.description:'', baseUnitId: uuid(req.body.baseUnitId, 'baseUnitId')
     }, req.auth.user.id);
     res.status(201).json({ item });
+  }));
+
+  app.get('/api/v1/catalog/items/:itemId/details', authenticate(store), permit('catalog.read'), asyncRoute(async(req,res)=>{
+    const item=store.items.get(uuid(req.params.itemId,'itemId'));if(!item||item.companyId!==req.auth.company.id)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
+    const {photos,...details}=store.salesSettings?.get('item:'+item.id)||{};res.json({item:{...details,...item}});
+  }));
+  app.patch('/api/v1/catalog/items/:itemId', authenticate(store), permit('catalog.manage'), asyncRoute(async(req,res)=>{
+    if(typeof req.body.description!=='string'||req.body.description.length>4000)throw new AppError(400,'INVALID_DESCRIPTION','الوصف نص بحد أقصى 4000 حرف');
+    res.json({item:await store.updateItemDescription(req.auth.company.id,uuid(req.params.itemId,'itemId'),req.body.description,req.auth.user.id)});
+  }));
+  app.delete('/api/v1/catalog/items/:itemId', authenticate(store), permit('catalog.manage'), asyncRoute(async(req,res)=>{
+    res.json(await store.deleteUnusedItem(req.auth.company.id,uuid(req.params.itemId,'itemId'),req.auth.user.id));
   }));
 
   app.post('/api/v1/catalog/items/:itemId/units', authenticate(store), permit('catalog.manage'), asyncRoute(async (req, res) => {

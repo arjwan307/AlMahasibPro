@@ -53,6 +53,16 @@ export class MemoryStore {
   }
 
   async close() {}
+  async importFurnitureCatalog(companyId,actorUserId,catalog) {
+    const company=this.companies.get(companyId);if(!company||company.status!=='active')throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
+    const actor=this.users.get(actorUserId);if(!actor||actor.companyId!==companyId)throw new AppError(403,'USER_SCOPE','المستخدم خارج الشركة');
+    const result={companyId,companyName:company.legalName,version:catalog.version,itemsCreated:0,warehousesCreated:0,pricesCreated:0,existingItems:0};
+    let unit=[...this.units.values()].find(x=>x.companyId===companyId&&x.code==='FUR-UNIT');if(!unit)unit=await this.createUnit(companyId,{code:'FUR-UNIT',name:'وحدة أثاث / طقم',decimalPlaces:0},actorUserId);
+    const warehouses=new Map();for(const definition of catalog.warehouses){let warehouse=[...this.warehouses.values()].find(x=>x.companyId===companyId&&x.code===definition.code);if(!warehouse){warehouse=await this.createWarehouse(companyId,{...definition,kind:'standard'},actorUserId);result.warehousesCreated++;}warehouses.set(definition.code,warehouse);}
+    for(const definition of catalog.items){if([...this.items.values()].some(x=>x.companyId===companyId&&x.sku===definition.sku)){result.existingItems++;continue;}const warehouse=warehouses.get(definition.warehouseCode);if(!warehouse)throw new AppError(400,'WAREHOUSE_NOT_FOUND','مخزن الكتالوج غير موجود');const item=await this.createItem(companyId,{sku:definition.sku,name:definition.name,description:definition.metadata.description,category:definition.metadata.group,baseUnitId:unit.id},actorUserId);result.itemsCreated++;await this.saveSalesSetting('item:'+item.id,{...definition.metadata,companyId,defaultWarehouseId:warehouse.id,channel:'both',movement:'moving',maxDiscountPercent:'5.000000',reserved:{}},actorUserId);for(const [priceType,amount] of [['sale_retail',definition.retail],['sale_wholesale',definition.wholesale]]){await this.setPrice(companyId,{itemId:item.id,unitId:unit.id,priceType,currency:'IQD',amount:String(amount)},actorUserId);result.pricesCreated++;}this.stockBalances.set(companyId+':'+warehouse.id+':'+item.id,{companyId,warehouseId:warehouse.id,itemId:item.id,quantity:'0.000000',averageCost:'0.000000'});}
+    this.#audit(companyId,actorUserId,'catalog.furniture.imported','catalog',catalog.version,result);return clone(result);
+  }
+
   async saveSalesSetting(key,value,actor) { this.salesSettings.set(key,clone(value));this.#audit(value.companyId,actor,'sales.setting.updated','sales_setting',key,{});return clone(value); }
   async saveSalesApproval(row) { this.salesApprovals.set(row.id,clone(row));this.#audit(row.companyId,row.reviewedBy||row.userId,'sales.approval.'+row.status,'sales_approval',row.id,{});return clone(row); }
   async saveSalesReview(row) { this.salesReviews.set(row.id,clone(row));return clone(row); }
@@ -295,13 +305,29 @@ export class MemoryStore {
     this.#assertUnique(this.items, companyId, 'sku', input.sku, 'ITEM_SKU_EXISTS');
     const unit = this.units.get(input.baseUnitId);
     if (!unit || unit.companyId !== companyId) throw new AppError(400, 'UNIT_NOT_FOUND', 'الوحدة غير موجودة');
-    const item = { id: randomUUID(), companyId, sku: input.sku, name: input.name, baseUnitId: unit.id, active: true };
+    const item = { id: randomUUID(), companyId, sku: input.sku, name: input.name, description: String(input.description || '').slice(0,4000), category: input.category||'', baseUnitId: unit.id, active: true };
     this.items.set(item.id, item);
     const itemUnit = { id: randomUUID(), companyId, itemId: item.id, unitId: unit.id, conversionFactor: '1.000000', isBase: true };
     this.itemUnits.set(itemUnit.id, itemUnit);
     this.#audit(companyId, actorUserId, 'item.created', 'item', item.id, {});
     this.#change(companyId, 'item', item.id, 'upsert', { ...item, units: [itemUnit] });
     return clone({ ...item, units: [itemUnit] });
+  }
+
+  async listItemCategories(companyId){const defaults=['غرف نوم','تخم','مكتبي','منزلي','إنارة','أجهزة كهربائية'];return [...new Set([...defaults,...(this.salesSettings.get('categories:'+companyId)?.names||[])])];}
+  async createItemCategory(companyId,name,actorUserId){name=String(name||'').trim();if(!name||name.length>100)throw new AppError(400,'INVALID_CATEGORY','اسم التصنيف مطلوب، بحد أقصى 100 حرف');const names=await this.listItemCategories(companyId);if(names.includes(name))throw new AppError(409,'CATEGORY_EXISTS','التصنيف موجود');names.push(name);await this.saveSalesSetting('categories:'+companyId,{companyId,names},actorUserId);return {name};}
+  async updateItemDescription(companyId,itemId,description,actorUserId) {
+    const item=this.items.get(itemId);if(!item||item.companyId!==companyId)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
+    item.description=String(description||'').slice(0,4000);this.#audit(companyId,actorUserId,'item.updated','item',itemId,{});this.#change(companyId,'item',itemId,'upsert',clone(item));return clone(item);
+  }
+  async deleteUnusedItem(companyId,itemId,actorUserId) {
+    const item=this.items.get(itemId);if(!item||item.companyId!==companyId)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
+    const excluded=new Set(['items','itemUnits','prices','stockBalances','salesSettings']);
+    for(const [key,value] of Object.entries(this)){if(excluded.has(key)||!(value instanceof Map))continue;if([...value.values()].some(row=>row.companyId===companyId&&JSON.stringify(row).includes(itemId)))throw new AppError(409,'ITEM_IN_USE','المادة مرتبطة بحركة أو مستند، لا يمكن حذفها');}
+    if([...this.stockBalances.values()].some(x=>x.companyId===companyId&&x.itemId===itemId&&Number(x.quantity)!==0))throw new AppError(409,'ITEM_IN_USE','للمادة رصيد، لا يمكن حذفها');
+    if([...this.salesApprovals.values()].some(x=>JSON.stringify(x).includes(itemId)))throw new AppError(409,'ITEM_IN_USE','المادة مرتبطة بطلب موافقة');
+    for(const map of [this.itemUnits,this.prices,this.stockBalances])for(const [key,row] of map)if(row.companyId===companyId&&row.itemId===itemId)map.delete(key);
+    this.salesSettings.delete('item:'+itemId);this.items.delete(itemId);this.#audit(companyId,actorUserId,'item.deleted','item',itemId,{});this.#change(companyId,'item',itemId,'delete',{id:itemId});return {deleted:true};
   }
 
   async addItemUnit(companyId, itemId, input, actorUserId) {
@@ -353,6 +379,7 @@ export class MemoryStore {
   async listMasterData(companyId) {
     const belongs = (row) => row.companyId === companyId;
     return {
+      categories: await this.listItemCategories(companyId),
       units: [...this.units.values()].filter(belongs).map(clone),
       items: [...this.items.values()].filter(belongs).map((item) => ({ ...clone(item), units: [...this.itemUnits.values()].filter((row) => row.companyId === companyId && row.itemId === item.id).map(clone) })),
       prices: [...this.prices.values()].filter(belongs).map(clone),

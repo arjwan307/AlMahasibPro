@@ -1,7 +1,8 @@
+import { furnitureCatalog } from './furniture-catalog.js';
 import { productPages } from './product-pages.js';
 import express from 'express';
 import { join } from 'node:path';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createApp } from './app.js';
@@ -14,6 +15,11 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
  origin = new URL(origin).origin;
  await mkdir(dataDirectory, {recursive:true});
  const store=new SQLiteStore(join(dataDirectory,'enterprise.sqlite'));
+ if(product==='company'){
+  const requestPath=join(dataDirectory,'furniture-catalog-request.json');let request;
+  try{request=JSON.parse(await readFile(requestPath,'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
+  if(request){if(request.catalog!=='furniture-v1'||typeof request.companyCode!=='string')throw Error('Invalid furniture catalogue request');const company=[...store.companies.values()].find(x=>x.code===request.companyCode);if(!company)throw Error('Furniture catalogue company not found');const result=await store.importFurnitureCatalog(company.id,company.ownerUserId,furnitureCatalog());await writeFile(join(dataDirectory,'furniture-catalog-result.json'),JSON.stringify(result,null,2));await rename(requestPath,requestPath+'.done');console.log('[furniture-catalog]',JSON.stringify(result));}
+ }
  const app=express();app.disable('x-powered-by');app.set('trust proxy',1);
  app.use((req,res,next)=>{if(req.headers.origin && req.headers.origin!==origin)return res.status(403).json({error:{message:'المصدر غير مسموح'}});next();});
  app.use((req,res,next)=>{if(product==='company'&&!req.path.startsWith('/api/'))res.set('Cache-Control','no-store');next();});
