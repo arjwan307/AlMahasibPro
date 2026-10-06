@@ -135,6 +135,16 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({ roles: await store.listRoles(req.auth.company.id) });
   }));
 
+  app.post('/api/v1/roles', authenticate(store), permit('roles.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['name']);
+    const name = String(req.body.name).trim();
+    if (!name || name.length > 120) throw new AppError(400, 'INVALID_ROLE_NAME', 'اسم الدور مطلوب ولا يتجاوز ١٢٠ حرفًا');
+    const permissions = req.body.permissions;
+    if (!Array.isArray(permissions) || permissions.some(value => !PERMISSIONS.includes(value) || value === 'company.approve')) throw new AppError(400, 'INVALID_PERMISSIONS', 'الصلاحيات غير صالحة');
+    if (!store.createRole) throw new AppError(501, 'STORE_UNSUPPORTED', 'إضافة الأدوار غير متاحة لهذا الخادم');
+    res.status(201).json({ role: await store.createRole(req.auth.company.id, { name, permissions }, req.auth.user.id) });
+  }));
+
   app.post('/api/v1/users', authenticate(store), permit('users.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['username', 'displayName', 'password', 'roleCode']);
     const user = await store.createUser(req.auth.company.id, {

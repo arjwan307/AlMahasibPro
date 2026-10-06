@@ -214,6 +214,16 @@ export class MemoryStore {
     return [...this.roles.values()].filter((role) => role.companyId === companyId).map(clone);
   }
 
+  async createRole(companyId, input, actorUserId) {
+    if ([...this.roles.values()].some(role => role.companyId === companyId && role.name === input.name)) throw new AppError(409, 'ROLE_NAME_EXISTS', 'اسم الدور موجود في الشركة');
+    const id = randomUUID();
+    const role = { id, companyId, code: 'custom_' + id, name: input.name, system: false, permissions: [...new Set(input.permissions)] };
+    this.roles.set(id, role);
+    this.#audit(companyId, actorUserId, 'role.created', 'role', id, { name: role.name, permissions: role.permissions });
+    this.#change(companyId, 'role', id, 'upsert', role);
+    return clone(role);
+  }
+
   async createUser(companyId, input, actorUserId) {
     if ([...this.users.values()].some((user) => user.companyId === companyId && user.username === input.username)) {
       throw new AppError(409, 'USERNAME_EXISTS', 'اسم المستخدم مستخدم في الشركة');
