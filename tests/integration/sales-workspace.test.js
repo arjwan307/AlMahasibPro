@@ -41,9 +41,17 @@ test('sales workspace isolates channels, enforces exact approvals, reservations,
   assert.equal((await request('/api/v1/sales/bootstrap',null,manager)).data.personalCards.length,0);
   assert.equal((await request('/api/v1/sales/personal-board',{cards:[{id:'bad',kind:'reminder',text:'bad',dueAt:'invalid'}]},seller,'PUT')).status,400);
   const commit=async(document,cookie=manager,id=crypto.randomUUID())=>request('/api/v1/commerce/commit',{operationId:id,deviceId:'test',clientSequence:Date.now(),occurredAt:new Date().toISOString(),document},cookie);
+  const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=';
+  const photo=await request('/api/v1/sales/items/'+item.id+'/photos',{image:png},manager);assert.equal(photo.status,201,JSON.stringify(photo.data));
+  assert.equal((await request('/api/v1/sales/items/'+item.id+'/photos',{image:png},seller)).status,403);
+  assert.equal((await request('/api/v1/sales/items/'+item.id+'/photos',{image:'data:image/png;base64,YmFk'},manager)).status,400);
+  const images=(await request('/api/v1/sales/items/'+item.id+'/photos',null,seller)).data.photos;assert.equal(images.length,1);assert.equal((await request('/api/v1/sales/items/'+item.id+'/photos',null)).status,401);
+  const photoResponse=await fetch(rt.url+images[0].url,{headers:{Cookie:seller}});assert.equal(photoResponse.status,200);assert.equal(photoResponse.headers.get('content-type'),'image/png');
+  await setting('item',item.id,{channel:'wholesale',movement:'strong',maxDiscountPercent:'3',warehouseId:warehouse.id,reservedQuantity:'8'});
+  await setting('warehouse',warehouse.id,{damaged:false,placeType:'showroom'});
   const purchase={documentType:'purchase',documentNumber:'P1',warehouseId:warehouse.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'10',unitPrice:'4'}],payments:[]};
   assert.equal((await commit(purchase)).status,201);
-  const boot=(await request('/api/v1/sales/bootstrap',null,seller)).data;assert.deepEqual(boot.customers.map(x=>x.id),[customer.id]);assert.deepEqual(boot.prices.map(x=>x.priceType),['sale_retail']);assert.equal(boot.profile.phone,'0771');assert.equal(boot.stock[0].averageCost,undefined);
+  const boot=(await request('/api/v1/sales/bootstrap',null,seller)).data;assert.deepEqual(boot.customers.map(x=>x.id),[customer.id]);assert.deepEqual(boot.prices.map(x=>x.priceType),['sale_retail']);assert.equal(boot.profile.phone,'0771');assert.equal(boot.stock[0].averageCost,undefined);assert.equal(boot.items[0].hasPhotos,true);assert.equal(boot.items[0].photos,undefined);assert.equal(boot.warehouses[0].placeType,'showroom');
   const master=(await request('/api/v1/master-data',null,seller)).data;assert.deepEqual(master.customers.map(x=>x.id),[customer.id]);assert.deepEqual(master.prices.map(x=>x.priceType),['sale_retail']);
   const sale={documentType:'sale',documentNumber:'S1',warehouseId:warehouse.id,partyId:customer.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'4',unitPrice:'10'}],discountAmount:'4',delivery:{mode:'both',deliveryAt:'2026-10-08T12:00:00Z',serviceAt:'2026-10-08T14:00:00Z'},payments:[{method:'cash',amount:'10'}]};
   assert.equal((await commit(sale,seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
@@ -63,7 +71,7 @@ test('sales workspace isolates channels, enforces exact approvals, reservations,
   assert.equal((await request('/api/v1/sales/bootstrap',null,wholeCookie)).data.documents.length,0);
   const sync=(await request('/api/v1/sync/pull?cursor=0',null,seller)).data;assert.ok(!sync.changes.some(x=>x.entityType==='price'&&x.payload.priceType==='sale_wholesale'));
   await rt.close();rt=await startEnterpriseCloud({dataDirectory:dir,setupToken:'sales-test-key-123456789012345678',origin:'https://example.test',port:0});
-  const persisted=(await request('/api/v1/sales/bootstrap',null,seller)).data;assert.equal(persisted.personalCards.length,2);assert.equal(persisted.personalCards[1].dueAt,'2026-10-08T10:00:00.000Z');assert.equal(persisted.profile.location,'بغداد');assert.equal(persisted.approvals[0].status,'used');assert.equal(persisted.items[0].reserved[warehouse.id],'6.000000');assert.equal(persisted.customers.find(x=>x.id===customer.id).risk,'yellow');assert.equal(persisted.reviews.length,1);assert.equal(persisted.documents[0].delivery.serviceAt,'2026-10-08T14:00:00.000Z');
+  const persisted=(await request('/api/v1/sales/bootstrap',null,seller)).data;assert.equal(persisted.items[0].hasPhotos,true);assert.equal((await fetch(rt.url+images[0].url,{headers:{Cookie:seller}})).status,200);assert.equal(persisted.personalCards.length,2);assert.equal(persisted.personalCards[1].dueAt,'2026-10-08T10:00:00.000Z');assert.equal(persisted.profile.location,'بغداد');assert.equal(persisted.approvals[0].status,'used');assert.equal(persisted.items[0].reserved[warehouse.id],'6.000000');assert.equal(persisted.customers.find(x=>x.id===customer.id).risk,'yellow');assert.equal(persisted.reviews.length,1);assert.equal(persisted.documents[0].delivery.serviceAt,'2026-10-08T14:00:00.000Z');
   await setting('warehouse',warehouse.id,{damaged:true});assert.equal((await commit({...sale,documentNumber:'DAMAGE'},seller)).data.result.code,'DAMAGED_WAREHOUSE');
  }finally{if(rt)await rt.close();await rm(dir,{recursive:true,force:true});}
 });
