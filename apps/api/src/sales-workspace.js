@@ -63,7 +63,7 @@ export function installSalesRoutes(app,{store:s,authenticate,permit,validateDocu
  }));
  for(const [type,map,permission] of [['user','users','users.manage'],['customer','customers','customers.manage'],['item','items','catalog.manage'],['warehouse','warehouses','inventory.manage']]){
   app.put('/api/v1/sales/settings/'+type+'/:id',auth,permit(permission),supported,asyncRoute(async(req,res)=>{
-   known(s[map],req.auth,req.params.id);const b=req.body,cfg={companyId:req.auth.company.id};
+   known(s[map],req.auth,req.params.id);const b=req.body,cfg={...structuredClone(setting(s,type,req.params.id)),companyId:req.auth.company.id};
    if(['user','customer'].includes(type)){if(!['retail','wholesale'].includes(b.channel))throw new AppError(400,'INVALID_CHANNEL','حدد مفرد أو جملة');cfg.channel=b.channel;}
    if(type==='user'){cfg.salesManager=b.salesManager===true;cfg.managerUserId=b.managerUserId||null;if(cfg.managerUserId){known(s.users,req.auth,cfg.managerUserId);const manager=setting(s,'user',cfg.managerUserId);if(!manager.salesManager||manager.channel!==cfg.channel)throw new AppError(400,'INVALID_SALES_MANAGER','اختر مدير المبيعات من نفس النوع');}cfg.phone=String(b.phone||'').slice(0,40);cfg.location=String(b.location||'').slice(0,200);cfg.maxDiscountPercent=decimalString(decimal(b.maxDiscountPercent||'0',{nonNegative:true}));if(decimal(cfg.maxDiscountPercent)>decimal('100'))throw new AppError(400,'INVALID_DISCOUNT','الخصم لا يتجاوز ١٠٠٪');}
    if(type==='customer'){for(const k of ['governorate','district','neighborhood'])cfg[k]=String(b[k]||'').slice(0,120);if(!['green','yellow','red'].includes(b.risk))throw new AppError(400,'INVALID_RISK','التصنيف غير صالح');cfg.risk=b.risk;}

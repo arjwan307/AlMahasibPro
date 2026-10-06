@@ -53,6 +53,21 @@ export class MemoryStore {
   }
 
   async close() {}
+  async applyDemoScenario(companyId,actorUserId,scenario){
+    const company=this.companies.get(companyId),actor=this.users.get(actorUserId);if(!company||!actor||actor.companyId!==companyId)throw new AppError(403,'COMPANY_SCOPE','الشركة أو المستخدم غير صالح');
+    const key='demo-scenario:'+companyId+':'+scenario.version;if(this.salesSettings.has(key))return {...clone(this.salesSettings.get(key).result),alreadyApplied:true};
+    const result={companyId,companyName:company.legalName,version:scenario.version,customersUpdated:0,itemsUpdated:0,cashCustomers:0,debitCustomers:0,creditCustomers:0,inactive:0,sporadic:0,active:0,small:0,large:0};
+    const occurredAt=new Date().toISOString();
+    for(const definition of scenario.customers){const customer=[...this.customers.values()].find(x=>x.companyId===companyId&&x.code===definition.code&&x.demo);if(!customer)throw new AppError(409,'DEMO_CUSTOMER_MISSING','زبون التجربة غير موجود');
+      const opening=customer.openingBalances.find(x=>x.currency===definition.currency&&x.demo);if(!opening)throw new AppError(409,'DEMO_OPENING_MISSING','رصيد التجربة غير موجود');const target=decimal(String(definition.balance)),delta=target-decimal(opening.amount);
+      if(delta!==ZERO){const amount=delta<ZERO?-delta:delta,operation={operationId:randomUUID(),occurredAt};const journal=this.#simpleJournal({company,user:actor},operation,'DEMO-ADJ-'+definition.code,definition.currency,delta>ZERO?[['1100-AR',amount,ZERO],['3000-OPENING-EQUITY',ZERO,amount]]:[['3000-OPENING-EQUITY',amount,ZERO],['1100-AR',ZERO,amount]]);this.#recordDebt(companyId,customer.id,null,null,operation,'demo_opening_adjustment',delta,definition.currency);opening.amount=decimalString(target);opening.occurredAt=occurredAt;opening.journalEntryId=journal.id;}
+      customer.paymentPreference=definition.paymentPreference;customer.purchaseProfile=clone(definition.purchaseProfile);const profile=customer.purchaseProfile;customer.demoPurchaseHistory=[0,1,2].map(i=>({reference:'DEMO-HISTORY-'+customer.code+'-'+(i+1),occurredAt:new Date(Date.parse(occurredAt)-(profile.lastPurchaseDays+i*profile.intervalDays)*86400000).toISOString(),quantity:profile.volume==='large'?25+i*10:2+i,note:'ملخص شراء تجريبي، لا يؤثر في الرصيد أو المخزون'}));
+      result.customersUpdated++;result[target>ZERO?'debitCustomers':target<ZERO?'creditCustomers':'cashCustomers']++;result[profile.activity]++;result[profile.volume]++;this.#change(companyId,'customer',customer.id,'upsert',clone(customer));
+    }
+    for(const definition of scenario.items){const item=[...this.items.values()].find(x=>x.companyId===companyId&&x.sku===definition.sku),cfg=item&&this.salesSettings.get('item:'+item.id);if(!item||cfg?.catalog!=='furniture-v1')throw new AppError(409,'DEMO_ITEM_MISSING','مادة التجربة غير موجودة');const stock=this.stockBalances.get(companyId+':'+cfg.defaultWarehouseId+':'+item.id);if(!stock||Number(stock.averageCost)!==0)throw new AppError(409,'DEMO_STOCK_CHANGED','رصيد التجربة مرتبط بتكلفة فعلية');const previous=stock.quantity;stock.quantity=decimalString(decimal(String(definition.quantity),{nonNegative:true}));cfg.demoQuantity=true;this.#audit(companyId,actorUserId,'inventory.demo.adjusted','item',item.id,{warehouseId:stock.warehouseId,previous,quantity:stock.quantity});this.#change(companyId,'stock_balance',stock.warehouseId+':'+item.id,'upsert',clone(stock));result.itemsUpdated++;}
+    await this.saveSalesSetting(key,{companyId,result},actorUserId);this.#audit(companyId,actorUserId,'demo.scenario.updated','catalog',scenario.version,result);return clone(result);
+  }
+
   async importDemoWholesaleCustomers(companyId,actorUserId,catalog){
     const company=this.companies.get(companyId),actor=this.users.get(actorUserId);if(!company||company.status!=='active'||!actor||actor.companyId!==companyId)throw new AppError(403,'COMPANY_SCOPE','الشركة أو المستخدم غير صالح');
     const result={companyId,companyName:company.legalName,version:catalog.version,customersCreated:0,cashCustomers:0,debitCustomers:0,creditCustomers:0,openingEntries:0,existingCustomers:0};
