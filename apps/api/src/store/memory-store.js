@@ -53,6 +53,24 @@ export class MemoryStore {
   }
 
   async close() {}
+  async importDemoWholesaleCustomers(companyId,actorUserId,catalog){
+    const company=this.companies.get(companyId),actor=this.users.get(actorUserId);if(!company||company.status!=='active'||!actor||actor.companyId!==companyId)throw new AppError(403,'COMPANY_SCOPE','الشركة أو المستخدم غير صالح');
+    const result={companyId,companyName:company.legalName,version:catalog.version,customersCreated:0,cashCustomers:0,debitCustomers:0,creditCustomers:0,openingEntries:0,existingCustomers:0};
+    for(const definition of catalog.customers){if([...this.customers.values()].some(x=>x.companyId===companyId&&x.code===definition.code)){result.existingCustomers++;continue;}
+      const customer=await this.createParty(companyId,'customer',{code:definition.code,name:definition.name,creditLimit:'1000000'},actorUserId);const balance=decimal(String(definition.balance));
+      const occurredAt=new Date().toISOString(),opening={currency:definition.currency,amount:decimalString(balance),occurredAt,demo:true};
+      const stored=this.customers.get(customer.id);stored.demo=true;stored.paymentPreference=definition.paymentPreference;stored.openingBalances=[opening];
+      await this.saveSalesSetting('customer:'+customer.id,{companyId,channel:'wholesale',governorate:definition.governorate,district:definition.district,neighborhood:definition.neighborhood,risk:definition.risk},actorUserId);
+      result.customersCreated++;if(balance>ZERO)result.debitCustomers++;else if(balance<ZERO)result.creditCustomers++;else result.cashCustomers++;
+      if(balance!==ZERO){const operation={operationId:randomUUID(),occurredAt};const amount=balance<ZERO?-balance:balance;
+        const journal=this.#simpleJournal({company,user:actor},operation,'DEMO-OPEN-'+definition.code,definition.currency,balance>ZERO?[['1100-AR',amount,ZERO],['3000-OPENING-EQUITY',ZERO,amount]]:[['3000-OPENING-EQUITY',amount,ZERO],['1100-AR',ZERO,amount]]);
+        opening.journalEntryId=journal.id;this.#recordDebt(companyId,customer.id,null,null,operation,'demo_opening_balance',balance,definition.currency);result.openingEntries++;
+      }
+      this.#change(companyId,'customer',customer.id,'upsert',clone(stored));
+    }
+    this.#audit(companyId,actorUserId,'customers.demo.imported','catalog',catalog.version,result);return clone(result);
+  }
+
   async importFurnitureCatalog(companyId,actorUserId,catalog) {
     const company=this.companies.get(companyId);if(!company||company.status!=='active')throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
     const actor=this.users.get(actorUserId);if(!actor||actor.companyId!==companyId)throw new AppError(403,'USER_SCOPE','المستخدم خارج الشركة');

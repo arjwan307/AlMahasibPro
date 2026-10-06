@@ -1,3 +1,4 @@
+import { demoWholesaleCustomers } from './demo-wholesale-customers.js';
 import { furnitureCatalog } from './furniture-catalog.js';
 import { productPages } from './product-pages.js';
 import express from 'express';
@@ -19,6 +20,11 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
   const requestPath=join(dataDirectory,'furniture-catalog-request.json');let request;
   try{request=JSON.parse(await readFile(requestPath,'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
   if(request){if(request.catalog!=='furniture-v1'||typeof request.companyCode!=='string')throw Error('Invalid furniture catalogue request');const company=[...store.companies.values()].find(x=>x.code===request.companyCode);if(!company)throw Error('Furniture catalogue company not found');const result=await store.importFurnitureCatalog(company.id,company.ownerUserId,furnitureCatalog());await writeFile(join(dataDirectory,'furniture-catalog-result.json'),JSON.stringify(result,null,2));await rename(requestPath,requestPath+'.done');console.log('[furniture-catalog]',JSON.stringify(result));}
+ }
+ if(product==='company'){
+  const requestPath=join(dataDirectory,'demo-wholesale-customers-request.json');let request;
+  try{request=JSON.parse(await readFile(requestPath,'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
+  if(request){if(request.catalog!=='wholesale-customers-v1'||typeof request.companyCode!=='string')throw Error('Invalid demo customer request');const company=[...store.companies.values()].find(x=>x.code===request.companyCode);if(!company)throw Error('Demo customer company not found');const result=await store.importDemoWholesaleCustomers(company.id,company.ownerUserId,demoWholesaleCustomers());await writeFile(join(dataDirectory,'demo-wholesale-customers-result.json'),JSON.stringify(result,null,2));await rename(requestPath,requestPath+'.done');console.log('[demo-wholesale-customers]',JSON.stringify(result));}
  }
  const app=express();app.disable('x-powered-by');app.set('trust proxy',1);
  app.use((req,res,next)=>{if(req.headers.origin && req.headers.origin!==origin)return res.status(403).json({error:{message:'المصدر غير مسموح'}});next();});
