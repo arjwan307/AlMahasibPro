@@ -25,9 +25,9 @@ export function normalizeCode(value) {
 }
 
 export function normalizeUsername(value) {
-  const username = String(value ?? '').trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9_.-]{2,63}$/.test(username)) {
-    throw new AppError(400, 'INVALID_USERNAME', 'اسم المستخدم غير صالح');
+  const username = String(value ?? '').normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+  if (username.length < 3 || username.length > 64 || !/^[\p{L}\p{N}][\p{L}\p{N}\p{M}_. -]*$/u.test(username)) {
+    throw new AppError(400, 'INVALID_USERNAME', 'اسم المستخدم يجب أن يكون ٣–٦٤ حرفًا عربيًا أو إنجليزيًا أو رقمًا');
   }
   return username;
 }

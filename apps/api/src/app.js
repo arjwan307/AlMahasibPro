@@ -46,6 +46,11 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(201).json({ company, message: 'تم استلام طلب الشركة وينتظر اعتماد إدارة المنصة' });
   }));
 
+  app.get('/api/v1/auth/roles', asyncRoute(async (req, res) => {
+    const code = normalizeCode(req.query.companyCode);
+    res.json({ roles: store.listLoginRoles ? await store.listLoginRoles(code) : [] });
+  }));
+
   app.post('/api/v1/auth/login', asyncRoute(async (req, res) => {
     requireFields(req.body, ['username', 'password']);
     const platform = req.body.platform === true;
@@ -70,6 +75,11 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       throw new AppError(403, 'COMPANY_INACTIVE', 'الشركة غير مفعلة');
     }
     if (login.user.status !== 'active') throw new AppError(403, 'USER_INACTIVE', 'حساب المستخدم موقوف');
+    if (!platform && req.body.roleCode) {
+      if (!store.listUsers) throw new AppError(501, 'STORE_UNSUPPORTED', 'اختيار الدور غير متاح لهذا الخادم');
+      const user = (await store.listUsers(login.company.id)).find(row => row.id === login.user.id);
+      if (user?.roleCode !== req.body.roleCode) throw new AppError(403, 'LOGIN_ROLE_MISMATCH', 'الدور المختار لا يطابق دور حسابك؛ اختر الدور الذي حدده المدير');
+    }
     loginAttempts.delete(attemptKey);
     const token = newSessionToken();
     const expiresAt = new Date(Date.now() + sessionDays * 86400000).toISOString();

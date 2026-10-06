@@ -15,6 +15,8 @@ test('user administration enforces permissions, revokes access and persists edit
   }
   await request('/api/local/setup',{legalName:'شركة اختبار',ownerName:'مدير',username:'owner',password:'Strong-Password-123'});
   const login=await request('/api/v1/auth/login',{companyCode:'local',username:'owner',password:'Strong-Password-123'});const ownerCookie=login.cookie;
+  const loginRoles=await request('/api/v1/auth/roles?companyCode=local',null);assert.ok(loginRoles.data.roles.some(role=>role.code==='representative'));assert.equal(loginRoles.data.roles[0].permissions,undefined);
+  const wrongRole=await request('/api/v1/auth/login',{companyCode:'local',username:'owner',password:'Strong-Password-123',roleCode:'representative'});assert.equal(wrongRole.status,403);assert.equal(wrongRole.cookie,undefined);
   const listing=await request('/api/v1/users',null,'GET',ownerCookie);assert.equal(listing.status,200);const owner=listing.data.users[0];assert.equal(owner.passwordHash,undefined);
   assert.ok(listing.data.roles.some(role=>role.code==='accountant'));
   const roleBody={name:'مسؤول التجهيز',permissions:['catalog.read','inventory.read']};
@@ -26,9 +28,9 @@ test('user administration enforces permissions, revokes access and persists edit
   const supplyLogin=await request('/api/v1/auth/login',{companyCode:'local',username:'supply',password:'Strong-Supply-123'});
   assert.deepEqual((await request('/api/v1/bootstrap',null,'GET',supplyLogin.cookie)).data.permissions,roleBody.permissions);
   assert.equal((await request('/api/v1/roles',{name:'محظور',permissions:[]},'POST',supplyLogin.cookie)).status,403);
-  const body={username:'seller',displayName:'مندوب',password:'Strong-Seller-123',roleCode:'representative',permissions:['catalog.read','sync.use']};
+  const body={username:'حسن كاظم',displayName:'مندوب',password:'Strong-Seller-123',roleCode:'representative',permissions:['catalog.read','sync.use']};
   const created=await request('/api/v1/users',body,'POST',ownerCookie);assert.equal(created.status,201);const id=created.data.user.id;
-  const sellerLogin=await request('/api/v1/auth/login',{companyCode:'local',username:'seller',password:body.password});const sellerCookie=sellerLogin.cookie;
+  const sellerLogin=await request('/api/v1/auth/login',{companyCode:'local',username:'حسن كاظم',password:body.password,roleCode:'representative'});const sellerCookie=sellerLogin.cookie;
   assert.equal((await request('/api/v1/users',null,'GET',sellerCookie)).status,403);
   assert.equal((await request('/api/v1/users/'+id,{...body,status:'active'},'PUT',sellerCookie)).status,403);
   assert.equal((await request('/api/v1/bootstrap',null,'GET',sellerCookie)).data.permissions.includes('sales.create'),false);
@@ -37,11 +39,11 @@ test('user administration enforces permissions, revokes access and persists edit
   assert.equal((await request('/api/v1/users/'+crypto.randomUUID(),{...body,status:'active'},'PUT',ownerCookie)).status,404);
   const updated=await request('/api/v1/users/'+id,{...body,displayName:'الاسم الجديد',password:'Changed-Seller-123',status:'disabled'},'PUT',ownerCookie);assert.equal(updated.status,200);
   assert.equal((await request('/api/v1/bootstrap',null,'GET',sellerCookie)).status,401);
-  assert.equal((await request('/api/v1/auth/login',{companyCode:'local',username:'seller',password:'Changed-Seller-123'})).status,403);
+  assert.equal((await request('/api/v1/auth/login',{companyCode:'local',username:'حسن كاظم',password:'Changed-Seller-123'})).status,403);
   await runtime.close();runtime=await startEnterpriseLocal({dataDirectory:directory,port:33221});
   assert.ok((await request('/api/v1/roles',null,'GET',ownerCookie)).data.roles.some(role=>role.code===customCode));
   const stored=(await request('/api/v1/users',null,'GET',ownerCookie)).data.users.find(row=>row.id===id);assert.equal(stored.status,'disabled');assert.equal(stored.displayName,'الاسم الجديد');assert.deepEqual(stored.permissions,body.permissions);
   assert.equal((await request('/api/v1/users/'+id,{...body,password:'',status:'active'},'PUT',ownerCookie)).status,200);
-  assert.equal((await request('/api/v1/auth/login',{companyCode:'local',username:'seller',password:'Changed-Seller-123'})).status,200);
+  assert.equal((await request('/api/v1/auth/login',{companyCode:'local',username:'حسن كاظم',password:'Changed-Seller-123'})).status,200);
  }finally{if(runtime)await runtime.close();await rm(directory,{recursive:true,force:true});}
 });

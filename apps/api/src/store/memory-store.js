@@ -210,6 +210,12 @@ export class MemoryStore {
     this.#audit(user?.companyId ?? null, actorUserId, 'session.revoked', 'session', session?.id ?? null, {});
   }
 
+  async listLoginRoles(companyCode) {
+    const company = [...this.companies.values()].find(row => row.code.toLowerCase() === companyCode && row.status === 'active');
+    if (!company) return [];
+    return (await this.listRoles(company.id)).map(({ code, name }) => ({ code, name }));
+  }
+
   async listRoles(companyId) {
     return [...this.roles.values()].filter((role) => role.companyId === companyId).map(clone);
   }
