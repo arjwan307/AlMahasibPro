@@ -9,8 +9,11 @@
     "seed:platform-admin": "node database/seed-platform-admin.js",
     "start:enterprise": "node apps/local/enterprise-server.js",
     "desktop": "electron apps/desktop/main.cjs",
-    "build:windows": "electron-builder --win nsis",
-    "start:cloud": "node apps/api/src/cloud-server.js"
+    "build:windows": "npm run build:windows:company",
+    "start:cloud": "node apps/api/src/cloud-server.js",
+    "build:windows:company": "electron-builder --config apps/desktop/company-builder.json --win nsis",
+    "build:windows:retail": "electron-builder --config apps/retail/retail-builder.json --win nsis",
+    "desktop:retail": "electron apps/retail/main.cjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

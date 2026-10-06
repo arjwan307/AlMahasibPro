@@ -1,11 +1,13 @@
 const { app, BrowserWindow, dialog, Menu, net } = require('electron');
 const path = require('node:path');
+// Preserve existing company data when installing the independently named product.
+app.setPath('userData', path.join(app.getPath('appData'), 'AlMahasibPro'));
 let runtime;
 app.whenReady().then(async () => {
   try {
     const { startEnterpriseLocal } = await import('../local/enterprise-server.js');
     runtime = await startEnterpriseLocal({ dataDirectory: app.getPath('userData'), port: 3211 });
-    const window = new BrowserWindow({ width: 1440, height: 950, minWidth: 960, minHeight: 640, title: 'المحاسب برو — الشركات', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
+    const window = new BrowserWindow({ width: 1440, height: 950, minWidth: 960, minHeight: 640, title: 'المحاسب برو — الشركات والمؤسسات', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(runtime.url + '/')) event.preventDefault(); });
     Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'الملف', submenu: [{ label: 'استعادة نسخة احتياطية', click: restoreBackup }, { role: 'quit', label: 'خروج' }] }, { label: 'عرض', submenu: [{ role: 'reload', label: 'تحديث' }, { role: 'togglefullscreen', label: 'ملء الشاشة' }] }]));

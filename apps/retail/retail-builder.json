@@ -1,0 +1,37 @@
+{
+  "extends": null,
+  "win": {
+    "target": [
+      "nsis"
+    ],
+    "signAndEditExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "deleteAppDataOnUninstall": false
+  },
+  "files": [
+    "apps/local/enterprise-server.js",
+    "apps/api/**",
+    "package.json",
+    "apps/retail/main.cjs",
+    "public/retail*",
+    "public/enterprise.css",
+    "public/pos*",
+    "public/offline-sync.js",
+    "public/restaurant*",
+    "public/market*",
+    "public/scanner-qrcode.js"
+  ],
+  "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
+  "appId": "com.almahasibpro.retail",
+  "productName": "AlMahasibPro-Retail",
+  "directories": {
+    "output": "releases/retail"
+  },
+  "extraMetadata": {
+    "main": "apps/retail/main.cjs"
+  }
+}

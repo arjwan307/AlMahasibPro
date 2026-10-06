@@ -1,3 +1,4 @@
+import { productPages } from './product-pages.js';
 import express from 'express';
 import { join } from 'node:path';
 import { mkdir } from 'node:fs/promises';
@@ -15,7 +16,7 @@ export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, 
  const app=express();app.disable('x-powered-by');app.set('trust proxy',1);
  app.use((req,res,next)=>{if(req.headers.origin && req.headers.origin!==origin)return res.status(403).json({error:{message:'المصدر غير مسموح'}});next();});
  app.use(express.json({limit:'1mb'}));
- app.get('/',(_req,res)=>res.redirect('/enterprise.html'));
+ app.use(productPages('company'));
  app.post('/api/v1/companies/register',(_req,res)=>res.status(403).json({error:{message:'إنشاء الشركات غير متاح على خادم الشركة'}}));
  app.get('/api/health',(_req,res)=>res.json({ok:true,storage:'sqlite',service:'AlMahasibPro'}));
  app.get('/api/local/status',(_req,res)=>res.json({local:false,initialized:store.companies.size>0,setupRequired:store.companies.size===0,companyCode:[...store.companies.values()][0]?.code}));

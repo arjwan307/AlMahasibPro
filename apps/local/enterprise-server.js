@@ -1,12 +1,14 @@
+import { productPages } from '../api/src/product-pages.js';
 import express from 'express';
 import { join } from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { createApp } from '../api/src/app.js';
 import { SQLiteStore } from '../api/src/store/sqlite-store.js';
 import { hashPassword } from '../api/src/lib/security.js';
 import { normalizeUsername } from '../api/src/lib/http.js';
 
-export async function startEnterpriseLocal({ dataDirectory, port = 3211 }) {
+export async function startEnterpriseLocal({ dataDirectory, port = 3211, product = 'company' }) {
   await mkdir(dataDirectory, { recursive: true });
   const store = new SQLiteStore(join(dataDirectory, 'enterprise.sqlite'));
   const app = express();
@@ -16,6 +18,22 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211 }) {
     next();
   });
   app.use(express.json({ limit: '1mb' }));
+  app.use(productPages(product));
+  if (product === 'retail') {
+    const html = new Set(['/pos.html','/market-cashier.html','/market-admin.html']);
+    const scripts = new Set(['/pos-ui.js','/market-offline.js','/market-cashier-ledger.js','/restaurant-pos.js']);
+    app.use(async (req, res, next) => {
+      if (!html.has(req.path) && !scripts.has(req.path)) return next();
+      try {
+        const filename = fileURLToPath(new URL('../../public' + req.path, import.meta.url));
+        let content = await readFile(filename, 'utf8');
+        if (html.has(req.path)) content = content.replace('<head>', '<head><script>window.AlMahasibLocalMode=true;</script>');
+        else content = content.replaceAll('navigator.onLine', '(!window.AlMahasibLocalMode && navigator.onLine)');
+        res.type(html.has(req.path) ? 'html' : 'js').send(content);
+      } catch (error) { next(error); }
+    });
+  }
+
   app.get('/api/local/status', (req, res) => res.json({ local: true, initialized: store.companies.size > 0, companyCode: [...store.companies.values()][0]?.code }));
   let configuring = false;
   app.post('/api/local/setup', async (req, res) => {
