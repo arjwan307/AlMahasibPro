@@ -10,7 +10,8 @@
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
-    "deleteAppDataOnUninstall": false
+    "deleteAppDataOnUninstall": false,
+    "script": "apps/retail/installer.nsi"
   },
   "files": [
     "apps/local/enterprise-server.js",
