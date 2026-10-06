@@ -30,3 +30,8 @@ node_modules/
 npm-debug.log*
 *.log
 coverage/
+
+releases/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

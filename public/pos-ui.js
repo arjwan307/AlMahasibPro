@@ -45,6 +45,11 @@
     document.getElementById('modeTitle').textContent = titles[selectedMode];
     document.getElementById('contextLabel').textContent = contexts[selectedMode][0];
     document.getElementById('contextValue').placeholder = contexts[selectedMode][1];
+    if (selectedMode === 'enterprise') {
+      document.getElementById('enterpriseItems').hidden = false;
+      document.getElementById('barcodeInput').placeholder = 'كود Item أو الباركود ثم Enter';
+      document.getElementById('enterpriseSearch').addEventListener('input', renderEnterpriseItems);
+    }
     updateNetwork();
     window.addEventListener('online', updateNetwork);
     window.addEventListener('offline', updateNetwork);
@@ -87,6 +92,7 @@
         master = { customers: state.customers || [] };
       }
       populateCustomers();
+      if (selectedMode === 'enterprise') renderEnterpriseItems();
       renderRestaurantCatalog();
       restoreRestaurantCart();
       renderStatus();
@@ -208,6 +214,40 @@
     if(saleInProgress)return;
     try{const line=cart[index];if(!line)return;const q=normalize(value),stock=marketCatalog().find(x=>x.id===line.itemId);if(toScaled(q)<=0n)throw new Error('العدد يجب أن يكون أكبر من صفر');if(!stock||Number(q)>Number(stock.qty))throw new Error('الكمية المطلوبة أكبر من الرصيد');line.quantity=q;renderCart()}catch(e){alert(e.message);renderCart()}
   }
+  function renderEnterpriseItems() {
+    const query = document.getElementById('enterpriseSearch').value.trim().toLowerCase();
+    const catalog = state?.catalog || [];
+    const matches = catalog.map((item, index) => ({ item, index })).filter(({ item }) =>
+      [item.sku, item.name, item.barcode].some(value => String(value || '').toLowerCase().includes(query)));
+    document.getElementById('enterpriseItemStatus').textContent = catalog.length
+      ? `${matches.length} نتيجة — اختر وحدة الصنف المطلوبة`
+      : 'لا توجد أصناف مجهزة على الجهاز؛ عرّف الأصناف والوحدات والأسعار ثم حدّث بيانات الجهاز.';
+    const body = document.getElementById('enterpriseItemRows');
+    body.replaceChildren();
+    for (const { item, index } of matches.slice(0, 200)) {
+      const row = document.createElement('tr');
+      const unit = master?.units?.find(entry => entry.id === item.unitId);
+      for (const value of [item.sku, item.name, unit?.name || item.unitId, item.salePrice || 'غير محدد']) {
+        const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
+      }
+      const cell = document.createElement('td'), button = document.createElement('button');
+      button.className = 'btn btn-primary'; button.textContent = 'إضافة';
+      button.addEventListener('click', () => { try { addEnterpriseItem(index); } catch (error) { alert(error.message); } });
+      cell.append(button); row.append(cell); body.append(row);
+    }
+  }
+
+  function addEnterpriseItem(index) {
+    const item = state?.catalog?.[index];
+    if (!item) throw new Error('الصنف غير موجود ضمن بيانات الجهاز');
+    const price = normalize(item.salePrice || document.getElementById('manualPrice').value || '0');
+    if (toScaled(price) <= 0n) throw new Error('أدخل سعر بيع أكبر من صفر');
+    const existing = cart.find(line => line.itemId === item.itemId && line.unitId === item.unitId);
+    if (existing) existing.quantity = fromScaled(toScaled(existing.quantity) + 1000000n);
+    else cart.push({ itemId: item.itemId, unitId: item.unitId, name: item.name, quantity: '1.000000', unitPrice: price });
+    saveRestaurantCart(); renderCart();
+  }
+
   function scanBarcode() {
     try {
       if(selectedMode==='market'){
@@ -216,6 +256,15 @@
         addMarketProduct(x.id);input.value='';input.focus();return;
       }
       const input = document.getElementById('barcodeInput');
+      if (selectedMode === 'enterprise') {
+        const matches = (state?.catalog || []).map((item, index) => ({ item, index }))
+          .filter(({ item }) => item.sku === input.value.trim() || item.barcode === input.value.trim());
+        if (matches.length === 1) { addEnterpriseItem(matches[0].index); input.value = ''; input.focus(); return; }
+        if (matches.length > 1) {
+          document.getElementById('enterpriseSearch').value = input.value.trim(); renderEnterpriseItems();
+          throw new Error('للصنف عدة وحدات؛ اختر الوحدة من جدول الأصناف');
+        }
+      }
       const barcode = state?.barcodes?.find((entry) => entry.barcode === input.value.trim());
       if (!barcode) throw new Error('الباركود غير موجود ضمن بيانات الجهاز');
       const manual = document.getElementById('manualPrice').value;
@@ -624,5 +673,4 @@
   window.PosUI = { toggleMarketPrinting, connectCashDrawer, openCashDrawerOnly, showMarketTrialCatalog, addMarketTrialCatalog, manualMarketSync, marketCashIn, paymentTypeChanged, saveMarketWork, backupMarketCashier, restoreMarketBackup, stopPhoneScanner, scanBarcode, setMarketQty, pairPhoneScanner, cancelMarketInvoice, marketOpenShift, marketExpense, printMarketStatement, closeMarketShift, renderMarketShift, openShift, allocateOffline, completeSale, returnLast, closeShift, printReceipt, reprintMarketInvoice, remove, addProduct, addMarketProduct, changeQty, renderMarketCatalog, holdMarketSale, showHeldMarketSales, restoreHeldMarketSale, deleteHeldMarketSale, updateMarketChange, returnMarketInvoice };
   void initialize();
 }());
-
 

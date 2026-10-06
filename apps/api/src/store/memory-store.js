@@ -130,7 +130,7 @@ export class MemoryStore {
     if (!company) throw new AppError(404, 'COMPANY_NOT_FOUND', 'الشركة غير موجودة');
     if (company.status === 'active') return this.#publicCompany(company);
     if (approvedCode) {
-      const code=String(approvedCode).trim().toUpperCase();
+      const code=String(approvedCode).trim().toLowerCase();
       if ([...this.companies.values()].some((x)=>x.id!==companyId && x.code===code)) throw new AppError(409,'COMPANY_CODE_EXISTS','رمز الشركة مستخدم');
       company.code=code;
     }
@@ -174,7 +174,7 @@ export class MemoryStore {
       const user = [...this.users.values()].find((candidate) => candidate.platformAdmin && candidate.username === username);
       return user ? { user: clone(user), company: null } : null;
     }
-    const company = [...this.companies.values()].find((candidate) => candidate.code === companyCode);
+    const company = [...this.companies.values()].find((candidate) => String(candidate.code).toLowerCase() === companyCode);
     if (!company) return null;
     const user = [...this.users.values()].find((candidate) => candidate.companyId === company.id && candidate.username === username);
     return user ? { user: clone(user), company: this.#publicCompany(company) } : null;
@@ -196,7 +196,7 @@ export class MemoryStore {
     const company = user.companyId ? this.companies.get(user.companyId) : null;
     if (company && company.status !== 'active') return null;
     const roles = user.roleIds.map((id) => this.roles.get(id)).filter(Boolean);
-    const permissions = user.platformAdmin ? ['company.approve'] : [...new Set(roles.flatMap((role) => role.permissions))];
+    const permissions = user.platformAdmin ? ['company.approve'] : (user.permissions ?? [...new Set(roles.flatMap((role) => role.permissions))]);
     return {
       session: clone(session), user: this.#publicUser(user), company: company ? this.#publicCompany(company) : null,
       roles: roles.map(({ passwordHash, ...role }) => clone(role)), permissions, scopes: clone(user.scopes)
@@ -220,9 +220,10 @@ export class MemoryStore {
     }
     const role = [...this.roles.values()].find((candidate) => candidate.companyId === companyId && candidate.code === input.roleCode);
     if (!role) throw new AppError(400, 'ROLE_NOT_FOUND', 'الدور غير موجود');
+    if (input.permissions != null && (!Array.isArray(input.permissions) || input.permissions.some(value => !PERMISSIONS.includes(value) || value === 'company.approve'))) throw new AppError(400, 'INVALID_PERMISSIONS', 'الصلاحيات غير صالحة');
     const user = {
       id: randomUUID(), companyId, username: input.username, displayName: input.displayName,
-      passwordHash: input.passwordHash, platformAdmin: false, status: 'active', roleIds: [role.id],
+      passwordHash: input.passwordHash, platformAdmin: false, status: 'active', roleIds: [role.id], ...(input.permissions != null ? {permissions: [...input.permissions]} : {}),
       scopes: input.scopes?.length ? clone(input.scopes) : [{ type: 'company', id: companyId }],
       createdAt: new Date().toISOString()
     };
@@ -230,6 +231,33 @@ export class MemoryStore {
     this.#audit(companyId, actorUserId, 'user.created', 'user', user.id, { roleCode: input.roleCode });
     this.#change(companyId, 'user', user.id, 'upsert', this.#publicUser(user));
     return this.#publicUser(user);
+  }
+
+  async listUsers(companyId) {
+    return [...this.users.values()].filter(user => user.companyId === companyId).map(user => ({
+      ...this.#publicUser(user), roleCode: this.roles.get(user.roleIds[0])?.code,
+      permissions: user.permissions ?? [...new Set(user.roleIds.flatMap(id => this.roles.get(id)?.permissions || []))]
+    }));
+  }
+
+  async updateUser(companyId, userId, input, actorUserId) {
+    const user = this.users.get(userId);
+    if (!user || user.companyId !== companyId || user.platformAdmin) throw new AppError(404, 'USER_NOT_FOUND', 'المستخدم غير موجود');
+    const role = [...this.roles.values()].find(row => row.companyId === companyId && row.code === input.roleCode);
+    if (!role) throw new AppError(400, 'ROLE_NOT_FOUND', 'الدور غير موجود');
+    if ([...this.users.values()].some(row => row.companyId === companyId && row.id !== userId && row.username === input.username)) throw new AppError(409, 'USERNAME_EXISTS', 'اسم المستخدم مستخدم في الشركة');
+    if (!['active', 'disabled'].includes(input.status)) throw new AppError(400, 'INVALID_STATUS', 'حالة الحساب غير صالحة');
+    const permissions = input.permissions ?? role.permissions;
+    if (!Array.isArray(permissions) || permissions.some(value => !PERMISSIONS.includes(value) || value === 'company.approve')) throw new AppError(400, 'INVALID_PERMISSIONS', 'الصلاحيات غير صالحة');
+    if (userId === actorUserId && (input.status !== 'active' || !permissions.includes('users.manage'))) throw new AppError(409, 'SELF_LOCKOUT', 'لا يمكنك إيقاف حسابك أو إزالة صلاحية إدارة المستخدمين منه');
+    const managers = await this.listUsers(companyId);
+    if (user.status === 'active' && managers.find(row => row.id === userId)?.permissions.includes('users.manage') && (input.status !== 'active' || !permissions.includes('users.manage')) && !managers.some(row => row.id !== userId && row.status === 'active' && row.permissions.includes('users.manage'))) throw new AppError(409, 'LAST_MANAGER', 'يجب إبقاء مسؤول نشط لإدارة المستخدمين');
+    Object.assign(user, { username: input.username, displayName: input.displayName, status: input.status, roleIds: [role.id], permissions: [...permissions], updatedAt: new Date().toISOString() });
+    if (input.passwordHash) user.passwordHash = input.passwordHash;
+    if (input.passwordHash || input.status === 'disabled') for (const session of this.sessions.values()) if (session.userId === userId) session.revokedAt = new Date().toISOString();
+    this.#audit(companyId, actorUserId, 'user.updated', 'user', userId, { roleCode: input.roleCode, status: input.status, permissions, passwordChanged: Boolean(input.passwordHash) });
+    this.#change(companyId, 'user', userId, 'upsert', this.#publicUser(user));
+    return (await this.listUsers(companyId)).find(row => row.id === userId);
   }
 
   async createUnit(companyId, input, actorUserId) {
@@ -311,6 +339,51 @@ export class MemoryStore {
       warehouses: [...this.warehouses.values()].filter(belongs).map(clone),
       stock: [...this.stockBalances.values()].filter(belongs).map(clone)
     };
+  }
+
+  async listEnterpriseData(companyId) {
+    const belongs = row => row.companyId === companyId;
+    return { representatives: [...this.representatives.values()].filter(belongs).map(clone), journals: [...this.journalEntries.values()].filter(belongs).map(clone),
+      transfers: [...this.stockTransfers.values()].filter(belongs).map(clone),
+      settlements: [...this.financialRecords.values()].filter(row => belongs(row) && row.kind === 'enterprise_settlement').map(clone),
+      users: [...this.users.values()].filter(belongs).map(row => this.#publicUser(row)) };
+  }
+
+  async transferEnterpriseStock(context, input) {
+    const existing = [...this.stockTransfers.values()].find(row => row.companyId === context.company.id && row.operationId === input.operationId);
+    if (existing) { if (existing.transferNumber !== input.transferNumber || existing.sourceWarehouseId !== input.sourceWarehouseId || existing.destinationWarehouseId !== input.destinationWarehouseId) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى'); return clone(existing); }
+    this.#assertUnique(this.stockTransfers,context.company.id,'transferNumber',input.transferNumber,'TRANSFER_NUMBER_EXISTS');
+    for (const id of [input.sourceWarehouseId, input.destinationWarehouseId]) {
+      const warehouse = this.warehouses.get(id);
+      if (!warehouse || warehouse.companyId !== context.company.id) throw new AppError(400, 'WAREHOUSE_NOT_FOUND', 'المخزن غير موجود');
+    }
+    for (const line of input.lines) {
+      const item = this.items.get(line.itemId);
+      if (!item || item.companyId !== context.company.id) throw new AppError(400, 'ITEM_NOT_FOUND', 'الصنف غير موجود');
+    }
+    const before = this.#representativeTransactionSnapshot();
+    try { return this.#transferRepresentativeStock(context, { operationId: input.operationId, occurredAt: input.occurredAt }, input.sourceWarehouseId, input.destinationWarehouseId, input.lines, input.transferNumber, null); }
+    catch (error) { this.#restoreRepresentativeTransaction(before); throw error; }
+  }
+
+  async settleEnterpriseDocument(context, input) {
+    const existing = [...this.financialRecords.values()].find(row => row.companyId === context.company.id && row.kind === 'enterprise_settlement' && row.operationId === input.operationId);
+    if (existing) { if (existing.documentId !== input.documentId || existing.amount !== decimalString(decimal(input.amount)) || existing.method !== input.method) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى'); return clone(existing); }
+    this.#assertUnique(this.financialRecords,context.company.id,'receiptNumber',input.receiptNumber,'RECEIPT_NUMBER_EXISTS');
+    const document = this.commerceDocuments.get(input.documentId);
+    if (!document || document.companyId !== context.company.id || !['sale', 'purchase'].includes(document.documentType)) throw new AppError(400, 'DOCUMENT_NOT_FOUND', 'مستند البيع أو الشراء غير موجود');
+    const settled = [...this.financialRecords.values()].filter(row => row.companyId === context.company.id && row.kind === 'enterprise_settlement' && row.documentId === document.id).reduce((sum,row) => sum + decimal(row.amount), ZERO);
+    const returned = [...this.commerceDocuments.values()].filter(row => row.companyId === context.company.id && row.originalDocumentId === document.id).reduce((sum,row) => sum + decimal(row.dueAmount), ZERO);
+    const amount = decimal(input.amount, { positive: true });
+    if (amount > decimal(document.dueAmount) - settled - returned) throw new AppError(409, 'SETTLEMENT_EXCEEDS_DUE', 'المبلغ يتجاوز الرصيد المتبقي');
+    const cash = input.method === 'bank' ? '1010-BANK' : '1000-CASH';
+    const lines = document.documentType === 'sale' ? [[cash,amount,ZERO],['1100-AR',ZERO,amount]] : [['2100-AP',amount,ZERO],[cash,ZERO,amount]];
+    const journal = this.#simpleJournal(context, input, input.receiptNumber, document.currency, lines);
+    const row = { id: randomUUID(), companyId: context.company.id, kind: 'enterprise_settlement', operationId: input.operationId, documentId: document.id, receiptNumber: input.receiptNumber, amount: decimalString(amount), method: input.method, journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
+    this.financialRecords.set(row.id, Object.freeze(row));
+    this.#audit(context.company.id,context.user.id,'enterprise.settlement','financial_record',row.id,{});
+    this.#change(context.company.id,'financial_record',row.id,'upsert',row);
+    return clone(row);
   }
 
   async listCommerceDocuments(companyId) {
@@ -766,6 +839,7 @@ export class MemoryStore {
     const partyMap = isSale ? this.customers : this.suppliers;
     if (payload.partyId && (!partyMap.get(payload.partyId) || partyMap.get(payload.partyId).companyId !== companyId)) throw new AppError(400, 'PARTY_NOT_FOUND', 'العميل أو المورد غير موجود');
     const original = isReturn ? this.commerceDocuments.get(payload.originalDocumentId) : null;
+    if (isReturn && [...this.financialRecords.values()].some(row => row.companyId === companyId && row.kind === 'enterprise_settlement' && row.documentId === payload.originalDocumentId)) throw new AppError(409, 'SETTLED_RETURN_REVIEW_REQUIRED', 'الفاتورة لها سندات تسوية؛ يلزم معالجة التسوية قبل المرتجع');
     const expectedOriginalType = payload.documentType === 'sale_return' ? 'sale' : 'purchase';
     if (isReturn && (!original || original.companyId !== companyId || original.documentType !== expectedOriginalType)) throw new AppError(400, 'ORIGINAL_DOCUMENT_INVALID', 'المستند الأصلي غير صالح');
     if (isReturn && original.currency !== payload.currency) throw new AppError(400, 'RETURN_CURRENCY_MISMATCH', 'عملة المرتجع يجب أن تطابق المستند الأصلي');

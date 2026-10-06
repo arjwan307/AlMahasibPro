@@ -1,4 +1,5 @@
 import express from 'express';
+import { PERMISSIONS } from './permissions.js';
 import cors from 'cors';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -30,7 +31,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     requireFields(req.body, ['legalName', 'ownerName', 'phone', 'username', 'password']);
     const passwordHash = await passwordHashOrValidation(req.body.password);
     const company = await store.registerCompany({
-      code: `REQ-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`,
+      code: `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`,
       legalName: req.body.legalName.trim(),
       timezone: req.body.timezone || 'Asia/Baghdad',
       currency: String(req.body.currency || 'IQD').toUpperCase(),
@@ -68,6 +69,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     if (login.company?.status !== 'active' && !platform) {
       throw new AppError(403, 'COMPANY_INACTIVE', 'الشركة غير مفعلة');
     }
+    if (login.user.status !== 'active') throw new AppError(403, 'USER_INACTIVE', 'حساب المستخدم موقوف');
     loginAttempts.delete(attemptKey);
     const token = newSessionToken();
     const expiresAt = new Date(Date.now() + sessionDays * 86400000).toISOString();
@@ -138,9 +140,24 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     const user = await store.createUser(req.auth.company.id, {
       username: normalizeUsername(req.body.username), displayName: req.body.displayName.trim(),
       passwordHash: await passwordHashOrValidation(req.body.password), roleCode: req.body.roleCode,
-      scopes: validateScopes(req.body.scopes, req.auth.company)
+      permissions: req.body.permissions, scopes: validateScopes(req.body.scopes, req.auth.company)
     }, req.auth.user.id);
     res.status(201).json({ user });
+  }));
+
+  app.get('/api/v1/users', authenticate(store), permit('users.manage'), asyncRoute(async (req, res) => {
+    if (!store.listUsers) throw new AppError(501, 'STORE_UNSUPPORTED', 'إدارة الحسابات التفصيلية غير متاحة لهذا الخادم بعد');
+    res.json({ users: await store.listUsers(req.auth.company.id), roles: await store.listRoles(req.auth.company.id), permissions: PERMISSIONS.filter(value => value !== 'company.approve') });
+  }));
+
+  app.put('/api/v1/users/:userId', authenticate(store), permit('users.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['username', 'displayName', 'roleCode', 'status']);
+    if (!store.updateUser) throw new AppError(501, 'STORE_UNSUPPORTED', 'تعديل الحسابات غير متاح لهذا الخادم بعد');
+    res.json({ user: await store.updateUser(req.auth.company.id, req.params.userId, {
+      username: normalizeUsername(req.body.username), displayName: String(req.body.displayName).trim().slice(0, 120),
+      roleCode: req.body.roleCode, status: req.body.status, permissions: req.body.permissions,
+      passwordHash: req.body.password ? await passwordHashOrValidation(req.body.password) : undefined
+    }, req.auth.user.id) });
   }));
 
   app.get('/api/v1/master-data', authenticate(store), permitAny(['catalog.read', 'customers.read', 'suppliers.read', 'inventory.read']), asyncRoute(async (req, res) => {
@@ -503,6 +520,34 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     });
     const results = await store.pushOperations(req.auth, [operation]);
     res.json({ ok: true, result: results[0] });
+  }));
+
+  app.get('/api/v1/enterprise/reports', authenticate(store), permit('accounting.read'), asyncRoute(async (req, res) => {
+    const data = await store.listEnterpriseData(req.auth.company.id);
+    if (!req.auth.permissions.includes('users.manage')) delete data.users;
+    res.json(data);
+  }));
+  app.post('/api/v1/enterprise/transfers', authenticate(store), permit('inventory.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['operationId','sourceWarehouseId','destinationWarehouseId','transferNumber']);
+    if (!Array.isArray(req.body.lines) || !req.body.lines.length || req.body.lines.length > 500) throw new AppError(400,'LINES_REQUIRED','بنود التحويل مطلوبة');
+    res.status(201).json({ transfer: await store.transferEnterpriseStock(req.auth, {
+      operationId: uuid(req.body.operationId,'operationId'), occurredAt: new Date().toISOString(), transferNumber: String(req.body.transferNumber).slice(0,64),
+      sourceWarehouseId: uuid(req.body.sourceWarehouseId,'sourceWarehouseId'), destinationWarehouseId: uuid(req.body.destinationWarehouseId,'destinationWarehouseId'),
+      lines: req.body.lines.map(line => ({ itemId: uuid(line.itemId,'itemId'), quantity: decimalInput(line.quantity,{positive:true}) }))
+    }) });
+  }));
+  app.post('/api/v1/enterprise/settlements', authenticate(store), permit('accounting.post'), asyncRoute(async (req, res) => {
+    requireFields(req.body,['operationId','documentId','amount','receiptNumber','method']);
+    if (!['cash','bank'].includes(req.body.method)) throw new AppError(400,'INVALID_METHOD','طريقة الدفع غير صالحة');
+    res.status(201).json({ settlement: await store.settleEnterpriseDocument(req.auth, {
+      operationId: uuid(req.body.operationId,'operationId'), documentId: uuid(req.body.documentId,'documentId'), amount: decimalInput(req.body.amount,{positive:true}),
+      receiptNumber: String(req.body.receiptNumber).slice(0,64), method: req.body.method, occurredAt: new Date().toISOString()
+    }) });
+  }));
+  app.get('/api/v1/enterprise/backup', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
+    if (typeof store.exportBackup !== 'function') throw new AppError(400,'LOCAL_BACKUP_ONLY','النسخ الاحتياطي هنا خاص بقاعدة الجهاز');
+    res.setHeader('Content-Disposition','attachment; filename="AlMahasibPro-backup.sqlite"');
+    res.type('application/octet-stream').send(await store.exportBackup());
   }));
 
   app.use('/api', (req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'المسار غير موجود' } }));
