@@ -491,7 +491,10 @@ export class MemoryStore {
     const receivedCurrency = String(input.receivedCurrency || document.currency).toUpperCase();
     if (!['IQD','USD'].includes(receivedCurrency)) throw new AppError(400, 'INVALID_RECEIVED_CURRENCY', 'عملة القبض غير مدعومة');
     const receivedAmount = decimal(input.receivedAmount || input.amount, { positive: true });
-    const exchangeRate = receivedCurrency === document.currency ? decimal('1') : decimal(input.exchangeRate, { positive: true });
+    // The server owns the accounting rate. Clients may display a calculator but cannot
+    // override the manager-approved company rate when money is actually posted.
+    const companyRate = decimal(context.company.usdToIqdRate || '1300', { positive: true });
+    const exchangeRate = receivedCurrency === document.currency ? decimal('1') : companyRate;
     if (!((document.currency === 'USD' && receivedCurrency === 'IQD') || (document.currency === 'IQD' && receivedCurrency === 'USD') || receivedCurrency === document.currency)) throw new AppError(400, 'CURRENCY_CONVERSION_NOT_SUPPORTED', 'التحويل مسموح فقط بين الدينار والدولار');
     const amount = receivedCurrency === document.currency ? receivedAmount : document.currency === 'USD' ? divide(receivedAmount, exchangeRate) : multiply(receivedAmount, exchangeRate);
     if (amount > decimal(document.dueAmount) - settled - returned) throw new AppError(409, 'SETTLEMENT_EXCEEDS_DUE', 'المبلغ يتجاوز الرصيد المتبقي');
