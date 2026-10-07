@@ -895,6 +895,7 @@ function validateCommercePayload(payload) {
     delivery: validateDelivery(payload.delivery),
     lines: payload.lines.map((line) => ({
       itemId: uuid(line.itemId, 'itemId'), unitId: uuid(line.unitId, 'unitId'),
+      warehouseId: line.warehouseId ? uuid(line.warehouseId, 'line.warehouseId') : null,
       originalLineId: isReturn ? uuid(line.originalLineId, 'originalLineId') : null,
       quantity: decimalInput(line.quantity, { positive: true }),
       ...(isReturn ? {} : { unitPrice: decimalInput(line.unitPrice, { nonNegative: true }) })
