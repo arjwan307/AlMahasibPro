@@ -61,7 +61,7 @@ export class MemoryStore {
     for(const definition of scenario.customers){const customer=[...this.customers.values()].find(x=>x.companyId===companyId&&x.code===definition.code&&x.demo);if(!customer)throw new AppError(409,'DEMO_CUSTOMER_MISSING','زبون التجربة غير موجود');
       const opening=customer.openingBalances.find(x=>x.currency===definition.currency&&x.demo);if(!opening)throw new AppError(409,'DEMO_OPENING_MISSING','رصيد التجربة غير موجود');const target=decimal(String(definition.balance)),delta=target-decimal(opening.amount);
       if(delta!==ZERO){const amount=delta<ZERO?-delta:delta,operation={operationId:randomUUID(),occurredAt};const journal=this.#simpleJournal({company,user:actor},operation,'DEMO-ADJ-'+definition.code,definition.currency,delta>ZERO?[['1100-AR',amount,ZERO],['3000-OPENING-EQUITY',ZERO,amount]]:[['3000-OPENING-EQUITY',amount,ZERO],['1100-AR',ZERO,amount]]);this.#recordDebt(companyId,customer.id,null,null,operation,'demo_opening_adjustment',delta,definition.currency);opening.amount=decimalString(target);opening.occurredAt=occurredAt;opening.journalEntryId=journal.id;}
-      customer.paymentPreference=definition.paymentPreference;customer.purchaseProfile=clone(definition.purchaseProfile);const profile=customer.purchaseProfile;customer.demoPurchaseHistory=[0,1,2].map(i=>({reference:'DEMO-HISTORY-'+customer.code+'-'+(i+1),occurredAt:new Date(Date.parse(occurredAt)-(profile.lastPurchaseDays+i*profile.intervalDays)*86400000).toISOString(),quantity:profile.volume==='large'?25+i*10:2+i,note:'ملخص شراء تجريبي، لا يؤثر في الرصيد أو المخزون'}));
+      customer.paymentPreference=definition.paymentPreference;customer.purchaseProfile=clone(definition.purchaseProfile);
       result.customersUpdated++;result[target>ZERO?'debitCustomers':target<ZERO?'creditCustomers':'cashCustomers']++;result[profile.activity]++;result[profile.volume]++;this.#change(companyId,'customer',customer.id,'upsert',clone(customer));
     }
     for(const definition of scenario.items){const item=[...this.items.values()].find(x=>x.companyId===companyId&&x.sku===definition.sku),cfg=item&&this.salesSettings.get('item:'+item.id);if(!item||cfg?.catalog!=='furniture-v1')throw new AppError(409,'DEMO_ITEM_MISSING','مادة التجربة غير موجودة');const stock=this.stockBalances.get(companyId+':'+cfg.defaultWarehouseId+':'+item.id);if(!stock||Number(stock.averageCost)!==0)throw new AppError(409,'DEMO_STOCK_CHANGED','رصيد التجربة مرتبط بتكلفة فعلية');const previous=stock.quantity;stock.quantity=decimalString(decimal(String(definition.quantity),{nonNegative:true}));cfg.demoQuantity=true;this.#audit(companyId,actorUserId,'inventory.demo.adjusted','item',item.id,{warehouseId:stock.warehouseId,previous,quantity:stock.quantity});this.#change(companyId,'stock_balance',stock.warehouseId+':'+item.id,'upsert',clone(stock));result.itemsUpdated++;}
@@ -418,6 +418,36 @@ export class MemoryStore {
     this.#audit(companyId, actorUserId, `${type}.created`, type, party.id, {});
     this.#change(companyId, type, party.id, 'upsert', party);
     return clone(party);
+  }
+
+  async updateSupplier(companyId, supplierId, input, actorUserId) {
+    const supplier = this.suppliers.get(supplierId);
+    if (!supplier || supplier.companyId !== companyId) throw new AppError(404, 'SUPPLIER_NOT_FOUND', 'المورد غير موجود');
+    if (input.code && input.code !== supplier.code) this.#assertUnique(this.suppliers, companyId, 'code', input.code, 'SUPPLIER_CODE_EXISTS');
+    const next = { ...supplier,
+      code: input.code || supplier.code,
+      name: input.name || supplier.name,
+      phone: input.phone ?? supplier.phone,
+      country: input.country ?? supplier.country,
+      companyName: input.companyName ?? supplier.companyName,
+      specialty: input.specialty ?? supplier.specialty,
+      relationshipStartYear: input.relationshipStartYear ?? supplier.relationshipStartYear
+    };
+    this.suppliers.set(supplierId, next);
+    this.#audit(companyId, actorUserId, 'supplier.updated', 'supplier', supplierId, {});
+    this.#change(companyId, 'supplier', supplierId, 'upsert', next);
+    return clone(next);
+  }
+
+  async deleteSupplier(companyId, supplierId, actorUserId) {
+    const supplier = this.suppliers.get(supplierId);
+    if (!supplier || supplier.companyId !== companyId) throw new AppError(404, 'SUPPLIER_NOT_FOUND', 'المورد غير موجود');
+    const referenced = [...this.commerceDocuments.values()].some(row => row.companyId === companyId && row.supplierId === supplierId);
+    if (referenced) throw new AppError(409, 'SUPPLIER_HAS_DOCUMENTS', 'لا يمكن حذف مورد مرتبط بفواتير؛ ألغِ مستنداته محاسبيًا أولًا');
+    this.suppliers.delete(supplierId);
+    this.#audit(companyId, actorUserId, 'supplier.deleted', 'supplier', supplierId, {});
+    this.#change(companyId, 'supplier', supplierId, 'delete', { id: supplierId });
+    return { id: supplierId };
   }
 
   async createWarehouse(companyId, input, actorUserId) {
