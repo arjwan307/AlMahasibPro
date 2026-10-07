@@ -568,7 +568,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       registration: String(b.registration || '').trim().slice(0, 80), footer: String(b.footer || '').trim().slice(0, 240),
       signatory: String(b.signatory || '').trim().slice(0, 100)
     };
-    await saveWholesaleRecord(req.auth, settings);
+    await saveWholesaleRecord(req.auth, { entityId: 'wholesale-settings', recordType: 'settings', settings });
     res.json({ settings });
   }));
 
@@ -587,6 +587,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     if (warehouseScopes.length && !warehouseScopes.some((x) => x.id === warehouse.id)) throw new AppError(403, 'WAREHOUSE_SCOPE_DENIED', 'المخزن خارج نطاق حسابك');
     const branchScopes = (req.auth.scopes || []).filter((x) => x.type === 'branch');
     if (branchScopes.length && !branchScopes.some((x) => x.id === warehouse.branchId)) throw new AppError(403, 'BRANCH_SCOPE_DENIED', 'الفرع خارج نطاق حسابك');
+    const customerScopes = (req.auth.scopes || []).filter((x) => x.type === 'customers');
+    if (customerScopes.length && !customerScopes.some((x) => x.id === customer.id)) throw new AppError(403, 'CUSTOMER_SCOPE_DENIED', 'العميل خارج نطاق حسابك');
     const lines = b.lines.map((line) => {
       const itemId = uuid(line.itemId, 'itemId'), unitId = uuid(line.unitId, 'unitId');
       const item = master.items.find((x) => x.id === itemId);
