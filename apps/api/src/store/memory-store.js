@@ -1035,6 +1035,7 @@ export class MemoryStore {
     const warehouse = this.warehouses.get(payload.warehouseId);
     if (!warehouse || warehouse.companyId !== companyId) throw new AppError(400, 'WAREHOUSE_NOT_FOUND', 'المخزن غير موجود');
     if (![ 'purchase', 'sale', 'purchase_return', 'sale_return' ].includes(payload.documentType)) throw new AppError(400, 'INVALID_DOCUMENT_TYPE', 'نوع المستند غير صالح');
+    if (String(payload.currency||'').toUpperCase() !== String(context.company.currency||'').toUpperCase()) throw new AppError(400, 'DOCUMENT_CURRENCY_MISMATCH', 'عملة المستند يجب أن تطابق عملة حسابات الشركة');
     if ([...this.commerceDocuments.values()].some((row) => row.companyId === companyId && row.documentType === payload.documentType && row.documentNumber === payload.documentNumber)) {
       throw new AppError(409, 'DOCUMENT_NUMBER_EXISTS', 'رقم المستند مستخدم');
     }
@@ -1117,6 +1118,7 @@ export class MemoryStore {
     const paid = payments.reduce((sum, payment) => sum + decimal(payment.amount, { positive: true }), ZERO);
     if (paid > subtotal) throw new AppError(400, 'PAYMENTS_EXCEED_TOTAL', 'الدفعات تتجاوز قيمة المستند');
     if (isSale && subtotal > paid && !payload.partyId) throw new AppError(400, 'CUSTOMER_REQUIRED_FOR_CREDIT', 'العميل مطلوب للبيع الآجل أو المختلط');
+    if (!isSale && subtotal > paid && !payload.partyId) throw new AppError(400, 'SUPPLIER_REQUIRED_FOR_CREDIT', 'المورد مطلوب للشراء الآجل أو المختلط');
     const document = {
       id: randomUUID(), companyId, documentType: payload.documentType, documentNumber: payload.documentNumber,
       warehouseId: warehouse.id, customerId: isSale ? payload.partyId || null : null,
