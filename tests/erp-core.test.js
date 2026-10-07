@@ -26,3 +26,18 @@ test('manual ERP journal rejects unbalanced entries', async()=>{
     {accountCode:'1000-CASH',debit:'10',credit:'0'},{accountCode:'3000-EQUITY',debit:'0',credit:'9'}
   ]}),/القيد غير متوازن/);
 });
+
+test('trial balance totals posted and reversed journals to zero', async()=>{
+  const store=new MemoryStore(); store.companies.set(company.id,{...company,status:'active',branches:[]});
+  const posted=await store.postManualJournal(context,{operationId:'tb-1',entryNumber:'TB-1',currency:'IQD',occurredAt:new Date().toISOString(),lines:[{accountCode:'1000-CASH',debit:'250',credit:'0'},{accountCode:'3000-EQUITY',debit:'0',credit:'250'}]});
+  await store.reverseJournal(context,posted.id,{operationId:'tb-2',entryNumber:'TB-2',occurredAt:new Date().toISOString()});
+  const tb=store.trialBalance(company.id), cash=tb.find(x=>x.accountCode==='1000-CASH'), equity=tb.find(x=>x.accountCode==='3000-EQUITY');
+  assert.equal(cash.balance,'0.000000'); assert.equal(equity.balance,'0.000000');
+});
+
+test('custom chart accounts are tenant scoped', async()=>{
+  const store=new MemoryStore(); store.companies.set(company.id,{...company,status:'active',branches:[]});
+  await store.createChartAccount(company.id,{code:'6200',name:'مصروف خدمات',type:'expense'},user.id);
+  assert.equal(store.listChartAccounts(company.id).some(x=>x.code==='6200'),true);
+  assert.equal(store.listChartAccounts('other').some(x=>x.code==='6200'),false);
+});
