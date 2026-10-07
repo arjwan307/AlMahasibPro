@@ -23,6 +23,7 @@ export function checkSales(s,c,d){
  for(const line of d.lines){
   const item=s.items.get(line.itemId), cfg=setting(s,'item',line.itemId);
   if(!item||item.companyId!==cid||!item.active)fail('ITEM_NOT_FOUND','الصنف غير متاح');
+  if(decimal(line.discountQuantity||'0',{nonNegative:true})>decimal(line.quantity,{positive:true})||decimal(line.discountPercent||'0',{nonNegative:true})>decimal('100'))fail('INVALID_LINE_DISCOUNT','خصم القطعة غير صالح');
   const prices=[...s.prices.values()].filter(x=>x.companyId===cid&&x.itemId===item.id&&x.unitId===line.unitId&&x.currency===d.currency&&x.active);
   const price=prices.filter(x=>x.priceType==='sale_'+p.channel).at(-1)||prices.filter(x=>x.priceType==='sale').at(-1);
   if(!price)fail('PRICE_REQUIRED','حدد سعر '+channelName(p.channel)+' للصنف '+item.name);
