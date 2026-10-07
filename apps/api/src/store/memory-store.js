@@ -26,6 +26,7 @@ export class MemoryStore {
     this.stockBalances = new Map();
     this.commerceDocuments = new Map();
     this.journalEntries = new Map();
+    this.chartAccounts = new Map();
     this.serverOutbox = [];
     this.itemBarcodes = new Map();
     this.posDevices = new Map();
@@ -457,10 +458,62 @@ export class MemoryStore {
 
   async listEnterpriseData(companyId) {
     const belongs = row => row.companyId === companyId;
-    return { representatives: [...this.representatives.values()].filter(belongs).map(clone), journals: [...this.journalEntries.values()].filter(belongs).map(clone),
+    return { representatives: [...this.representatives.values()].filter(belongs).map(clone), journals: [...this.journalEntries.values()].filter(belongs).map(clone), chartAccounts: this.listChartAccounts(companyId), trialBalance: this.trialBalance(companyId),
       transfers: [...this.stockTransfers.values()].filter(belongs).map(clone),
       settlements: [...this.financialRecords.values()].filter(row => belongs(row) && row.kind === 'enterprise_settlement').map(clone),
       users: [...this.users.values()].filter(belongs).map(row => this.#publicUser(row)) };
+  }
+
+  listChartAccounts(companyId) {
+    const defaults = [
+      ['1000-CASH','الصندوق','asset'],['1010-BANK','البنك','asset'],['1100-AR','ذمم العملاء','asset'],
+      ['1150-REP-CASH-CUSTODY','عهدة نقد المندوبين','asset'],['1200-INVENTORY','المخزون','asset'],
+      ['1300-EMPLOYEE-ADVANCES','سلف الموظفين','asset'],['1400-EMPLOYEE-RECEIVABLE','ذمم الموظفين','asset'],
+      ['2100-AP','ذمم الموردين','liability'],['2200-PAYROLL-DEDUCTIONS','استقطاعات الرواتب','liability'],
+      ['2300-PAYROLL-PAYABLE','رواتب مستحقة','liability'],['3000-EQUITY','حقوق الملكية','equity'],
+      ['4100-SALES','المبيعات','revenue'],['4200-SALES-RETURNS','مردودات المبيعات','contra_revenue'],
+      ['5100-COGS','كلفة البضاعة المباعة','expense'],['6100-PAYROLL-EXPENSE','مصروف الرواتب','expense'],
+      ['6150-PAYROLL-RECOVERY','استردادات الرواتب','revenue']
+    ];
+    const custom=[...this.chartAccounts.values()].filter(x=>x.companyId===companyId);
+    return defaults.map(([code,name,type])=>({companyId,code,name,type,system:true,active:true})).concat(custom).map(clone);
+  }
+
+  trialBalance(companyId) {
+    const rows=new Map(this.listChartAccounts(companyId).map(a=>[a.code,{accountCode:a.code,name:a.name,type:a.type,debit:ZERO,credit:ZERO}]));
+    for(const j of this.journalEntries.values())if(j.companyId===companyId&&j.status==='posted')for(const l of j.lines){const code=l.accountCode||l.account;if(!rows.has(code))rows.set(code,{accountCode:code,name:code,type:'unknown',debit:ZERO,credit:ZERO});const r=rows.get(code);r.debit+=decimal(l.debit||'0');r.credit+=decimal(l.credit||'0');}
+    return [...rows.values()].map(r=>({accountCode:r.accountCode,name:r.name,type:r.type,debit:decimalString(r.debit),credit:decimalString(r.credit),balance:decimalString(r.debit-r.credit)}));
+  }
+
+  async createChartAccount(companyId,input,actorUserId) {
+    const code=String(input.code||'').trim().toUpperCase(), name=String(input.name||'').trim();
+    const type=String(input.type||'').trim();
+    if(!code||!name||!['asset','liability','equity','revenue','expense','contra_revenue'].includes(type)) throw new AppError(400,'INVALID_ACCOUNT','بيانات الحساب غير صالحة');
+    if(this.listChartAccounts(companyId).some(x=>x.code===code)) throw new AppError(409,'ACCOUNT_CODE_EXISTS','رمز الحساب مستخدم');
+    const parentCode=String(input.parentCode||'').trim().toUpperCase()||null;if(parentCode&&!this.listChartAccounts(companyId).some(x=>x.code===parentCode))throw new AppError(400,'PARENT_ACCOUNT_NOT_FOUND','الحساب الأب غير موجود');
+    const row={id:randomUUID(),companyId,code,name,type,parentCode,system:false,active:true,createdAt:new Date().toISOString()};
+    this.chartAccounts.set(row.id,row); this.#audit(companyId,actorUserId,'account.created','chart_account',row.id,{code}); this.#change(companyId,'chart_account',row.id,'upsert',row); return clone(row);
+  }
+
+  async postManualJournal(context,input) {
+    const existing=[...this.journalEntries.values()].find(x=>x.companyId===context.company.id&&x.operationId===input.operationId);
+    if(existing)return clone(existing);
+    const currency=String(input.currency||context.company.currency).toUpperCase();
+    if(currency!==context.company.currency)throw new AppError(400,'DOCUMENT_CURRENCY_MISMATCH','القيد يجب أن يكون بعملة الشركة');
+    if(!Array.isArray(input.lines)||input.lines.length<2)throw new AppError(400,'JOURNAL_LINES_REQUIRED','القيد يحتاج سطرين على الأقل');
+    const accounts=new Set(this.listChartAccounts(context.company.id).filter(x=>x.active).map(x=>x.code));
+    const lines=input.lines.map(x=>{if(!accounts.has(x.accountCode))throw new AppError(400,'ACCOUNT_NOT_FOUND','الحساب غير موجود');const debit=decimal(x.debit||'0',{nonNegative:true}),credit=decimal(x.credit||'0',{nonNegative:true});if((debit>ZERO)===(credit>ZERO))throw new AppError(400,'INVALID_JOURNAL_LINE','كل سطر يجب أن يكون مدينًا أو دائنًا فقط');return {accountCode:x.accountCode,debit:decimalString(debit),credit:decimalString(credit),note:String(x.note||'')};});
+    const debit=lines.reduce((n,x)=>n+decimal(x.debit),ZERO),credit=lines.reduce((n,x)=>n+decimal(x.credit),ZERO);if(debit!==credit)throw new AppError(400,'UNBALANCED_JOURNAL','القيد غير متوازن');
+    const row={id:randomUUID(),companyId:context.company.id,entryNumber:String(input.entryNumber||'').trim(),operationId:input.operationId,status:'posted',currency,description:String(input.description||''),occurredAt:input.occurredAt,createdBy:context.user.id,lines};
+    if(!row.entryNumber)throw new AppError(400,'ENTRY_NUMBER_REQUIRED','رقم القيد مطلوب');if(!/^\d{4}-\d{2}-\d{2}T/.test(String(row.occurredAt||''))||Number.isNaN(Date.parse(row.occurredAt)))throw new AppError(400,'INVALID_JOURNAL_DATE','تاريخ القيد غير صالح');if([...this.journalEntries.values()].some(x=>x.companyId===row.companyId&&x.entryNumber===row.entryNumber))throw new AppError(409,'ENTRY_NUMBER_EXISTS','رقم القيد مستخدم');
+    this.journalEntries.set(row.id,Object.freeze(row));this.#audit(row.companyId,context.user.id,'journal.posted','journal_entry',row.id,{});this.#change(row.companyId,'journal_entry',row.id,'upsert',row);return clone(row);
+  }
+
+  async reverseJournal(context,id,input) {
+    const original=this.journalEntries.get(id);if(!original||original.companyId!==context.company.id)throw new AppError(404,'JOURNAL_NOT_FOUND','القيد غير موجود');
+    if(original.reversedByJournalId)throw new AppError(409,'JOURNAL_ALREADY_REVERSED','القيد معكوس سابقًا');
+    const reversal=await this.postManualJournal(context,{operationId:input.operationId,entryNumber:input.entryNumber,currency:original.currency,description:'عكس '+(original.entryNumber||original.id),occurredAt:input.occurredAt,lines:original.lines.map(x=>({accountCode:x.accountCode,debit:x.credit,credit:x.debit,note:'عكس القيد'}))});
+    const mutable={...original,reversedByJournalId:reversal.id};this.journalEntries.set(id,Object.freeze(mutable));return reversal;
   }
 
   async transferEnterpriseStock(context, input) {
@@ -491,7 +544,10 @@ export class MemoryStore {
     const receivedCurrency = String(input.receivedCurrency || document.currency).toUpperCase();
     if (!['IQD','USD'].includes(receivedCurrency)) throw new AppError(400, 'INVALID_RECEIVED_CURRENCY', 'عملة القبض غير مدعومة');
     const receivedAmount = decimal(input.receivedAmount || input.amount, { positive: true });
-    const exchangeRate = receivedCurrency === document.currency ? decimal('1') : decimal(input.exchangeRate, { positive: true });
+    // The server owns the accounting rate. Clients may display a calculator but cannot
+    // override the manager-approved company rate when money is actually posted.
+    const companyRate = decimal(context.company.usdToIqdRate || '1300', { positive: true });
+    const exchangeRate = receivedCurrency === document.currency ? decimal('1') : companyRate;
     if (!((document.currency === 'USD' && receivedCurrency === 'IQD') || (document.currency === 'IQD' && receivedCurrency === 'USD') || receivedCurrency === document.currency)) throw new AppError(400, 'CURRENCY_CONVERSION_NOT_SUPPORTED', 'التحويل مسموح فقط بين الدينار والدولار');
     const amount = receivedCurrency === document.currency ? receivedAmount : document.currency === 'USD' ? divide(receivedAmount, exchangeRate) : multiply(receivedAmount, exchangeRate);
     if (amount > decimal(document.dueAmount) - settled - returned) throw new AppError(409, 'SETTLEMENT_EXCEEDS_DUE', 'المبلغ يتجاوز الرصيد المتبقي');
@@ -979,6 +1035,7 @@ export class MemoryStore {
     const warehouse = this.warehouses.get(payload.warehouseId);
     if (!warehouse || warehouse.companyId !== companyId) throw new AppError(400, 'WAREHOUSE_NOT_FOUND', 'المخزن غير موجود');
     if (![ 'purchase', 'sale', 'purchase_return', 'sale_return' ].includes(payload.documentType)) throw new AppError(400, 'INVALID_DOCUMENT_TYPE', 'نوع المستند غير صالح');
+    if (String(payload.currency||'').toUpperCase() !== String(context.company.currency||'').toUpperCase()) throw new AppError(400, 'DOCUMENT_CURRENCY_MISMATCH', 'عملة المستند يجب أن تطابق عملة حسابات الشركة');
     if ([...this.commerceDocuments.values()].some((row) => row.companyId === companyId && row.documentType === payload.documentType && row.documentNumber === payload.documentNumber)) {
       throw new AppError(409, 'DOCUMENT_NUMBER_EXISTS', 'رقم المستند مستخدم');
     }
@@ -1061,6 +1118,7 @@ export class MemoryStore {
     const paid = payments.reduce((sum, payment) => sum + decimal(payment.amount, { positive: true }), ZERO);
     if (paid > subtotal) throw new AppError(400, 'PAYMENTS_EXCEED_TOTAL', 'الدفعات تتجاوز قيمة المستند');
     if (isSale && subtotal > paid && !payload.partyId) throw new AppError(400, 'CUSTOMER_REQUIRED_FOR_CREDIT', 'العميل مطلوب للبيع الآجل أو المختلط');
+    if (!isSale && subtotal > paid && !payload.partyId) throw new AppError(400, 'SUPPLIER_REQUIRED_FOR_CREDIT', 'المورد مطلوب للشراء الآجل أو المختلط');
     const document = {
       id: randomUUID(), companyId, documentType: payload.documentType, documentNumber: payload.documentNumber,
       warehouseId: warehouse.id, customerId: isSale ? payload.partyId || null : null,

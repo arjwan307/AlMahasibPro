@@ -191,6 +191,17 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     }, req.auth.user.id) });
   }));
 
+  app.get('/api/v1/accounting/chart', authenticate(store), permit('accounting.read'), asyncRoute(async (req,res)=>{ res.json({accounts:store.listChartAccounts(req.auth.company.id)}); }));
+  app.post('/api/v1/accounting/chart', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{ res.status(201).json({account:await store.createChartAccount(req.auth.company.id,req.body||{},req.auth.user.id)}); }));
+  app.post('/api/v1/accounting/journals', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{
+    requireFields(req.body,['operationId','entryNumber','occurredAt','lines']);
+    res.status(201).json({journal:await store.postManualJournal(req.auth,{...req.body,currency:req.body.currency||req.auth.company.currency})});
+  }));
+  app.post('/api/v1/accounting/journals/:journalId/reverse', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{
+    requireFields(req.body,['operationId','entryNumber','occurredAt']);
+    res.status(201).json({journal:await store.reverseJournal(req.auth,req.params.journalId,req.body)});
+  }));
+
   app.get('/api/v1/master-data', authenticate(store), permitAny(['catalog.read', 'customers.read', 'suppliers.read', 'inventory.read']), asyncRoute(async (req, res) => {
     const m=await store.listMasterData(req.auth.company.id);
     if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';m.customers=m.customers.filter(x=>(store.salesSettings.get('customer:'+x.id)?.channel||'retail')===channel);m.suppliers=[];m.prices=m.prices.filter(x=>['sale','sale_'+channel].includes(x.priceType));m.stock=m.stock.map(({averageCost,...x})=>x);}

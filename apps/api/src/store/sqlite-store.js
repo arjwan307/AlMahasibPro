@@ -17,6 +17,7 @@ export class SQLiteStore extends MemoryStore {
     this.sqlite = new DatabaseSync(filename);
     this.sqlite.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS domain_state (field TEXT PRIMARY KEY, data BLOB NOT NULL) STRICT;');
     const fields = Object.keys(this).filter(key => this[key] instanceof Map || Array.isArray(this[key]) || key === 'changeSequence');
+    // Persist every ERP domain map, including newly introduced chartAccounts, automatically.
     for (const row of this.sqlite.prepare('SELECT field,data FROM domain_state').all()) {
       if (fields.includes(row.field)) this[row.field] = deserialize(Buffer.from(row.data));
     }
