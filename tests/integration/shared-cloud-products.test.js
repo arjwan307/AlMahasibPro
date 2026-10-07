@@ -5,14 +5,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startEnterpriseCloud } from '../../apps/api/src/cloud-server.js';
-test('shared cloud separates product databases, cookies, pages and browser storage',async()=>{
+test('shared cloud uses one SQLite database and keeps product cookies, pages and browser storage separate',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'shared-cloud-'));let runtime;const setupToken='test-setup-key-longer-than-24-characters';
  try{
   runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken,origin:'http://localhost',port:0});
   async function request(path,body,cookie=''){const response=await fetch(runtime.url+path,{headers:{'Content-Type':'application/json',Cookie:cookie},...(body?{method:'POST',body:JSON.stringify(body)}:{})});return {status:response.status,data:response.status===204?{}:await response.json(),cookie:response.headers.get('set-cookie')};}
+  assert.equal(runtime.store,runtime.retailStore);assert.equal(runtime.store.filename,join(directory,'enterprise.sqlite'));
   for(const prefix of ['', '/retail'])assert.equal((await request(prefix+'/api/local/setup',{setupToken,legalName:prefix?'مطعم':'شركة',ownerName:'مدير',username:'owner',password:'Strong-Password-123'})).status,201);
-  const body={companyCode:'company',username:'owner',password:'Strong-Password-123'};
-  const company=await request('/api/v1/auth/login',body),retail=await request('/retail/api/v1/auth/login',body);
+  const company=await request('/api/v1/auth/login',{companyCode:'company',username:'owner',password:'Strong-Password-123'}),retail=await request('/retail/api/v1/auth/login',{companyCode:'retail',username:'owner',password:'Strong-Password-123'});
   assert.match(company.cookie,/^almahasib_session=/);assert.match(retail.cookie,/^almahasib_retail_session=/);assert.match(retail.cookie,/Path=\/retail\//);
   const companyCookie=company.cookie.split(';')[0],retailCookie=retail.cookie.split(';')[0];
   assert.equal((await request('/api/v1/bootstrap',null,retailCookie)).status,401);
