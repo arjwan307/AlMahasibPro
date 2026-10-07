@@ -41,3 +41,8 @@ test('custom chart accounts are tenant scoped', async()=>{
   assert.equal(store.listChartAccounts(company.id).some(x=>x.code==='6200'),true);
   assert.equal(store.listChartAccounts('other').some(x=>x.code==='6200'),false);
 });
+
+test('chart account requires an existing parent', async()=>{
+ const store=new MemoryStore(); store.companies.set(company.id,{...company,status:'active',branches:[]});
+ await assert.rejects(()=>store.createChartAccount(company.id,{code:'6210',name:'فرعي',type:'expense',parentCode:'9999'},user.id));
+});
