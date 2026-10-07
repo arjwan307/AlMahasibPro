@@ -142,6 +142,7 @@ export class MemoryStore {
     if(!company) throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
     const baseCurrency=String(input.baseCurrency||company.currency||'IQD').toUpperCase();
     if(!['IQD','USD'].includes(baseCurrency)) throw new AppError(400,'INVALID_CURRENCY','عملة الشركة يجب أن تكون IQD أو USD');
+    if(baseCurrency!==company.currency && [...this.commerceDocuments.values()].some(x=>x.companyId===companyId)) throw new AppError(409,'BASE_CURRENCY_LOCKED','لا يمكن تغيير عملة الحسابات بعد تسجيل أول فاتورة');
     company.currency=baseCurrency;
     company.usdToIqdRate=decimalString(decimal(input.usdToIqdRate||company.usdToIqdRate||'1300',{positive:true}));
     company.exchangeRateUpdatedAt=new Date().toISOString();
