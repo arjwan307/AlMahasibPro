@@ -52,6 +52,48 @@ export class SQLiteStore extends MemoryStore {
       };
     }
   }
+  async mergeFrom(source, product = 'retail') {
+    const migrationKey = 'system:migration:legacy-retail-v1';
+    if (this.salesSettings.has(migrationKey)) return false;
+    const task = this.queue.then(async () => {
+      const fields = Object.keys(this).filter(key => this[key] instanceof Map || Array.isArray(this[key]) || key === 'changeSequence');
+      const before = fields.map(key => [key, serialize(this[key])]);
+      try {
+        for (const key of fields) {
+          if (key === 'changeSequence') { this.changeSequence = Math.max(this.changeSequence || 0, source.changeSequence || 0); continue; }
+          const incoming = source[key];
+          if (this[key] instanceof Map && incoming instanceof Map) {
+            for (const [id, original] of incoming) {
+              const value = structuredClone(original);
+              if (key === 'companies') {
+                value.product = product;
+                if ([...this.companies.values()].some(company => company.code === value.code)) {
+                  const base = product;
+                  let code = base, suffix = 2;
+                  while ([...this.companies.values()].some(company => company.code === code)) code = base + '-' + suffix++;
+                  value.code = code;
+                }
+              }
+              if (!this[key].has(id)) this[key].set(id, value);
+            }
+          } else if (Array.isArray(this[key]) && Array.isArray(incoming)) this[key].push(...structuredClone(incoming));
+        }
+        this.salesSettings.set(migrationKey, { completedAt: new Date().toISOString(), product });
+        const after = fields.map(key => [key, serialize(this[key])]);
+        this.sqlite.exec('BEGIN IMMEDIATE');
+        const write = this.sqlite.prepare('INSERT INTO domain_state(field,data) VALUES (?,?) ON CONFLICT(field) DO UPDATE SET data=excluded.data');
+        for (const [key, bytes] of after) write.run(key, bytes);
+        this.sqlite.exec('COMMIT');
+        return true;
+      } catch (error) {
+        if (this.sqlite.isTransaction) this.sqlite.exec('ROLLBACK');
+        for (const [key, bytes] of before) this[key] = deserialize(bytes);
+        throw error;
+      }
+    });
+    this.queue = task.catch(() => {});
+    return task;
+  }
   async exportBackup() {
     const task = this.queue.then(() => {
       const filename = this.filename + '.' + randomUUID() + '.backup';

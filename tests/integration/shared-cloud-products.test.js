@@ -5,14 +5,16 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startEnterpriseCloud } from '../../apps/api/src/cloud-server.js';
-test('shared cloud separates product databases, cookies, pages and browser storage',async()=>{
+import { SQLiteStore } from '../../apps/api/src/store/sqlite-store.js';
+import { hashPassword } from '../../apps/api/src/lib/security.js';
+test('shared cloud uses one SQLite database and keeps product cookies, pages and browser storage separate',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'shared-cloud-'));let runtime;const setupToken='test-setup-key-longer-than-24-characters';
  try{
   runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken,origin:'http://localhost',port:0});
   async function request(path,body,cookie=''){const response=await fetch(runtime.url+path,{headers:{'Content-Type':'application/json',Cookie:cookie},...(body?{method:'POST',body:JSON.stringify(body)}:{})});return {status:response.status,data:response.status===204?{}:await response.json(),cookie:response.headers.get('set-cookie')};}
+  assert.equal(runtime.store,runtime.retailStore);assert.equal(runtime.store.filename,join(directory,'enterprise.sqlite'));
   for(const prefix of ['', '/retail'])assert.equal((await request(prefix+'/api/local/setup',{setupToken,legalName:prefix?'مطعم':'شركة',ownerName:'مدير',username:'owner',password:'Strong-Password-123'})).status,201);
-  const body={companyCode:'company',username:'owner',password:'Strong-Password-123'};
-  const company=await request('/api/v1/auth/login',body),retail=await request('/retail/api/v1/auth/login',body);
+  const company=await request('/api/v1/auth/login',{companyCode:'company',username:'owner',password:'Strong-Password-123'}),retail=await request('/retail/api/v1/auth/login',{companyCode:'retail',username:'owner',password:'Strong-Password-123'});
   assert.match(company.cookie,/^almahasib_session=/);assert.match(retail.cookie,/^almahasib_retail_session=/);assert.match(retail.cookie,/Path=\/retail\//);
   const companyCookie=company.cookie.split(';')[0],retailCookie=retail.cookie.split(';')[0];
   assert.equal((await request('/api/v1/bootstrap',null,retailCookie)).status,401);
@@ -31,5 +33,26 @@ test('shared cloud separates product databases, cookies, pages and browser stora
   assert.equal((await request('/api/v1/bootstrap',null,companyCookie)).status,200);
   await runtime.close();runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken,origin:'http://localhost',port:0});
   assert.equal((await request('/api/local/status')).data.initialized,true);assert.equal((await request('/retail/api/local/status')).data.initialized,true);
+ }finally{if(runtime)await runtime.close();await rm(directory,{recursive:true,force:true});}
+});
+
+test('legacy retail SQLite data is imported into the shared database and remains available after restart',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'legacy-retail-'));let runtime;
+ try{
+  const legacy=new SQLiteStore(join(directory,'retail','enterprise.sqlite'));
+  const password='Strong-Legacy-Password-123';
+  const company=await legacy.registerCompany({code:'company',legalName:'مطعم قديم',timezone:'Asia/Baghdad',currency:'IQD',owner:{username:'legacy',displayName:'مدير',passwordHash:await hashPassword(password)}});
+  await legacy.approveCompany(company.id,company.ownerUserId);await legacy.close();
+  runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken:'test-setup-key-longer-than-24-characters',origin:'http://localhost',port:0});
+  assert.equal(runtime.store,runtime.retailStore);
+  assert.equal(runtime.store.filename,join(directory,'enterprise.sqlite'));
+  const status=await fetch(runtime.url+'/retail/api/local/status').then(r=>r.json());
+  assert.equal(status.initialized,true);assert.equal(status.companyCode,'retail');
+  assert.equal([...runtime.store.companies.values()].find(x=>x.product==='retail').legalName,'مطعم قديم');
+  const login=await fetch(runtime.url+'/retail/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({companyCode:'retail',username:'legacy',password})});
+  assert.equal(login.status,200);
+  await runtime.close();
+  runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken:'test-setup-key-longer-than-24-characters',origin:'http://localhost',port:0});
+  assert.equal([...runtime.store.companies.values()].filter(x=>x.product==='retail').length,1);
  }finally{if(runtime)await runtime.close();await rm(directory,{recursive:true,force:true});}
 });
