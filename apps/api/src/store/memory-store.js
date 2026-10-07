@@ -137,6 +137,20 @@ export class MemoryStore {
     return this.#publicCompany(company);
   }
 
+  async updateCompanyAccountingSettings(companyId, input, actorUserId) {
+    const company=this.companies.get(companyId);
+    if(!company) throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
+    const baseCurrency=String(input.baseCurrency||company.currency||'IQD').toUpperCase();
+    if(!['IQD','USD'].includes(baseCurrency)) throw new AppError(400,'INVALID_CURRENCY','عملة الشركة يجب أن تكون IQD أو USD');
+    company.currency=baseCurrency;
+    company.usdToIqdRate=decimalString(decimal(input.usdToIqdRate||company.usdToIqdRate||'1300',{positive:true}));
+    company.exchangeRateUpdatedAt=new Date().toISOString();
+    company.exchangeRateUpdatedBy=actorUserId;
+    this.#audit(companyId,actorUserId,'company.accounting_settings.updated','company',companyId,{currency:baseCurrency});
+    this.#change(companyId,'company',companyId,'upsert',this.#publicCompany(company));
+    return this.#publicCompany(company);
+  }
+
   async listPendingCompanies() {
     return [...this.companies.values()].filter((company) => company.status === 'pending').map((company) => this.#publicCompany(company));
   }
