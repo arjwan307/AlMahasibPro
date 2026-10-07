@@ -1,5 +1,3 @@
-import { demoWholesaleCustomers } from './demo-wholesale-customers.js';
-import { furnitureCatalog } from './furniture-catalog.js';
 import { productPages } from './product-pages.js';
 import express from 'express';
 import { join } from 'node:path';
@@ -16,20 +14,6 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
  origin = new URL(origin).origin;
  await mkdir(dataDirectory, {recursive:true});
  const store=sharedStore||new SQLiteStore(join(dataDirectory,'enterprise.sqlite'));
- if(product==='company'){
-  const requestPath=join(dataDirectory,'furniture-catalog-request.json');let request;
-  try{request=JSON.parse(await readFile(requestPath,'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
-  if(request){if(request.catalog!=='furniture-v1'||typeof request.companyCode!=='string')throw Error('Invalid furniture catalogue request');const company=[...store.companies.values()].find(x=>x.code===request.companyCode);if(!company)throw Error('Furniture catalogue company not found');const result=await store.importFurnitureCatalog(company.id,company.ownerUserId,furnitureCatalog());await writeFile(join(dataDirectory,'furniture-catalog-result.json'),JSON.stringify(result,null,2));await rename(requestPath,requestPath+'.done');console.log('[furniture-catalog]',JSON.stringify(result));}
- }
- if(product==='company'){
-  const requestPath=join(dataDirectory,'demo-wholesale-customers-request.json');let request;
-  try{request=JSON.parse(await readFile(requestPath,'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
-  if(request){if(request.catalog!=='wholesale-customers-v1'||typeof request.companyCode!=='string')throw Error('Invalid demo customer request');const company=[...store.companies.values()].find(x=>x.code===request.companyCode);if(!company)throw Error('Demo customer company not found');const result=await store.importDemoWholesaleCustomers(company.id,company.ownerUserId,demoWholesaleCustomers());await writeFile(join(dataDirectory,'demo-wholesale-customers-result.json'),JSON.stringify(result,null,2));await rename(requestPath,requestPath+'.done');console.log('[demo-wholesale-customers]',JSON.stringify(result));}
- }
- if(product==='company'){
-  const requestPath=join(dataDirectory,'demo-scenario-request.json');let request;try{request=JSON.parse(await readFile(requestPath,'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
-  if(request){if(request.version!=='demo-scenario-v2'||typeof request.companyCode!=='string')throw Error('Invalid demo scenario request');const company=[...store.companies.values()].find(x=>x.code===request.companyCode);if(!company)throw Error('Demo company not found');const result=await store.applyDemoScenario(company.id,company.ownerUserId,{version:request.version,customers:demoWholesaleCustomers().customers,items:furnitureCatalog().items});await writeFile(join(dataDirectory,'demo-scenario-result.json'),JSON.stringify(result,null,2));await rename(requestPath,requestPath+'.done');console.log('[demo-scenario]',JSON.stringify(result));}
- }
  const app=express();app.disable('x-powered-by');app.set('trust proxy',1);
  app.use((req,res,next)=>{if(req.headers.origin && req.headers.origin!==origin)return res.status(403).json({error:{message:'المصدر غير مسموح'}});next();});
  app.use((req,res,next)=>{if(product==='company'&&!req.path.startsWith('/api/'))res.set('Cache-Control','no-store');next();});
