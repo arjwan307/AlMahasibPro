@@ -46,3 +46,10 @@ test('chart account requires an existing parent', async()=>{
  const store=new MemoryStore(); store.companies.set(company.id,{...company,status:'active',branches:[]});
  await assert.rejects(()=>store.createChartAccount(company.id,{code:'6210',name:'فرعي',type:'expense',parentCode:'9999'},user.id));
 });
+
+test('manual journal is idempotent by operation id', async()=>{
+ const store=new MemoryStore(); store.companies.set(company.id,{...company,status:'active',branches:[]});
+ const input={operationId:'idem-1',entryNumber:'IDEM-1',currency:'IQD',occurredAt:new Date().toISOString(),lines:[{accountCode:'1000-CASH',debit:'5',credit:'0'},{accountCode:'3000-EQUITY',debit:'0',credit:'5'}]};
+ const first=await store.postManualJournal(context,input),second=await store.postManualJournal(context,input);
+ assert.equal(first.id,second.id); assert.equal(store.journalEntries.size,1);
+});
