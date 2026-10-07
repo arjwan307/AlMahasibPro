@@ -257,7 +257,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       creditLimit: decimalInput(req.body.creditLimit || '0', { nonNegative: true }),
       province: String(req.body.province || '').trim().slice(0, 80),
       district: String(req.body.district || '').trim().slice(0, 100),
-      address: String(req.body.address || '').trim().slice(0, 240)
+      address: String(req.body.address || '').trim().slice(0, 240),
+      salesChannel: req.body.salesChannel === 'wholesale' ? 'wholesale' : 'retail'
     }, req.auth.user.id);
     res.status(201).json({ customer });
   }));
