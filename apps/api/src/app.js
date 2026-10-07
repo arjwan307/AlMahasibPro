@@ -265,7 +265,11 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   app.post('/api/v1/suppliers', authenticate(store), permit('suppliers.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['code', 'name']);
     const supplier = await store.createParty(req.auth.company.id, 'supplier', {
-      code: entityCode(req.body.code), name: req.body.name.trim(), phone: req.body.phone
+      code: entityCode(req.body.code), name: req.body.name.trim(), phone: req.body.phone,
+      country: String(req.body.country || '').trim().slice(0,120),
+      companyName: String(req.body.companyName || '').trim().slice(0,200),
+      specialty: String(req.body.specialty || '').trim().slice(0,200),
+      relationshipStartYear: String(req.body.relationshipStartYear || '').trim().slice(0,4)
     }, req.auth.user.id);
     res.status(201).json({ supplier });
   }));
