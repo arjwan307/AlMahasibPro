@@ -490,7 +490,8 @@ export class MemoryStore {
     const type=String(input.type||'').trim();
     if(!code||!name||!['asset','liability','equity','revenue','expense','contra_revenue'].includes(type)) throw new AppError(400,'INVALID_ACCOUNT','بيانات الحساب غير صالحة');
     if(this.listChartAccounts(companyId).some(x=>x.code===code)) throw new AppError(409,'ACCOUNT_CODE_EXISTS','رمز الحساب مستخدم');
-    const row={id:randomUUID(),companyId,code,name,type,parentCode:input.parentCode||null,system:false,active:true,createdAt:new Date().toISOString()};
+    const parentCode=String(input.parentCode||'').trim().toUpperCase()||null;if(parentCode&&!this.listChartAccounts(companyId).some(x=>x.code===parentCode))throw new AppError(400,'PARENT_ACCOUNT_NOT_FOUND','الحساب الأب غير موجود');
+    const row={id:randomUUID(),companyId,code,name,type,parentCode,system:false,active:true,createdAt:new Date().toISOString()};
     this.chartAccounts.set(row.id,row); this.#audit(companyId,actorUserId,'account.created','chart_account',row.id,{code}); this.#change(companyId,'chart_account',row.id,'upsert',row); return clone(row);
   }
 
@@ -504,7 +505,7 @@ export class MemoryStore {
     const lines=input.lines.map(x=>{if(!accounts.has(x.accountCode))throw new AppError(400,'ACCOUNT_NOT_FOUND','الحساب غير موجود');const debit=decimal(x.debit||'0',{nonNegative:true}),credit=decimal(x.credit||'0',{nonNegative:true});if((debit>ZERO)===(credit>ZERO))throw new AppError(400,'INVALID_JOURNAL_LINE','كل سطر يجب أن يكون مدينًا أو دائنًا فقط');return {accountCode:x.accountCode,debit:decimalString(debit),credit:decimalString(credit),note:String(x.note||'')};});
     const debit=lines.reduce((n,x)=>n+decimal(x.debit),ZERO),credit=lines.reduce((n,x)=>n+decimal(x.credit),ZERO);if(debit!==credit)throw new AppError(400,'UNBALANCED_JOURNAL','القيد غير متوازن');
     const row={id:randomUUID(),companyId:context.company.id,entryNumber:String(input.entryNumber||'').trim(),operationId:input.operationId,status:'posted',currency,description:String(input.description||''),occurredAt:input.occurredAt,createdBy:context.user.id,lines};
-    if(!row.entryNumber)throw new AppError(400,'ENTRY_NUMBER_REQUIRED','رقم القيد مطلوب');if([...this.journalEntries.values()].some(x=>x.companyId===row.companyId&&x.entryNumber===row.entryNumber))throw new AppError(409,'ENTRY_NUMBER_EXISTS','رقم القيد مستخدم');
+    if(!row.entryNumber)throw new AppError(400,'ENTRY_NUMBER_REQUIRED','رقم القيد مطلوب');if(!/^\d{4}-\d{2}-\d{2}T/.test(String(row.occurredAt||''))||Number.isNaN(Date.parse(row.occurredAt)))throw new AppError(400,'INVALID_JOURNAL_DATE','تاريخ القيد غير صالح');if([...this.journalEntries.values()].some(x=>x.companyId===row.companyId&&x.entryNumber===row.entryNumber))throw new AppError(409,'ENTRY_NUMBER_EXISTS','رقم القيد مستخدم');
     this.journalEntries.set(row.id,Object.freeze(row));this.#audit(row.companyId,context.user.id,'journal.posted','journal_entry',row.id,{});this.#change(row.companyId,'journal_entry',row.id,'upsert',row);return clone(row);
   }
 
