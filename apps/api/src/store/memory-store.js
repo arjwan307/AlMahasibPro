@@ -458,7 +458,7 @@ export class MemoryStore {
 
   async listEnterpriseData(companyId) {
     const belongs = row => row.companyId === companyId;
-    return { representatives: [...this.representatives.values()].filter(belongs).map(clone), journals: [...this.journalEntries.values()].filter(belongs).map(clone),
+    return { representatives: [...this.representatives.values()].filter(belongs).map(clone), journals: [...this.journalEntries.values()].filter(belongs).map(clone), chartAccounts: this.listChartAccounts(companyId), trialBalance: this.trialBalance(companyId),
       transfers: [...this.stockTransfers.values()].filter(belongs).map(clone),
       settlements: [...this.financialRecords.values()].filter(row => belongs(row) && row.kind === 'enterprise_settlement').map(clone),
       users: [...this.users.values()].filter(belongs).map(row => this.#publicUser(row)) };
@@ -477,6 +477,12 @@ export class MemoryStore {
     ];
     const custom=[...this.chartAccounts.values()].filter(x=>x.companyId===companyId);
     return defaults.map(([code,name,type])=>({companyId,code,name,type,system:true,active:true})).concat(custom).map(clone);
+  }
+
+  trialBalance(companyId) {
+    const rows=new Map(this.listChartAccounts(companyId).map(a=>[a.code,{accountCode:a.code,name:a.name,type:a.type,debit:ZERO,credit:ZERO}]));
+    for(const j of this.journalEntries.values())if(j.companyId===companyId&&j.status==='posted')for(const l of j.lines){const code=l.accountCode||l.account;if(!rows.has(code))rows.set(code,{accountCode:code,name:code,type:'unknown',debit:ZERO,credit:ZERO});const r=rows.get(code);r.debit+=decimal(l.debit||'0');r.credit+=decimal(l.credit||'0');}
+    return [...rows.values()].map(r=>({accountCode:r.accountCode,name:r.name,type:r.type,debit:decimalString(r.debit),credit:decimalString(r.credit),balance:decimalString(r.debit-r.credit)}));
   }
 
   async createChartAccount(companyId,input,actorUserId) {
