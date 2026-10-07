@@ -37,7 +37,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       code: `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`,
       legalName: req.body.legalName.trim(),
       timezone: req.body.timezone || 'Asia/Baghdad',
-      currency: String(req.body.currency || 'IQD').toUpperCase(),
+      currency: ['IQD','USD'].includes(String(req.body.currency||'IQD').toUpperCase()) ? String(req.body.currency||'IQD').toUpperCase() : 'IQD',
       phone: String(req.body.phone).trim().slice(0,32),
       address: String(req.body.address || '').trim().slice(0,240),
       owner: {
