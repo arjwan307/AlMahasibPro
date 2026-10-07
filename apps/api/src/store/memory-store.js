@@ -514,6 +514,10 @@ export class MemoryStore {
           result.entityId = record.id;
           this.#change(context.company.id, 'financial_record', record.id, 'upsert', record);
         }
+      } else if (operation.type.startsWith('draft.')) {
+        const entityId = String(operation.payload.entityId || randomUUID());
+        result.entityId = entityId;
+        this.#change(context.company.id, 'draft', entityId, 'upsert', clone(operation.payload));
       } else if (operation.type.startsWith('market.transaction.')) {
         const p = operation.payload || {}, entityId = String(p.id || operation.operationId);
         let marketError=null;
