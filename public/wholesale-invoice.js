@@ -8,7 +8,7 @@ async function api(path,options={}){const r=await fetch(path,{credentials:'same-
 function notice(message){alert(message)}
 async function init(){try{
 [account,master,settings,accounts]=await Promise.all([api('/api/v1/bootstrap'),api('/api/v1/master-data'),api('/api/v1/wholesale/settings').then(x=>x.settings),api('/api/v1/wholesale/accounts').then(x=>x.accounts||{})]);
-const p=new Set(account.permissions||[]);const type=$('repType');
+const p=new Set(account.permissions||[]);$('customersLink').classList.toggle('hidden',!p.has('customers.manage'));const type=$('repType');
 if(p.has('sales.wholesale.submit'))type.add(new Option('مندوب مبيعات جملة','wholesale'));
 if(p.has('sales.retail.submit'))type.add(new Option('مندوب مبيعات مفرد','retail'));
 if(!type.options.length)throw new Error('لا تملك صلاحية إنشاء فواتير المندوب');
