@@ -197,7 +197,10 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     requireFields(req.body, ['code', 'name']);
     const customer = await store.createParty(req.auth.company.id, 'customer', {
       code: entityCode(req.body.code), name: req.body.name.trim(), phone: req.body.phone,
-      creditLimit: decimalInput(req.body.creditLimit || '0', { nonNegative: true })
+      creditLimit: decimalInput(req.body.creditLimit || '0', { nonNegative: true }),
+      province: String(req.body.province || '').trim().slice(0, 80),
+      district: String(req.body.district || '').trim().slice(0, 100),
+      address: String(req.body.address || '').trim().slice(0, 240)
     }, req.auth.user.id);
     res.status(201).json({ customer });
   }));
