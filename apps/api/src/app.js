@@ -897,6 +897,7 @@ function validateCommercePayload(payload) {
     lines: payload.lines.map((line) => ({
       itemId: uuid(line.itemId, 'itemId'), unitId: uuid(line.unitId, 'unitId'),
       note: String(line.note||'').trim().slice(0,1000),
+      specifications: Object.fromEntries(Object.entries(line.specifications||{}).filter(([key])=>['itemNumber','tradeName','originCountry','factory','dimensions','colors'].includes(key)).map(([key,value])=>[key,String(value||'').trim().slice(0,300)])),
       warehouseId: line.warehouseId ? uuid(line.warehouseId, 'line.warehouseId') : null,
       originalLineId: isReturn ? uuid(line.originalLineId, 'originalLineId') : null,
       quantity: decimalInput(line.quantity, { positive: true }),

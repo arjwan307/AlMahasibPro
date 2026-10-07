@@ -1034,7 +1034,7 @@ export class MemoryStore {
       const costTotal = multiply(baseQuantity, unitCost);
       inventoryCost += costTotal;
       stockUpdates.set(stockKey, { ...current, quantity: decimalString(newQty), averageCost: decimalString(newCost), version: current.version + 1 });
-      lines.push({ id: randomUUID(), itemId: input.itemId, unitId: input.unitId, originalLineId: originalLine?.id || null, quantity: decimalString(quantity), conversionFactor: decimalString(factor), baseQuantity: decimalString(baseQuantity), unitPrice: decimalString(unitPrice), lineTotal: decimalString(lineTotal), unitCost: decimalString(unitCost), note: String(input.note || '') });
+      lines.push({ id: randomUUID(), itemId: input.itemId, unitId: input.unitId, originalLineId: originalLine?.id || null, quantity: decimalString(quantity), conversionFactor: decimalString(factor), baseQuantity: decimalString(baseQuantity), unitPrice: decimalString(unitPrice), lineTotal: decimalString(lineTotal), unitCost: decimalString(unitCost), specifications: clone(input.specifications || {}), note: String(input.note || '') });
     }
     const gross = subtotal;
     const discount = decimal(payload.discountAmount || '0', { nonNegative: true });
