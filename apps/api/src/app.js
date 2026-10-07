@@ -640,13 +640,15 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
 
   async function finalizeWholesaleInvoice(context, invoice, decisionNote = '') {
     requireCommercePermission(context, 'sale');
-    const document = validateCommercePayload({
-      documentType: 'sale', documentNumber: invoice.invoiceNumber, warehouseId: invoice.warehouseId,
-      partyId: invoice.customerId, originalDocumentId: null, currency: invoice.currency,
-      lines: invoice.lines.map((line) => ({ itemId: line.itemId, unitId: line.unitId, originalLineId: null, quantity: line.quantity, unitPrice: line.unitPrice })),
-      payments: decimal(invoice.paidAmount) > 0n ? [{ method: 'cash', amount: invoice.paidAmount, reference: invoice.invoiceNumber }] : [],
+    const document = {
+      ...validateCommercePayload({
+        documentType: 'sale', documentNumber: invoice.invoiceNumber, warehouseId: invoice.warehouseId,
+        partyId: invoice.customerId, originalDocumentId: null, currency: invoice.currency,
+        lines: invoice.lines.map((line) => ({ itemId: line.itemId, unitId: line.unitId, originalLineId: null, quantity: line.quantity, unitPrice: line.unitPrice })),
+        payments: decimal(invoice.paidAmount) > 0n ? [{ method: 'cash', amount: invoice.paidAmount, reference: invoice.invoiceNumber }] : []
+      }),
       discountAmount: invoice.discountAmount
-    });
+    };
     const operation = validateOperation({
       operationId: invoice.postingOperationId, deviceId: String(context.session.deviceId || 'wholesale-web'),
       clientSequence: Date.now() + Math.floor(Math.random() * 100000), occurredAt: invoice.createdAt,
