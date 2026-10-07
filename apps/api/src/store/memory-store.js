@@ -283,7 +283,8 @@ export class MemoryStore {
   async createParty(companyId, type, input, actorUserId) {
     const map = type === 'customer' ? this.customers : this.suppliers;
     this.#assertUnique(map, companyId, 'code', input.code, `${type.toUpperCase()}_CODE_EXISTS`);
-    const party = { id: randomUUID(), companyId, code: input.code, name: input.name, phone: input.phone || null, active: true };
+    const party = { id: randomUUID(), companyId, code: input.code, name: input.name, phone: input.phone || null,
+      ...(type === 'customer' ? { province: input.province || '', district: input.district || '', address: input.address || '' } : {}), active: true };
     if (type === 'customer') party.creditLimit = decimalString(decimal(input.creditLimit || '0', { nonNegative: true }));
     map.set(party.id, party);
     this.#audit(companyId, actorUserId, `${type}.created`, type, party.id, {});
@@ -311,6 +312,29 @@ export class MemoryStore {
       warehouses: [...this.warehouses.values()].filter(belongs).map(clone),
       stock: [...this.stockBalances.values()].filter(belongs).map(clone)
     };
+  }
+
+  async listCustomerAccountSummaries(companyId) {
+    const company = this.companies.get(companyId), currency = company?.currency || 'IQD', result = {};
+    for (const customer of this.customers.values()) {
+      if (customer.companyId !== companyId) continue;
+      const movements = [...this.debtMovements.values()].filter((m) => m.companyId === companyId && m.customerId === customer.id && m.currency === currency);
+      const documents = [...this.commerceDocuments.values()].filter((d) => d.companyId === companyId && d.customerId === customer.id && d.currency === currency);
+      const paymentEvents = [
+        ...documents.filter((d) => decimal(d.paidAmount || '0') > ZERO).map((d) => ({ at: d.occurredAt, amount: d.paidAmount })),
+        ...movements.filter((m) => m.movementType === 'collection').map((m) => ({ at: m.occurredAt, amount: decimalString(-decimal(m.amount)) }))
+      ].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+      const lastMovement = [...movements.map((m) => m.occurredAt), ...documents.map((d) => d.occurredAt)].sort().at(-1) || null;
+      const balance = movements.reduce((sum, m) => sum + decimal(m.amount), ZERO);
+      const paidTotal = documents.reduce((sum, d) => sum + decimal(d.paidAmount || '0'), ZERO)
+        + movements.filter((m) => m.movementType === 'collection').reduce((sum, m) => sum - decimal(m.amount), ZERO);
+      result[customer.id] = {
+        lastMovementAt: lastMovement, lastPaymentAt: paymentEvents.at(-1)?.at || null,
+        lastPaymentAmount: paymentEvents.at(-1)?.amount || '0.000000',
+        paidTotal: decimalString(paidTotal), outstanding: decimalString(balance), currency
+      };
+    }
+    return result;
   }
 
   async listCommerceDocuments(companyId) {
