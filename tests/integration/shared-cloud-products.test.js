@@ -5,6 +5,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startEnterpriseCloud } from '../../apps/api/src/cloud-server.js';
+import { SQLiteStore } from '../../apps/api/src/store/sqlite-store.js';
+import { hashPassword } from '../../apps/api/src/lib/security.js';
 test('shared cloud uses one SQLite database and keeps product cookies, pages and browser storage separate',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'shared-cloud-'));let runtime;const setupToken='test-setup-key-longer-than-24-characters';
  try{
@@ -31,5 +33,26 @@ test('shared cloud uses one SQLite database and keeps product cookies, pages and
   assert.equal((await request('/api/v1/bootstrap',null,companyCookie)).status,200);
   await runtime.close();runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken,origin:'http://localhost',port:0});
   assert.equal((await request('/api/local/status')).data.initialized,true);assert.equal((await request('/retail/api/local/status')).data.initialized,true);
+ }finally{if(runtime)await runtime.close();await rm(directory,{recursive:true,force:true});}
+});
+
+test('legacy retail SQLite data is imported into the shared database and remains available after restart',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'legacy-retail-'));let runtime;
+ try{
+  const legacy=new SQLiteStore(join(directory,'retail','enterprise.sqlite'));
+  const password='Strong-Legacy-Password-123';
+  const company=await legacy.registerCompany({code:'company',legalName:'مطعم قديم',timezone:'Asia/Baghdad',currency:'IQD',owner:{username:'legacy',displayName:'مدير',passwordHash:await hashPassword(password)}});
+  await legacy.approveCompany(company.id,company.ownerUserId);await legacy.close();
+  runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken:'test-setup-key-longer-than-24-characters',origin:'http://localhost',port:0});
+  assert.equal(runtime.store,runtime.retailStore);
+  assert.equal(runtime.store.filename,join(directory,'enterprise.sqlite'));
+  const status=await fetch(runtime.url+'/retail/api/local/status').then(r=>r.json());
+  assert.equal(status.initialized,true);assert.equal(status.companyCode,'retail');
+  assert.equal([...runtime.store.companies.values()].find(x=>x.product==='retail').legalName,'مطعم قديم');
+  const login=await fetch(runtime.url+'/retail/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({companyCode:'retail',username:'legacy',password})});
+  assert.equal(login.status,200);
+  await runtime.close();
+  runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken:'test-setup-key-longer-than-24-characters',origin:'http://localhost',port:0});
+  assert.equal([...runtime.store.companies.values()].filter(x=>x.product==='retail').length,1);
  }finally{if(runtime)await runtime.close();await rm(directory,{recursive:true,force:true});}
 });
