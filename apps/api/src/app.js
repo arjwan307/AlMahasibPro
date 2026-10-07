@@ -898,7 +898,7 @@ function validateCommercePayload(payload) {
       warehouseId: line.warehouseId ? uuid(line.warehouseId, 'line.warehouseId') : null,
       originalLineId: isReturn ? uuid(line.originalLineId, 'originalLineId') : null,
       quantity: decimalInput(line.quantity, { positive: true }),
-      ...(isReturn ? {} : { unitPrice: decimalInput(line.unitPrice, { nonNegative: true }),enteredUnitPrice:decimalInput(line.enteredUnitPrice??line.unitPrice,{nonNegative:true}),discountQuantity:decimalInput(line.discountQuantity||'0',{nonNegative:true}),discountPercent:decimalInput(line.discountPercent||'0',{nonNegative:true}) })
+      ...(isReturn ? {} : { unitPrice: decimalInput(line.unitPrice, { nonNegative: true }),enteredUnitPrice:decimalInput(line.enteredUnitPrice??line.unitPrice,{nonNegative:true}),systemUnitPrice:decimalInput(line.systemUnitPrice??line.enteredUnitPrice??line.unitPrice,{nonNegative:true}),discountQuantity:decimalInput(line.discountQuantity||'0',{nonNegative:true}),discountPercent:decimalInput(line.discountPercent||'0',{nonNegative:true}) })
     })),
     payments: (payload.payments || []).map((payment) => {
       if (!['cash', 'bank', 'card'].includes(payment.method)) throw new AppError(400, 'INVALID_PAYMENT_METHOD', 'وسيلة الدفع غير صالحة');
