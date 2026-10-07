@@ -592,10 +592,12 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   }));
   app.post('/api/v1/enterprise/settlements', authenticate(store), permit('accounting.post'), asyncRoute(async (req, res) => {
     requireFields(req.body,['operationId','documentId','amount','receiptNumber','method']);
-    if (!['cash','bank'].includes(req.body.method)) throw new AppError(400,'INVALID_METHOD','طريقة الدفع غير صالحة');
+    if (!['cash','bank','bank_transfer','check'].includes(req.body.method)) throw new AppError(400,'INVALID_METHOD','طريقة الدفع غير صالحة');
     res.status(201).json({ settlement: await store.settleEnterpriseDocument(req.auth, {
       operationId: uuid(req.body.operationId,'operationId'), documentId: uuid(req.body.documentId,'documentId'), amount: decimalInput(req.body.amount,{positive:true}),
-      receiptNumber: String(req.body.receiptNumber).slice(0,64), method: req.body.method, occurredAt: new Date().toISOString()
+      receiptNumber: String(req.body.receiptNumber).slice(0,64), method: req.body.method,
+      bankName: String(req.body.bankName || '').trim().slice(0,160), transactionNumber: String(req.body.transactionNumber || '').trim().slice(0,120),
+      occurredAt: /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paymentDate||'')) ? new Date(req.body.paymentDate+'T12:00:00.000Z').toISOString() : new Date().toISOString()
     }) });
   }));
   app.get('/api/v1/enterprise/backup', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {

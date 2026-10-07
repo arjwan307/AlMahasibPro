@@ -478,10 +478,10 @@ export class MemoryStore {
     const returned = [...this.commerceDocuments.values()].filter(row => row.companyId === context.company.id && row.originalDocumentId === document.id).reduce((sum,row) => sum + decimal(row.dueAmount), ZERO);
     const amount = decimal(input.amount, { positive: true });
     if (amount > decimal(document.dueAmount) - settled - returned) throw new AppError(409, 'SETTLEMENT_EXCEEDS_DUE', 'المبلغ يتجاوز الرصيد المتبقي');
-    const cash = input.method === 'bank' ? '1010-BANK' : '1000-CASH';
+    const cash = input.method === 'cash' ? '1000-CASH' : '1010-BANK';
     const lines = document.documentType === 'sale' ? [[cash,amount,ZERO],['1100-AR',ZERO,amount]] : [['2100-AP',amount,ZERO],[cash,ZERO,amount]];
     const journal = this.#simpleJournal(context, input, input.receiptNumber, document.currency, lines);
-    const row = { id: randomUUID(), companyId: context.company.id, kind: 'enterprise_settlement', operationId: input.operationId, documentId: document.id, receiptNumber: input.receiptNumber, amount: decimalString(amount), method: input.method, journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
+    const row = { id: randomUUID(), companyId: context.company.id, kind: 'enterprise_settlement', operationId: input.operationId, documentId: document.id, receiptNumber: input.receiptNumber, amount: decimalString(amount), method: input.method, bankName: input.bankName || '', transactionNumber: input.transactionNumber || '', journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
     this.financialRecords.set(row.id, Object.freeze(row));
     this.#audit(context.company.id,context.user.id,'enterprise.settlement','financial_record',row.id,{});
     this.#change(context.company.id,'financial_record',row.id,'upsert',row);
