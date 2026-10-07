@@ -546,6 +546,10 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({ invoices });
   }));
 
+  app.get('/api/v1/wholesale/accounts', authenticate(store), permitAny(['sales.read', 'sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize']), asyncRoute(async (req, res) => {
+    res.json({ accounts: await store.listCustomerAccountSummaries(req.auth.company.id) });
+  }));
+
   app.get('/api/v1/wholesale/settings', authenticate(store), permitAny(['sales.read', 'sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize']), asyncRoute(async (req, res) => {
     const records = await wholesaleRecords(req.auth.company.id);
     const row = records.get('wholesale-settings');
