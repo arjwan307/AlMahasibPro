@@ -53,39 +53,6 @@ export class MemoryStore {
   }
 
   async close() {}
-  async applyDemoScenario(companyId,actorUserId,scenario){
-    const company=this.companies.get(companyId),actor=this.users.get(actorUserId);if(!company||!actor||actor.companyId!==companyId)throw new AppError(403,'COMPANY_SCOPE','الشركة أو المستخدم غير صالح');
-    const key='demo-scenario:'+companyId+':'+scenario.version;if(this.salesSettings.has(key))return {...clone(this.salesSettings.get(key).result),alreadyApplied:true};
-    const result={companyId,companyName:company.legalName,version:scenario.version,customersUpdated:0,itemsUpdated:0,cashCustomers:0,debitCustomers:0,creditCustomers:0,inactive:0,sporadic:0,active:0,small:0,large:0};
-    const occurredAt=new Date().toISOString();
-    for(const definition of scenario.customers){const customer=[...this.customers.values()].find(x=>x.companyId===companyId&&x.code===definition.code&&x.demo);if(!customer)throw new AppError(409,'DEMO_CUSTOMER_MISSING','زبون التجربة غير موجود');
-      const opening=customer.openingBalances.find(x=>x.currency===definition.currency&&x.demo);if(!opening)throw new AppError(409,'DEMO_OPENING_MISSING','رصيد التجربة غير موجود');const target=decimal(String(definition.balance)),delta=target-decimal(opening.amount);
-      if(delta!==ZERO){const amount=delta<ZERO?-delta:delta,operation={operationId:randomUUID(),occurredAt};const journal=this.#simpleJournal({company,user:actor},operation,'DEMO-ADJ-'+definition.code,definition.currency,delta>ZERO?[['1100-AR',amount,ZERO],['3000-OPENING-EQUITY',ZERO,amount]]:[['3000-OPENING-EQUITY',amount,ZERO],['1100-AR',ZERO,amount]]);this.#recordDebt(companyId,customer.id,null,null,operation,'demo_opening_adjustment',delta,definition.currency);opening.amount=decimalString(target);opening.occurredAt=occurredAt;opening.journalEntryId=journal.id;}
-      customer.paymentPreference=definition.paymentPreference;customer.purchaseProfile=clone(definition.purchaseProfile);
-      result.customersUpdated++;result[target>ZERO?'debitCustomers':target<ZERO?'creditCustomers':'cashCustomers']++;result[profile.activity]++;result[profile.volume]++;this.#change(companyId,'customer',customer.id,'upsert',clone(customer));
-    }
-    for(const definition of scenario.items){const item=[...this.items.values()].find(x=>x.companyId===companyId&&x.sku===definition.sku),cfg=item&&this.salesSettings.get('item:'+item.id);if(!item||cfg?.catalog!=='furniture-v1')throw new AppError(409,'DEMO_ITEM_MISSING','مادة التجربة غير موجودة');const stock=this.stockBalances.get(companyId+':'+cfg.defaultWarehouseId+':'+item.id);if(!stock||Number(stock.averageCost)!==0)throw new AppError(409,'DEMO_STOCK_CHANGED','رصيد التجربة مرتبط بتكلفة فعلية');const previous=stock.quantity;stock.quantity=decimalString(decimal(String(definition.quantity),{nonNegative:true}));cfg.demoQuantity=true;this.#audit(companyId,actorUserId,'inventory.demo.adjusted','item',item.id,{warehouseId:stock.warehouseId,previous,quantity:stock.quantity});this.#change(companyId,'stock_balance',stock.warehouseId+':'+item.id,'upsert',clone(stock));result.itemsUpdated++;}
-    await this.saveSalesSetting(key,{companyId,result},actorUserId);this.#audit(companyId,actorUserId,'demo.scenario.updated','catalog',scenario.version,result);return clone(result);
-  }
-
-  async importDemoWholesaleCustomers(companyId,actorUserId,catalog){
-    const company=this.companies.get(companyId),actor=this.users.get(actorUserId);if(!company||company.status!=='active'||!actor||actor.companyId!==companyId)throw new AppError(403,'COMPANY_SCOPE','الشركة أو المستخدم غير صالح');
-    const result={companyId,companyName:company.legalName,version:catalog.version,customersCreated:0,cashCustomers:0,debitCustomers:0,creditCustomers:0,openingEntries:0,existingCustomers:0};
-    for(const definition of catalog.customers){if([...this.customers.values()].some(x=>x.companyId===companyId&&x.code===definition.code)){result.existingCustomers++;continue;}
-      const customer=await this.createParty(companyId,'customer',{code:definition.code,name:definition.name,creditLimit:'1000000'},actorUserId);const balance=decimal(String(definition.balance));
-      const occurredAt=new Date().toISOString(),opening={currency:definition.currency,amount:decimalString(balance),occurredAt,demo:true};
-      const stored=this.customers.get(customer.id);stored.demo=true;stored.paymentPreference=definition.paymentPreference;stored.openingBalances=[opening];
-      await this.saveSalesSetting('customer:'+customer.id,{companyId,channel:'wholesale',governorate:definition.governorate,district:definition.district,neighborhood:definition.neighborhood,risk:definition.risk},actorUserId);
-      result.customersCreated++;if(balance>ZERO)result.debitCustomers++;else if(balance<ZERO)result.creditCustomers++;else result.cashCustomers++;
-      if(balance!==ZERO){const operation={operationId:randomUUID(),occurredAt};const amount=balance<ZERO?-balance:balance;
-        const journal=this.#simpleJournal({company,user:actor},operation,'DEMO-OPEN-'+definition.code,definition.currency,balance>ZERO?[['1100-AR',amount,ZERO],['3000-OPENING-EQUITY',ZERO,amount]]:[['3000-OPENING-EQUITY',amount,ZERO],['1100-AR',ZERO,amount]]);
-        opening.journalEntryId=journal.id;this.#recordDebt(companyId,customer.id,null,null,operation,'demo_opening_balance',balance,definition.currency);result.openingEntries++;
-      }
-      this.#change(companyId,'customer',customer.id,'upsert',clone(stored));
-    }
-    this.#audit(companyId,actorUserId,'customers.demo.imported','catalog',catalog.version,result);return clone(result);
-  }
-
   async importFurnitureCatalog(companyId,actorUserId,catalog) {
     const company=this.companies.get(companyId);if(!company||company.status!=='active')throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
     const actor=this.users.get(actorUserId);if(!actor||actor.companyId!==companyId)throw new AppError(403,'USER_SCOPE','المستخدم خارج الشركة');
@@ -376,7 +343,7 @@ export class MemoryStore {
     const item=this.items.get(itemId);if(!item||item.companyId!==companyId)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
     const excluded=new Set(['items','itemUnits','prices','stockBalances','salesSettings']);
     for(const [key,value] of Object.entries(this)){if(excluded.has(key)||!(value instanceof Map))continue;if([...value.values()].some(row=>row.companyId===companyId&&JSON.stringify(row).includes(itemId)))throw new AppError(409,'ITEM_IN_USE','المادة مرتبطة بحركة أو مستند، لا يمكن حذفها');}
-    if([...this.stockBalances.values()].some(x=>x.companyId===companyId&&x.itemId===itemId&&Number(x.quantity)!==0&&!this.salesSettings.get('item:'+itemId)?.demoQuantity))throw new AppError(409,'ITEM_IN_USE','للمادة رصيد، لا يمكن حذفها');
+    if([...this.stockBalances.values()].some(x=>x.companyId===companyId&&x.itemId===itemId&&Number(x.quantity)!==0))throw new AppError(409,'ITEM_IN_USE','للمادة رصيد، لا يمكن حذفها');
     if([...this.salesApprovals.values()].some(x=>JSON.stringify(x).includes(itemId)))throw new AppError(409,'ITEM_IN_USE','المادة مرتبطة بطلب موافقة');
     for(const map of [this.itemUnits,this.prices,this.stockBalances])for(const [key,row] of map)if(row.companyId===companyId&&row.itemId===itemId)map.delete(key);
     this.salesSettings.delete('item:'+itemId);this.items.delete(itemId);this.#audit(companyId,actorUserId,'item.deleted','item',itemId,{});this.#change(companyId,'item',itemId,'delete',{id:itemId});return {deleted:true};
