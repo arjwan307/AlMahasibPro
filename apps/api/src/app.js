@@ -101,6 +101,13 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(204).end();
   }));
 
+  app.patch('/api/v1/company/accounting-settings', authenticate(store), permit('company.manage'), asyncRoute(async (req,res)=>{
+    const baseCurrency=currency(req.body.baseCurrency||req.auth.company.currency||'IQD');
+    if(!['IQD','USD'].includes(baseCurrency)) throw new AppError(400,'INVALID_CURRENCY','اختر الدينار العراقي أو الدولار الأمريكي');
+    const company=await store.updateCompanyAccountingSettings(req.auth.company.id,{baseCurrency,usdToIqdRate:decimalInput(req.body.usdToIqdRate,{positive:true})},req.auth.user.id);
+    res.json({company});
+  }));
+
   app.get('/api/v1/bootstrap', authenticate(store), (req, res) => {
     res.json({
       ...publicContext(req.auth),
