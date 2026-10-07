@@ -13,7 +13,7 @@
 </style></head>
 <body>
 <main class="shell">
-<header class="top"><div><h1>مبيعات الجملة والمفرد</h1><p>مسار اعتماد موحد للمندوبين — يُرحّل المخزون بعد الاعتماد النهائي فقط</p></div><div class="actions"><button class="btn alt" onclick="location.href='/dashboard.html'">العودة للوحة</button><button class="btn alt" onclick="location.href='/customers.html'">إدارة العملاء</button><button id="designLink" class="btn gold hidden" onclick="showPane('design')">تصميم الفاتورة</button></div></header>
+<header class="top"><div><h1>مبيعات الجملة والمفرد</h1><p>مسار موحد لمندوب الجملة والمفرد — يُرحّل المخزون بعد الاعتماد النهائي فقط</p></div><div class="actions"><button class="btn alt" onclick="location.href='/dashboard.html'">العودة للوحة</button><button class="btn alt" onclick="location.href='/customers.html'">إدارة العملاء</button><button id="designLink" class="btn gold hidden" onclick="showPane('design')">تصميم الفاتورة</button></div></header>
 <nav class="tabs"><button class="active" data-pane="new">فاتورة جديدة</button><button data-pane="queue">الفواتير والاعتماد</button><button id="designTab" class="hidden" data-pane="design">معلومات وقوالب الفاتورة</button></nav>
 <section id="new" class="pane active">
 <div class="layout"><div>
@@ -29,9 +29,9 @@
 </div><aside>
 <section class="card"><h2>الأصناف المختارة</h2><div id="cart"></div><div id="totals" class="summary"></div></section>
 <section class="card"><h3>ملاحظة داخلية على الفاتورة</h3><div class="field"><label>للمندوب والمديرين المخولين فقط</label><textarea id="internalNote" placeholder="لا تظهر في الطباعة ولا تُرسل للمخزن"></textarea></div><p class="subtle">كل ملاحظة تُحفظ مع اسم كاتبها ووقتها. لا تؤثر على المبلغ أو الأصناف.</p>
-<div class="actions"><button id="previewBtn" class="btn alt">معاينة الفاتورة</button><button id="submitBtn" class="btn">اعتماد وإرسال لمدير الجملة</button></div></section>
+<div class="actions"><button id="previewBtn" class="btn alt">معاينة الفاتورة</button><button id="submitBtn" class="btn">اعتماد وإرسال لمدير المبيعات</button></div></section>
 </aside></div></section>
-<section id="queue" class="pane"><section class="card"><div class="top"><div><h2>الفواتير ومسار الاعتماد</h2><p>المندوب ← مدير الجملة ← المدير العام عند التحويل</p></div><button class="btn alt" id="refreshBtn">تحديث</button></div><div class="tablewrap"><table><thead><tr><th>الفاتورة</th><th>التاريخ والوقت</th><th>المندوب</th><th>العميل</th><th>النوع</th><th>المخزن</th><th>الإجمالي</th><th>الحالة</th><th>الإجراء / الملاحظات</th></tr></thead><tbody id="invoiceRows"></tbody></table></div></section></section>
+<section id="queue" class="pane"><section class="card"><div class="top"><div><h2>الفواتير ومسار الاعتماد</h2><p>المندوب ← مدير المبيعات ← المدير العام عند التحويل</p></div><button class="btn alt" id="refreshBtn">تحديث</button></div><div class="tablewrap"><table><thead><tr><th>الفاتورة</th><th>التاريخ والوقت</th><th>المندوب</th><th>العميل</th><th>النوع</th><th>المخزن</th><th>الإجمالي</th><th>الحالة</th><th>الإجراء / الملاحظات</th></tr></thead><tbody id="invoiceRows"></tbody></table></div></section></section>
 <section id="design" class="pane"><section class="card"><h2>معلومات وتصميم الفاتورة</h2><p class="subtle">هذه البيانات تظهر في المعاينة والطباعة فقط. صلاحية التعديل للمدير أو مصمم الفاتورة.</p><div class="grid2">
 <div class="field"><label>الاسم التجاري</label><input id="commercialName"></div><div class="field"><label>الشعار (PNG / JPG / WebP)</label><input id="logoFile" type="file" accept="image/png,image/jpeg,image/webp"></div>
 <div class="field"><label>العنوان</label><input id="companyAddress"></div><div class="field"><label>الهاتف</label><input id="companyPhone"></div>
