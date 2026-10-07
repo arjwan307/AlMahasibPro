@@ -7,7 +7,7 @@ const input=(name,text,value='',type='text',extra='')=>`<label>${text}<input nam
 const channel=(value='retail',both=false)=>`<label>نوع البيع<select name="channel">${both?'<option value="both">مفرد وجملة</option>':''}<option value="retail" ${value==='retail'?'selected':''}>مفرد</option><option value="wholesale" ${value==='wholesale'?'selected':''}>جملة</option></select></label>`;
 const datetime=x=>x?new Date(x).toLocaleString('ar-IQ',{timeZone:'Asia/Baghdad'}):'—';
 async function api(path,body,method='POST'){const r=await fetch(path,{credentials:'same-origin',headers:{'Content-Type':'application/json'},...(body?{method,body:JSON.stringify(body)}:{})});const d=await r.json();if(!r.ok)throw Error(d.error?.message||d.result?.message||'تعذر تنفيذ العملية');return d;}
-let draft={lines:[],number:'SAL-'+Date.now(),currency:account.company?.currency||'IQD'},lastData;
+let draft={lines:[],number:'SAL-'+Date.now(),currency:'IQD'},lastData;
 function lineTotal(x){return Number(x.quantity||0)*Number(x.unitPrice||0);}
 function total(){return draft.lines.reduce((s,x)=>s+lineTotal(x),0);}
 function discountAmount(){return 0;}
