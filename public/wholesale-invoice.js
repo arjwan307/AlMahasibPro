@@ -11,10 +11,11 @@ async function init(){try{
 const p=new Set(account.permissions||[]);$('customersLink').classList.toggle('hidden',!p.has('customers.manage'));const type=$('repType');
 if(p.has('sales.wholesale.submit'))type.add(new Option('مندوب مبيعات جملة','wholesale'));
 if(p.has('sales.retail.submit'))type.add(new Option('مندوب مبيعات مفرد','retail'));
-if(!type.options.length)throw new Error('لا تملك صلاحية إنشاء فواتير المندوب');
+if(!type.options.length&&!p.has('sales.wholesale.review')&&!p.has('sales.wholesale.finalize')&&!p.has('sales.invoice.template.manage'))throw new Error('لا تملك صلاحية دخول شاشة المبيعات');
 if(type.options.length===1)type.disabled=true;
+if(!type.options.length){$('new').classList.remove('active');document.querySelector('[data-pane="new"]').classList.add('hidden');$('submitBtn').disabled=true}
 $('designTab').classList.toggle('hidden',!p.has('sales.invoice.template.manage'));$('designLink').classList.toggle('hidden',!p.has('sales.invoice.template.manage'));
-bind();populate();renderDesign();await loadInvoices();
+bind();populate();renderDesign();await loadInvoices();if(!type.options.length)showPane('queue');
 }catch(e){document.body.innerHTML='<main style="font-family:Cairo,Tahoma;padding:30px;direction:rtl"><h2>تعذر فتح مبيعات المندوبين</h2><p>'+esc(e.message)+'</p><a href="/dashboard.html">العودة إلى اللوحة</a></main>'}}
 function bind(){document.querySelectorAll('[data-pane]').forEach(b=>b.onclick=()=>showPane(b.dataset.pane));$('customer').onchange=renderCustomer;$('warehouse').onchange=renderProducts;$('productSearch').oninput=renderProducts;$('paymentType').onchange=paymentChanged;$('paid').oninput=renderTotals;$('discount').oninput=renderTotals;$('submitBtn').onclick=submitInvoice;$('previewBtn').onclick=()=>openPreview(buildDraft());$('refreshBtn').onclick=loadInvoices;$('printBtn').onclick=()=>window.print();$('saveSettings').onclick=saveSettings;$('previewDesign').onclick=()=>openPreview(buildDraft());$('logoFile').onchange=readLogo}
 function showPane(id){document.querySelectorAll('.pane,.tabs button').forEach(x=>x.classList.remove('active'));$(id).classList.add('active');document.querySelector('[data-pane="'+id+'"]').classList.add('active');if(id==='queue')void loadInvoices()}
