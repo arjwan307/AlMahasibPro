@@ -478,7 +478,7 @@ export class MemoryStore {
     const cash = input.method === 'cash' ? '1000-CASH' : '1010-BANK';
     const lines = document.documentType === 'sale' ? [[cash,amount,ZERO],['1100-AR',ZERO,amount]] : [['2100-AP',amount,ZERO],[cash,ZERO,amount]];
     const journal = this.#simpleJournal(context, input, input.receiptNumber, document.currency, lines);
-    const row = { id: randomUUID(), companyId: context.company.id, kind: 'enterprise_settlement', operationId: input.operationId, documentId: document.id, receiptNumber: input.receiptNumber, amount: decimalString(amount), method: input.method, bankName: input.bankName || '', transactionNumber: input.transactionNumber || '', journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
+    const row = { id: randomUUID(), companyId: context.company.id, kind: 'enterprise_settlement', operationId: input.operationId, documentId: document.id, receiptNumber: input.receiptNumber, amount: decimalString(amount), currency: document.currency, receivedAmount: input.receivedAmount || decimalString(amount), receivedCurrency: input.receivedCurrency || document.currency, exchangeRate: input.exchangeRate || '1.000000', method: input.method, bankName: input.bankName || '', transactionNumber: input.transactionNumber || '', journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
     this.financialRecords.set(row.id, Object.freeze(row));
     this.#audit(context.company.id,context.user.id,'enterprise.settlement','financial_record',row.id,{});
     this.#change(context.company.id,'financial_record',row.id,'upsert',row);
