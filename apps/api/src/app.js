@@ -230,7 +230,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(201).json({ itemUnit });
   }));
 
-  app.post('/api/v1/catalog/prices', authenticate(store), permit('catalog.manage'), asyncRoute(async (req, res) => {
+  app.post('/api/v1/catalog/prices', authenticate(store), (req,res,next)=>req.auth.permissions.includes('catalog.manage')||req.auth.permissions.includes('purchasing.approve')?next():next(new AppError(403,'FORBIDDEN','تحتاج صلاحية إدارة الأصناف أو اعتماد المشتريات')), asyncRoute(async (req, res) => {
     requireFields(req.body, ['itemId', 'unitId', 'priceType', 'currency', 'amount']);
     if (!['sale', 'sale_retail', 'sale_wholesale', 'purchase'].includes(req.body.priceType)) throw new AppError(400, 'INVALID_PRICE_TYPE', 'نوع السعر غير صالح');
     const price = await store.setPrice(req.auth.company.id, {
@@ -890,11 +890,13 @@ function validateCommercePayload(payload) {
     warehouseId: uuid(payload.warehouseId, 'warehouseId'), partyId: payload.partyId ? uuid(payload.partyId, 'partyId') : null,
     originalDocumentId: isReturn ? uuid(payload.originalDocumentId, 'originalDocumentId') : null,
     currency: currency(payload.currency),
+    note: String(payload.note||'').trim().slice(0,2000),
     discountAmount: decimalInput(payload.discountAmount || '0', { nonNegative: true }),
     approvalId: payload.approvalId ? uuid(payload.approvalId,'approvalId') : null,
     delivery: validateDelivery(payload.delivery),
     lines: payload.lines.map((line) => ({
       itemId: uuid(line.itemId, 'itemId'), unitId: uuid(line.unitId, 'unitId'),
+      note: String(line.note||'').trim().slice(0,1000),
       warehouseId: line.warehouseId ? uuid(line.warehouseId, 'line.warehouseId') : null,
       originalLineId: isReturn ? uuid(line.originalLineId, 'originalLineId') : null,
       quantity: decimalInput(line.quantity, { positive: true }),
@@ -1071,4 +1073,3 @@ async function passwordHashOrValidation(password) {
 
 
 function validateDelivery(value={}) { const mode=value?.mode||'none';if(!['both','services','transport','none','immediate'].includes(mode))throw new AppError(400,'INVALID_DELIVERY','نوع النقل والخدمات غير صالح');const out={mode};if(['both','transport'].includes(mode)&&!value.deliveryAt)throw new AppError(400,'DELIVERY_DATE_REQUIRED','موعد التوصيل مطلوب');if(['both','services'].includes(mode)&&!value.serviceAt)throw new AppError(400,'SERVICE_DATE_REQUIRED','موعد الخدمات مطلوب');for(const key of ['deliveryAt','serviceAt']){if(value?.[key]){if(typeof value[key]!=='string'||!Number.isFinite(Date.parse(value[key])))throw new AppError(400,'INVALID_DELIVERY_DATE','موعد غير صالح');out[key]=new Date(value[key]).toISOString();}}return out;}
-

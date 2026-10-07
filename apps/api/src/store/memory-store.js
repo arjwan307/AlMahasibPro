@@ -1034,7 +1034,7 @@ export class MemoryStore {
       const costTotal = multiply(baseQuantity, unitCost);
       inventoryCost += costTotal;
       stockUpdates.set(stockKey, { ...current, quantity: decimalString(newQty), averageCost: decimalString(newCost), version: current.version + 1 });
-      lines.push({ id: randomUUID(), itemId: input.itemId, unitId: input.unitId, originalLineId: originalLine?.id || null, quantity: decimalString(quantity), conversionFactor: decimalString(factor), baseQuantity: decimalString(baseQuantity), unitPrice: decimalString(unitPrice), lineTotal: decimalString(lineTotal), unitCost: decimalString(unitCost) });
+      lines.push({ id: randomUUID(), itemId: input.itemId, unitId: input.unitId, originalLineId: originalLine?.id || null, quantity: decimalString(quantity), conversionFactor: decimalString(factor), baseQuantity: decimalString(baseQuantity), unitPrice: decimalString(unitPrice), lineTotal: decimalString(lineTotal), unitCost: decimalString(unitCost), note: String(input.note || '') });
     }
     const gross = subtotal;
     const discount = decimal(payload.discountAmount || '0', { nonNegative: true });
@@ -1050,7 +1050,7 @@ export class MemoryStore {
       supplierId: isSale ? null : payload.partyId || null, originalDocumentId: original?.id || null,
       currency: payload.currency, subtotal: decimalString(subtotal), paidAmount: decimalString(paid), dueAmount: decimalString(subtotal - paid),
       grossAmount: decimalString(gross), discountAmount: decimalString(discount), posShiftId: payload.posShiftId || null,
-      interfaceMode: payload.interfaceMode || null, orderContext: clone(payload.orderContext || {}),
+      interfaceMode: payload.interfaceMode || null, orderContext: clone(payload.orderContext || {}), note: String(payload.note || ''),
       assignedSalesManagerId: assignedManager, representativeId: payload.representativeId || null, delivery: clone(payload.delivery || {}), salesChannel: salesRep(context) ? (this.salesSettings.get('user:'+context.user.id)?.channel || 'retail') : null, approvalId: salesApproval?.id || null,
       operationId: operation.operationId, occurredAt: operation.occurredAt, createdBy: context.user.id, status: 'posted', lines,
       payments: payments.map((payment) => ({ id: randomUUID(), method: payment.method, amount: decimalString(decimal(payment.amount)), reference: payment.reference || null }))
@@ -1121,5 +1121,4 @@ export class MemoryStore {
 }
 
 export { PERMISSIONS };
-
 
