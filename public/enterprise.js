@@ -35,7 +35,7 @@ function render(){
  if(state.view==='purchase')html=commerceEditor()+documentTable(state.documents.filter(x=>x.documentType==='purchase').slice().reverse(),'كشف فواتير المشتريات');
  if(state.view==='sale')html='<section class="panel">جارٍ تجهيز المبيعات…</section>';
  if(state.view==='documents')html=documentTable([...state.documents].reverse());
- if(state.view==='reports')html=panel('تصدير كشف المخزون',`<button id="exportStock">تنزيل CSV</button>`)+stockTable();
+ if(state.view==='reports')html=panel('ميزان المراجعة',table(['الحساب','الاسم','مدين','دائن','الرصيد'],(state.reports.trialBalance||[]).map(x=>[escape(x.accountCode),escape(x.name),money(x.debit),money(x.credit),money(x.balance)])))+panel('تقرير المخزون',`<button id="exportStock">تنزيل CSV</button>`+stockTable())+panel('حركة المستندات',documentTable([...state.documents].reverse()));
  if(state.view==='transfers')html=panel('سند تحويل مخزني',`<form id="transfer" class="form-grid">${input('transferNumber','رقم السند','text',`value="TR-${Date.now()}"`)+select('sourceWarehouseId','المخزن المصدر',m.warehouses)+select('destinationWarehouseId','المخزن المستلم',m.warehouses)+select('itemId','الصنف',m.items)+input('quantity','الكمية بالوحدة الأساسية','number','min="0.000001" step="0.000001"')}<button>اعتماد التحويل</button></form>`)+panel('سجل التحويلات',table(['السند','المصدر','المستلم','التاريخ'],(state.reports.transfers||[]).map(x=>[escape(x.transferNumber),name(m.warehouses,x.sourceWarehouseId),name(m.warehouses,x.destinationWarehouseId),escape(x.occurredAt?.slice(0,10))])));
  if(state.view==='accounting'){
    const docs=state.documents.filter(x=>['sale','purchase'].includes(x.documentType)&&Number(x.dueAmount)>0);
