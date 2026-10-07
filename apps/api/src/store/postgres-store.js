@@ -342,12 +342,15 @@ export class PostgresStore {
         WHERE c.company_id=$1 GROUP BY c.id`, [companyId]);
       const docs = await client.query(`
         SELECT customer_id, COALESCE(SUM(paid_amount),0)::numeric(20,6) AS paid_total,
-          MAX(occurred_at) FILTER (WHERE paid_amount>0) AS last_payment_at,
-          MAX(paid_amount) FILTER (WHERE paid_amount>0) AS last_payment_amount,
           MAX(occurred_at) AS last_movement_at
         FROM commerce_documents WHERE company_id=$1 AND customer_id IS NOT NULL
           AND currency=(SELECT currency FROM companies WHERE id=$1)
         GROUP BY customer_id`, [companyId]);
+      const lastPayments = await client.query(`
+        SELECT DISTINCT ON (customer_id) customer_id, paid_amount, occurred_at
+        FROM commerce_documents WHERE company_id=$1 AND customer_id IS NOT NULL AND paid_amount>0
+          AND currency=(SELECT currency FROM companies WHERE id=$1)
+        ORDER BY customer_id, occurred_at DESC, created_at DESC`, [companyId]);
       const accounts = {};
       for (const row of result.rows) accounts[row.customer_id] = {
         outstanding: decimalString(decimal(row.outstanding)), paidTotal: decimalString(decimal(row.collected_total)),
@@ -357,11 +360,14 @@ export class PostgresStore {
       for (const row of docs.rows) {
         const account = accounts[row.customer_id]; if (!account) continue;
         account.paidTotal = decimalString(decimal(account.paidTotal) + decimal(row.paid_total || '0'));
-        if (row.last_payment_at && (!account.lastPaymentAt || new Date(row.last_payment_at) > new Date(account.lastPaymentAt))) {
-          account.lastPaymentAt = row.last_payment_at;
-          account.lastPaymentAmount = decimalString(decimal(row.last_payment_amount || '0'));
-        }
         if (row.last_movement_at && (!account.lastMovementAt || new Date(row.last_movement_at) > new Date(account.lastMovementAt))) account.lastMovementAt = row.last_movement_at;
+      }
+      for (const row of lastPayments.rows) {
+        const account = accounts[row.customer_id]; if (!account) continue;
+        if (!account.lastPaymentAt || new Date(row.occurred_at) > new Date(account.lastPaymentAt)) {
+          account.lastPaymentAt = row.occurred_at;
+          account.lastPaymentAmount = decimalString(decimal(row.paid_amount || '0'));
+        }
       }
       for (const account of Object.values(accounts)) account.currency = 'IQD';
       return accounts;
