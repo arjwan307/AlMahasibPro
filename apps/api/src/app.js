@@ -274,6 +274,23 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(201).json({ supplier });
   }));
 
+  app.patch('/api/v1/suppliers/:id', authenticate(store), permit('suppliers.manage'), asyncRoute(async (req, res) => {
+    const supplier = await store.updateSupplier(req.auth.company.id, uuid(req.params.id, 'supplierId'), {
+      code: req.body.code ? entityCode(req.body.code) : undefined,
+      name: req.body.name ? String(req.body.name).trim().slice(0, 200) : undefined,
+      phone: req.body.phone === undefined ? undefined : String(req.body.phone || '').trim().slice(0, 50),
+      country: req.body.country === undefined ? undefined : String(req.body.country || '').trim().slice(0, 120),
+      companyName: req.body.companyName === undefined ? undefined : String(req.body.companyName || '').trim().slice(0, 200),
+      specialty: req.body.specialty === undefined ? undefined : String(req.body.specialty || '').trim().slice(0, 200),
+      relationshipStartYear: req.body.relationshipStartYear === undefined ? undefined : String(req.body.relationshipStartYear || '').trim().slice(0, 4)
+    }, req.auth.user.id);
+    res.json({ supplier });
+  }));
+
+  app.delete('/api/v1/suppliers/:id', authenticate(store), permit('suppliers.manage'), asyncRoute(async (req, res) => {
+    res.json({ deleted: await store.deleteSupplier(req.auth.company.id, uuid(req.params.id, 'supplierId'), req.auth.user.id) });
+  }));
+
   app.post('/api/v1/warehouses', authenticate(store), permit('inventory.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['code', 'name']);
     if (req.body.kind && !['standard', 'vehicle', 'pos'].includes(req.body.kind)) throw new AppError(400, 'INVALID_WAREHOUSE_KIND', 'نوع المخزن غير صالح');
