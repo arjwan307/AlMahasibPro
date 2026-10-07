@@ -26,6 +26,7 @@ export class MemoryStore {
     this.stockBalances = new Map();
     this.commerceDocuments = new Map();
     this.journalEntries = new Map();
+    this.chartAccounts = new Map();
     this.serverOutbox = [];
     this.itemBarcodes = new Map();
     this.posDevices = new Map();
@@ -461,6 +462,51 @@ export class MemoryStore {
       transfers: [...this.stockTransfers.values()].filter(belongs).map(clone),
       settlements: [...this.financialRecords.values()].filter(row => belongs(row) && row.kind === 'enterprise_settlement').map(clone),
       users: [...this.users.values()].filter(belongs).map(row => this.#publicUser(row)) };
+  }
+
+  listChartAccounts(companyId) {
+    const defaults = [
+      ['1000-CASH','الصندوق','asset'],['1010-BANK','البنك','asset'],['1100-AR','ذمم العملاء','asset'],
+      ['1150-REP-CASH-CUSTODY','عهدة نقد المندوبين','asset'],['1200-INVENTORY','المخزون','asset'],
+      ['1300-EMPLOYEE-ADVANCES','سلف الموظفين','asset'],['1400-EMPLOYEE-RECEIVABLE','ذمم الموظفين','asset'],
+      ['2100-AP','ذمم الموردين','liability'],['2200-PAYROLL-DEDUCTIONS','استقطاعات الرواتب','liability'],
+      ['2300-PAYROLL-PAYABLE','رواتب مستحقة','liability'],['3000-EQUITY','حقوق الملكية','equity'],
+      ['4100-SALES','المبيعات','revenue'],['4200-SALES-RETURNS','مردودات المبيعات','contra_revenue'],
+      ['5100-COGS','كلفة البضاعة المباعة','expense'],['6100-PAYROLL-EXPENSE','مصروف الرواتب','expense'],
+      ['6150-PAYROLL-RECOVERY','استردادات الرواتب','revenue']
+    ];
+    const custom=[...this.chartAccounts.values()].filter(x=>x.companyId===companyId);
+    return defaults.map(([code,name,type])=>({companyId,code,name,type,system:true,active:true})).concat(custom).map(clone);
+  }
+
+  async createChartAccount(companyId,input,actorUserId) {
+    const code=String(input.code||'').trim().toUpperCase(), name=String(input.name||'').trim();
+    const type=String(input.type||'').trim();
+    if(!code||!name||!['asset','liability','equity','revenue','expense','contra_revenue'].includes(type)) throw new AppError(400,'INVALID_ACCOUNT','بيانات الحساب غير صالحة');
+    if(this.listChartAccounts(companyId).some(x=>x.code===code)) throw new AppError(409,'ACCOUNT_CODE_EXISTS','رمز الحساب مستخدم');
+    const row={id:randomUUID(),companyId,code,name,type,parentCode:input.parentCode||null,system:false,active:true,createdAt:new Date().toISOString()};
+    this.chartAccounts.set(row.id,row); this.#audit(companyId,actorUserId,'account.created','chart_account',row.id,{code}); this.#change(companyId,'chart_account',row.id,'upsert',row); return clone(row);
+  }
+
+  async postManualJournal(context,input) {
+    const existing=[...this.journalEntries.values()].find(x=>x.companyId===context.company.id&&x.operationId===input.operationId);
+    if(existing)return clone(existing);
+    const currency=String(input.currency||context.company.currency).toUpperCase();
+    if(currency!==context.company.currency)throw new AppError(400,'DOCUMENT_CURRENCY_MISMATCH','القيد يجب أن يكون بعملة الشركة');
+    if(!Array.isArray(input.lines)||input.lines.length<2)throw new AppError(400,'JOURNAL_LINES_REQUIRED','القيد يحتاج سطرين على الأقل');
+    const accounts=new Set(this.listChartAccounts(context.company.id).filter(x=>x.active).map(x=>x.code));
+    const lines=input.lines.map(x=>{if(!accounts.has(x.accountCode))throw new AppError(400,'ACCOUNT_NOT_FOUND','الحساب غير موجود');const debit=decimal(x.debit||'0',{nonNegative:true}),credit=decimal(x.credit||'0',{nonNegative:true});if((debit>ZERO)===(credit>ZERO))throw new AppError(400,'INVALID_JOURNAL_LINE','كل سطر يجب أن يكون مدينًا أو دائنًا فقط');return {accountCode:x.accountCode,debit:decimalString(debit),credit:decimalString(credit),note:String(x.note||'')};});
+    const debit=lines.reduce((n,x)=>n+decimal(x.debit),ZERO),credit=lines.reduce((n,x)=>n+decimal(x.credit),ZERO);if(debit!==credit)throw new AppError(400,'UNBALANCED_JOURNAL','القيد غير متوازن');
+    const row={id:randomUUID(),companyId:context.company.id,entryNumber:String(input.entryNumber||'').trim(),operationId:input.operationId,status:'posted',currency,description:String(input.description||''),occurredAt:input.occurredAt,createdBy:context.user.id,lines};
+    if(!row.entryNumber)throw new AppError(400,'ENTRY_NUMBER_REQUIRED','رقم القيد مطلوب');if([...this.journalEntries.values()].some(x=>x.companyId===row.companyId&&x.entryNumber===row.entryNumber))throw new AppError(409,'ENTRY_NUMBER_EXISTS','رقم القيد مستخدم');
+    this.journalEntries.set(row.id,Object.freeze(row));this.#audit(row.companyId,context.user.id,'journal.posted','journal_entry',row.id,{});this.#change(row.companyId,'journal_entry',row.id,'upsert',row);return clone(row);
+  }
+
+  async reverseJournal(context,id,input) {
+    const original=this.journalEntries.get(id);if(!original||original.companyId!==context.company.id)throw new AppError(404,'JOURNAL_NOT_FOUND','القيد غير موجود');
+    if(original.reversedByJournalId)throw new AppError(409,'JOURNAL_ALREADY_REVERSED','القيد معكوس سابقًا');
+    const reversal=await this.postManualJournal(context,{operationId:input.operationId,entryNumber:input.entryNumber,currency:original.currency,description:'عكس '+(original.entryNumber||original.id),occurredAt:input.occurredAt,lines:original.lines.map(x=>({accountCode:x.accountCode,debit:x.credit,credit:x.debit,note:'عكس القيد'}))});
+    const mutable={...original,reversedByJournalId:reversal.id};this.journalEntries.set(id,Object.freeze(mutable));return reversal;
   }
 
   async transferEnterpriseStock(context, input) {
