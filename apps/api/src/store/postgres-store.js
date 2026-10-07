@@ -264,8 +264,8 @@ export class PostgresStore {
     return this.#tenantWrite(companyId, `${type.toUpperCase()}_CODE_EXISTS`, async (client) => {
       const result = type === 'customer'
         ? await client.query(
-          `INSERT INTO customers(company_id,code,name,phone,credit_limit) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-          [companyId, input.code, input.name, input.phone || null, input.creditLimit || '0']
+          `INSERT INTO customers(company_id,code,name,phone,credit_limit,province,district,address) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+          [companyId, input.code, input.name, input.phone || null, input.creditLimit || '0', input.province || null, input.district || null, input.address || null]
         )
         : await client.query(
           `INSERT INTO suppliers(company_id,code,name,phone) VALUES ($1,$2,$3,$4) RETURNING *`,
@@ -324,6 +324,53 @@ export class PostgresStore {
         });
       }
       return result;
+    });
+  }
+
+  async listCustomerAccountSummaries(companyId) {
+    return this.#transaction({ companyId }, async (client) => {
+      const result = await client.query(`
+        SELECT c.id AS customer_id,
+          COALESCE(SUM(m.amount),0)::numeric(20,6) AS outstanding,
+          MAX(m.occurred_at) AS last_movement_at,
+          COALESCE(SUM(CASE WHEN m.movement_type='collection' THEN -m.amount ELSE 0 END),0)::numeric(20,6) AS collected_total,
+          MAX(m.occurred_at) FILTER (WHERE m.movement_type='collection') AS last_collection_at,
+          MAX(-m.amount) FILTER (WHERE m.movement_type='collection') AS last_collection_amount
+        FROM customers c LEFT JOIN customer_debt_movements m
+          ON m.company_id=c.company_id AND m.customer_id=c.id
+          AND m.currency=(SELECT currency FROM companies WHERE id=$1)
+        WHERE c.company_id=$1 GROUP BY c.id`, [companyId]);
+      const docs = await client.query(`
+        SELECT customer_id, COALESCE(SUM(paid_amount),0)::numeric(20,6) AS paid_total,
+          MAX(occurred_at) AS last_movement_at
+        FROM commerce_documents WHERE company_id=$1 AND customer_id IS NOT NULL
+          AND currency=(SELECT currency FROM companies WHERE id=$1)
+        GROUP BY customer_id`, [companyId]);
+      const lastPayments = await client.query(`
+        SELECT DISTINCT ON (customer_id) customer_id, paid_amount, occurred_at
+        FROM commerce_documents WHERE company_id=$1 AND customer_id IS NOT NULL AND paid_amount>0
+          AND currency=(SELECT currency FROM companies WHERE id=$1)
+        ORDER BY customer_id, occurred_at DESC, created_at DESC`, [companyId]);
+      const accounts = {};
+      for (const row of result.rows) accounts[row.customer_id] = {
+        outstanding: decimalString(decimal(row.outstanding)), paidTotal: decimalString(decimal(row.collected_total)),
+        lastMovementAt: row.last_movement_at, lastPaymentAt: row.last_collection_at,
+        lastPaymentAmount: row.last_collection_amount == null ? '0.000000' : decimalString(decimal(row.last_collection_amount))
+      };
+      for (const row of docs.rows) {
+        const account = accounts[row.customer_id]; if (!account) continue;
+        account.paidTotal = decimalString(decimal(account.paidTotal) + decimal(row.paid_total || '0'));
+        if (row.last_movement_at && (!account.lastMovementAt || new Date(row.last_movement_at) > new Date(account.lastMovementAt))) account.lastMovementAt = row.last_movement_at;
+      }
+      for (const row of lastPayments.rows) {
+        const account = accounts[row.customer_id]; if (!account) continue;
+        if (!account.lastPaymentAt || new Date(row.occurred_at) > new Date(account.lastPaymentAt)) {
+          account.lastPaymentAt = row.occurred_at;
+          account.lastPaymentAmount = decimalString(decimal(row.paid_amount || '0'));
+        }
+      }
+      for (const account of Object.values(accounts)) account.currency = 'IQD';
+      return accounts;
     });
   }
 
@@ -1050,7 +1097,7 @@ function mapPrice(row) {
 function mapParty(row, type) {
   return {
     id: row.id, companyId: row.company_id, code: row.code, name: row.name, phone: row.phone,
-    active: row.active, ...(type === 'customer' ? { creditLimit: decimalString(decimal(row.credit_limit)) } : {})
+    active: row.active, ...(type === 'customer' ? { creditLimit: decimalString(decimal(row.credit_limit)), province: row.province || '', district: row.district || '', address: row.address || '' } : {})
   };
 }
 
@@ -1153,3 +1200,4 @@ function mapRepresentativeRoute(row){return{id:row.id,companyId:row.company_id,r
 function mapRepresentativeOrder(row){return{id:row.id,companyId:row.company_id,representativeId:row.representative_id,customerId:row.customer_id,orderNumber:row.order_number,currency:row.currency,total:decimalString(decimal(row.total)),status:row.status,saleDocumentId:row.sale_document_id,operationId:row.operation_id,occurredAt:row.occurred_at};}
 function mapRepresentativeHandover(row){return{id:row.id,companyId:row.company_id,representativeId:row.representative_id,destinationWarehouseId:row.destination_warehouse_id,handoverNumber:row.handover_number,expectedCash:decimalString(decimal(row.expected_cash)),submittedCash:decimalString(decimal(row.submitted_cash)),reviewedCash:row.reviewed_cash==null?null:decimalString(decimal(row.reviewed_cash)),cashVariance:row.cash_variance==null?null:decimalString(decimal(row.cash_variance)),currency:row.currency,status:row.status,submittedAt:row.submitted_at,reviewedAt:row.reviewed_at};}
 function mapConflict(row){return{id:row.id,operationId:row.operation_id,deviceId:row.device_id,code:row.code,message:row.message,createdAt:row.created_at};}
+
