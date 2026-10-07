@@ -379,7 +379,7 @@ export class MemoryStore {
     const map = type === 'customer' ? this.customers : this.suppliers;
     this.#assertUnique(map, companyId, 'code', input.code, `${type.toUpperCase()}_CODE_EXISTS`);
     const party = { id: randomUUID(), companyId, code: input.code, name: input.name, phone: input.phone || null,
-      ...(type === 'customer' ? { province: input.province || '', district: input.district || '', address: input.address || '', salesChannel: input.salesChannel === 'wholesale' ? 'wholesale' : 'retail' } : { country: input.country || '', companyName: input.companyName || '', specialty: input.specialty || '', relationshipStartYear: input.relationshipStartYear || '' }), active: true };
+      ...(type === 'customer' ? { province: input.province || '', district: input.district || '', address: input.address || '', paymentPreference: ['cash','credit','mixed'].includes(input.paymentPreference) ? input.paymentPreference : 'cash', salesChannel: input.salesChannel === 'wholesale' ? 'wholesale' : 'retail' } : { country: input.country || '', companyName: input.companyName || '', specialty: input.specialty || '', relationshipStartYear: input.relationshipStartYear || '' }), active: true };
     if (type === 'customer') party.creditLimit = decimalString(decimal(input.creditLimit || '0', { nonNegative: true }));
     map.set(party.id, party);
     this.#audit(companyId, actorUserId, `${type}.created`, type, party.id, {});
