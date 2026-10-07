@@ -616,6 +616,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       operationId: uuid(req.body.operationId,'operationId'), documentId: uuid(req.body.documentId,'documentId'), amount: decimalInput(req.body.amount,{positive:true}),
       receiptNumber: String(req.body.receiptNumber).slice(0,64), method: req.body.method,
       bankName: String(req.body.bankName || '').trim().slice(0,160), transactionNumber: String(req.body.transactionNumber || '').trim().slice(0,120),
+      receivedAmount: decimalInput(req.body.receivedAmount || req.body.amount,{positive:true}), receivedCurrency: currency(req.body.receivedCurrency || req.body.currency || 'USD'),
+      exchangeRate: decimalInput(req.body.exchangeRate || '1',{positive:true}),
       occurredAt: /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paymentDate||'')) ? new Date(req.body.paymentDate+'T12:00:00.000Z').toISOString() : new Date().toISOString()
     }) });
   }));
