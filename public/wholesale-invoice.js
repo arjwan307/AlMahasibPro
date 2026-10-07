@@ -3,11 +3,11 @@
 const $=id=>document.getElementById(id), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=v=>(Number(v||0)).toLocaleString('ar-IQ',{maximumFractionDigits:2})+' د.ع';
 const templates={classic:'رسمي كلاسيكي',modern:'حديث',trade:'تجاري',minimal:'بسيط',luxury:'فاخر'};
-let account,master,settings,invoices=[],cart=[],logoData='';
+let account,master,settings,invoices=[],accounts={},cart=[],logoData='';
 async function api(path,options={}){const r=await fetch(path,{credentials:'same-origin',...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error?.message||'تعذر إكمال الطلب');return d}
 function notice(message){alert(message)}
 async function init(){try{
-[account,master,settings]=await Promise.all([api('/api/v1/bootstrap'),api('/api/v1/master-data'),api('/api/v1/wholesale/settings').then(x=>x.settings)]);
+[account,master,settings,accounts]=await Promise.all([api('/api/v1/bootstrap'),api('/api/v1/master-data'),api('/api/v1/wholesale/settings').then(x=>x.settings),api('/api/v1/wholesale/accounts').then(x=>x.accounts||{})]);
 const p=new Set(account.permissions||[]);const type=$('repType');
 if(p.has('sales.wholesale.submit'))type.add(new Option('مندوب مبيعات جملة','wholesale'));
 if(p.has('sales.retail.submit'))type.add(new Option('مندوب مبيعات مفرد','retail'));
@@ -22,7 +22,7 @@ function populate(){ $('customer').innerHTML='<option value="">اختر العم
 $('warehouse').innerHTML='<option value="">اختر المخزن أو الفرع</option>'+master.warehouses.filter(w=>w.active!==false).map(w=>'<option value="'+esc(w.id)+'">'+esc(w.name)+(w.code?' — '+esc(w.code):'')+'</option>').join('');renderProducts()}
 function currentCustomer(){return master.customers.find(c=>c.id===$('customer').value)}
 function renderCustomer(){const c=currentCustomer();if(!c){$('customerInfo').innerHTML='';return}
-const entries=[['رقم الهاتف',c.phone||'—'],['المحافظة',c.province||c.governorate||'—'],['القضاء / المنطقة',c.district||c.area||c.address||'—'],['نوع الحساب',c.accountType||'—'],['حد الائتمان',c.creditLimit?money(c.creditLimit):'—']];
+const a=accounts[c.id]||{};const entries=[['رقم الهاتف',c.phone||'—'],['المحافظة',c.province||c.governorate||'—'],['القضاء / المنطقة',c.district||c.area||c.address||'—'],['آخر حركة',a.lastMovementAt?fmtDate(a.lastMovementAt):'—'],['آخر تسديد',a.lastPaymentAt?fmtDate(a.lastPaymentAt):'—'],['المبلغ المسدد',money(a.paidTotal||0)],['المبلغ المتبقي',money(a.outstanding||0)],['حد الائتمان',c.creditLimit?money(c.creditLimit):'—']];
 $('customerInfo').innerHTML=entries.map(([k,v])=>'<div class="info"><span>'+esc(k)+'</span><b>'+esc(v)+'</b></div>').join('')}
 function selectedWarehouse(){return master.warehouses.find(w=>w.id===$('warehouse').value)}
 function stockQty(itemId,wid){const rows=(master.stock||[]).filter(x=>x.itemId===itemId&&x.warehouseId===wid);return rows.reduce((n,x)=>n+Number(x.quantity||x.onHand||0),0)}
