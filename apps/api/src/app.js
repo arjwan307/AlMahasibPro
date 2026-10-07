@@ -197,7 +197,10 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     requireFields(req.body, ['code', 'name']);
     const customer = await store.createParty(req.auth.company.id, 'customer', {
       code: entityCode(req.body.code), name: req.body.name.trim(), phone: req.body.phone,
-      creditLimit: decimalInput(req.body.creditLimit || '0', { nonNegative: true })
+      creditLimit: decimalInput(req.body.creditLimit || '0', { nonNegative: true }),
+      province: String(req.body.province || '').trim().slice(0, 80),
+      district: String(req.body.district || '').trim().slice(0, 100),
+      address: String(req.body.address || '').trim().slice(0, 240)
     }, req.auth.user.id);
     res.status(201).json({ customer });
   }));
@@ -503,6 +506,201 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     });
     const results = await store.pushOperations(req.auth, [operation]);
     res.json({ ok: true, result: results[0] });
+  }));
+
+
+  async function wholesaleRecords(companyId) {
+    const latest = new Map(); let cursor = 0, guard = 0;
+    do {
+      const page = await store.pullChanges(companyId, cursor, 500);
+      for (const row of page.changes || []) {
+        const payload = row.payload || row.data || {};
+        if (row.entityType === 'draft' && payload.feature === 'wholesale-invoice' && payload.entityId) latest.set(String(payload.entityId), payload);
+      }
+      if (!page.hasMore || page.nextCursor === cursor) break;
+      cursor = page.nextCursor; guard += 1;
+    } while (guard < 200);
+    return latest;
+  }
+  async function saveWholesaleRecord(context, record) {
+    const now = new Date().toISOString();
+    const operation = validateOperation({
+      operationId: randomUUID(), deviceId: String(context.session.deviceId || 'wholesale-web'),
+      clientSequence: Date.now() + Math.floor(Math.random() * 100000), occurredAt: now,
+      schemaVersion: 1, dependencies: [], type: 'draft.wholesale_invoice',
+      payload: { ...record, feature: 'wholesale-invoice', updatedAt: now, updatedBy: context.user.id }
+    });
+    const [result] = await store.pushOperations(context, [operation]);
+    if (result.status !== 'acknowledged') throw new AppError(409, result.code || 'INVOICE_SAVE_FAILED', result.message || 'تعذر حفظ الفاتورة');
+    return operation.payload;
+  }
+  const invoiceTemplates = ['classic', 'modern', 'trade', 'minimal', 'luxury'];
+  const defaultInvoiceSettings = (company) => ({ entityId: 'wholesale-settings', feature: 'wholesale-invoice', recordType: 'settings', template: 'classic', commercialName: company?.legalName || '', logo: '', address: company?.address || '', phone: company?.phone || '', registration: '', footer: 'شكرًا لتعاملكم معنا', signatory: '' });
+
+  app.get('/api/v1/wholesale/invoices', authenticate(store), permitAny(['sales.read', 'sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize']), asyncRoute(async (req, res) => {
+    const records = await wholesaleRecords(req.auth.company.id);
+    let invoices = [...records.values()].filter((x) => x.recordType === 'invoice').map((x) => x.invoice);
+    const canReview = req.auth.permissions.includes('sales.wholesale.review') || req.auth.permissions.includes('sales.wholesale.finalize') || req.auth.permissions.includes('sales.invoice.template.manage');
+    if (!canReview) invoices = invoices.filter((x) => x.createdBy === req.auth.user.id);
+    invoices.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    res.json({ invoices });
+  }));
+
+  app.get('/api/v1/wholesale/accounts', authenticate(store), permitAny(['sales.read', 'sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize']), asyncRoute(async (req, res) => {
+    res.json({ accounts: await store.listCustomerAccountSummaries(req.auth.company.id) });
+  }));
+
+  app.get('/api/v1/wholesale/settings', authenticate(store), permitAny(['sales.read', 'sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize']), asyncRoute(async (req, res) => {
+    const records = await wholesaleRecords(req.auth.company.id);
+    const row = records.get('wholesale-settings');
+    res.json({ settings: row?.recordType === 'settings' ? row.settings : defaultInvoiceSettings(req.auth.company) });
+  }));
+
+  app.post('/api/v1/wholesale/settings', authenticate(store), permit('sales.invoice.template.manage'), asyncRoute(async (req, res) => {
+    const b = req.body || {};
+    if (!invoiceTemplates.includes(String(b.template || ''))) throw new AppError(400, 'INVALID_INVOICE_TEMPLATE', 'قالب الفاتورة غير صالح');
+    const logo = String(b.logo || '');
+    if (logo && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(logo) || logo.length > 1400000)) throw new AppError(400, 'INVALID_INVOICE_LOGO', 'ارفع شعارًا بصيغة PNG أو JPG أو WebP بحجم لا يتجاوز 1MB');
+    const settings = {
+      entityId: 'wholesale-settings', recordType: 'settings', template: String(b.template),
+      commercialName: String(b.commercialName || '').trim().slice(0, 140), logo,
+      address: String(b.address || '').trim().slice(0, 240), phone: String(b.phone || '').trim().slice(0, 48),
+      registration: String(b.registration || '').trim().slice(0, 80), footer: String(b.footer || '').trim().slice(0, 240),
+      signatory: String(b.signatory || '').trim().slice(0, 100)
+    };
+    await saveWholesaleRecord(req.auth, { entityId: 'wholesale-settings', recordType: 'settings', settings });
+    res.json({ settings });
+  }));
+
+  app.post('/api/v1/wholesale/invoices', authenticate(store), asyncRoute(async (req, res) => {
+    const b = req.body || {}, repType = String(b.representativeType || '');
+    const submitPermission = repType === 'wholesale' ? 'sales.wholesale.submit' : repType === 'retail' ? 'sales.retail.submit' : '';
+    if (!submitPermission || !req.auth.permissions.includes(submitPermission)) throw new AppError(403, 'PERMISSION_DENIED', 'لا توجد صلاحية لهذا النوع من المبيعات');
+    requireFields(b, ['customerId', 'warehouseId', 'currency', 'paymentType']);
+    if (!['cash', 'credit', 'mixed'].includes(b.paymentType)) throw new AppError(400, 'INVALID_PAYMENT_TYPE', 'نوع الدفع غير صالح');
+    if (!Array.isArray(b.lines) || !b.lines.length || b.lines.length > 300) throw new AppError(400, 'DOCUMENT_LINES_REQUIRED', 'أضف صنفًا واحدًا على الأقل');
+    const master = await store.listMasterData(req.auth.company.id);
+    const customer = master.customers.find((x) => x.id === uuid(b.customerId, 'customerId'));
+    const warehouse = master.warehouses.find((x) => x.id === uuid(b.warehouseId, 'warehouseId') && x.active !== false);
+    if (!customer || !warehouse) throw new AppError(400, 'CUSTOMER_OR_WAREHOUSE_NOT_FOUND', 'العميل أو المخزن المحدد غير موجود');
+    const warehouseScopes = (req.auth.scopes || []).filter((x) => x.type === 'warehouse');
+    if (warehouseScopes.length && !warehouseScopes.some((x) => x.id === warehouse.id)) throw new AppError(403, 'WAREHOUSE_SCOPE_DENIED', 'المخزن خارج نطاق حسابك');
+    const branchScopes = (req.auth.scopes || []).filter((x) => x.type === 'branch');
+    if (branchScopes.length && !branchScopes.some((x) => x.id === warehouse.branchId)) throw new AppError(403, 'BRANCH_SCOPE_DENIED', 'الفرع خارج نطاق حسابك');
+    const customerScopes = (req.auth.scopes || []).filter((x) => x.type === 'customers');
+    if (customerScopes.length && !customerScopes.some((x) => x.id === customer.id)) throw new AppError(403, 'CUSTOMER_SCOPE_DENIED', 'العميل خارج نطاق حسابك');
+    const lines = b.lines.map((line) => {
+      const itemId = uuid(line.itemId, 'itemId'), unitId = uuid(line.unitId, 'unitId');
+      const item = master.items.find((x) => x.id === itemId);
+      if (!item || !(item.units || []).some((u) => (u.unitId || u.id) === unitId)) throw new AppError(400, 'INVOICE_ITEM_NOT_FOUND', 'أحد الأصناف أو وحداته غير موجود');
+      const quantity = decimalInput(line.quantity, { positive: true });
+      const unitPrice = decimalInput(line.unitPrice, { nonNegative: true });
+      const unit = master.units.find((x) => x.id === unitId);
+      return { itemId, unitId, sku: item.sku, name: item.name, unitName: unit?.name || '', quantity, unitPrice, lineTotal: decimalString(decimal(quantity) * decimal(unitPrice) / 1000000n) };
+    });
+    const subtotal = lines.reduce((sum, line) => sum + decimal(line.lineTotal), 0n);
+    const discountAmount = decimalInput(b.discountAmount || '0', { nonNegative: true });
+    const total = subtotal - decimal(discountAmount);
+    if (total < 0n) throw new AppError(400, 'DISCOUNT_EXCEEDS_TOTAL', 'الخصم أكبر من إجمالي الفاتورة');
+    const paidAmount = decimalInput(b.paidAmount || '0', { nonNegative: true });
+    if (decimal(paidAmount) > total || (b.paymentType === 'cash' && decimal(paidAmount) !== total) || (b.paymentType === 'credit' && decimal(paidAmount) !== 0n) || (b.paymentType === 'mixed' && (decimal(paidAmount) <= 0n || decimal(paidAmount) >= total))) throw new AppError(400, 'INVALID_PAYMENT_AMOUNT', 'المبلغ المسدد لا يطابق نوع الدفع');
+    const records = await wholesaleRecords(req.auth.company.id);
+    const count = [...records.values()].filter((x) => x.recordType === 'invoice' && x.invoice?.representativeType === repType).length + 1;
+    const createdAt = new Date().toISOString();
+    const notes = String(b.internalNote || '').trim() ? [{ id: randomUUID(), text: String(b.internalNote).trim().slice(0, 1600), authorId: req.auth.user.id, authorName: req.auth.user.displayName, createdAt }] : [];
+    const invoice = {
+      id: randomUUID(), invoiceNumber: (repType === 'wholesale' ? 'WH' : 'RT') + '-' + String(count).padStart(6, '0'),
+      representativeType: repType, representativeName: req.auth.user.displayName, createdBy: req.auth.user.id,
+      customerId: customer.id, customerName: customer.name, customerPhone: customer.phone || '',
+      customerProvince: customer.province || customer.governorate || '', customerDistrict: customer.district || customer.area || '',
+      warehouseId: warehouse.id, warehouseName: warehouse.name, currency: currency(b.currency),
+      paymentType: b.paymentType, paidAmount, outstandingAmount: decimalString(total - decimal(paidAmount)),
+      lines, subtotal: decimalString(subtotal), discountAmount, total: decimalString(total),
+      status: 'pending_wholesale_manager', notes, postingOperationId: randomUUID(),
+      createdAt, createdByName: req.auth.user.displayName
+    };
+    await saveWholesaleRecord(req.auth, { entityId: invoice.id, recordType: 'invoice', invoice });
+    res.status(201).json({ invoice });
+  }));
+
+  app.post('/api/v1/wholesale/invoices/:invoiceId/notes', authenticate(store), asyncRoute(async (req, res) => {
+    const canNote = ['sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize'].some((p) => req.auth.permissions.includes(p));
+    if (!canNote) throw new AppError(403, 'PERMISSION_DENIED', 'لا توجد صلاحية لإضافة ملاحظة');
+    const note = String(req.body?.note || '').trim();
+    if (!note || note.length > 1600) throw new AppError(400, 'NOTE_REQUIRED', 'اكتب الملاحظة بحد أقصى 1600 حرف');
+    const records = await wholesaleRecords(req.auth.company.id), current = records.get(String(req.params.invoiceId));
+    if (!current?.invoice) throw new AppError(404, 'INVOICE_NOT_FOUND', 'الفاتورة غير موجودة');
+    const invoice = structuredClone(current.invoice);
+    const manager = req.auth.permissions.includes('sales.wholesale.review') || req.auth.permissions.includes('sales.wholesale.finalize');
+    if (!manager && invoice.createdBy !== req.auth.user.id) throw new AppError(403, 'INVOICE_SCOPE_DENIED', 'لا يمكن تعديل فاتورة مستخدم آخر');
+    invoice.notes = [...(invoice.notes || []), { id: randomUUID(), text: note, authorId: req.auth.user.id, authorName: req.auth.user.displayName, createdAt: new Date().toISOString() }];
+    await saveWholesaleRecord(req.auth, { entityId: invoice.id, recordType: 'invoice', invoice });
+    res.json({ invoice });
+  }));
+
+  async function finalizeWholesaleInvoice(context, invoice, decisionNote = '') {
+    requireCommercePermission(context, 'sale');
+    const document = {
+      ...validateCommercePayload({
+        documentType: 'sale', documentNumber: invoice.invoiceNumber, warehouseId: invoice.warehouseId,
+        partyId: invoice.customerId, originalDocumentId: null, currency: invoice.currency,
+        lines: invoice.lines.map((line) => ({ itemId: line.itemId, unitId: line.unitId, originalLineId: null, quantity: line.quantity, unitPrice: line.unitPrice })),
+        payments: decimal(invoice.paidAmount) > 0n ? [{ method: 'cash', amount: invoice.paidAmount, reference: invoice.invoiceNumber }] : []
+      }),
+      discountAmount: invoice.discountAmount
+    };
+    const operation = validateOperation({
+      operationId: invoice.postingOperationId, deviceId: String(context.session.deviceId || 'wholesale-web'),
+      clientSequence: Date.now() + Math.floor(Math.random() * 100000), occurredAt: invoice.createdAt,
+      schemaVersion: 1, dependencies: [], type: 'commerce.commit', payload: document
+    });
+    const [posted] = await store.pushOperations(context, [operation]);
+    if (posted.status !== 'acknowledged') throw new AppError(409, posted.code || 'INVOICE_POST_FAILED', posted.message || 'تعذر اعتماد المخزون؛ لم تُعتمد الفاتورة');
+    const approved = structuredClone(invoice);
+    approved.status = 'approved'; approved.approvedAt = new Date().toISOString(); approved.approvedBy = context.user.id;
+    approved.approvedByName = context.user.displayName; approved.postedDocumentId = posted.document?.id || posted.entityId || null;
+    if (decisionNote) approved.notes = [...(approved.notes || []), { id: randomUUID(), text: decisionNote.slice(0, 1600), authorId: context.user.id, authorName: context.user.displayName, createdAt: new Date().toISOString() }];
+    return approved;
+  }
+
+  app.post('/api/v1/wholesale/invoices/:invoiceId/decision', authenticate(store), asyncRoute(async (req, res) => {
+    const action = String(req.body?.action || ''), note = String(req.body?.note || '').trim();
+    const manager = req.auth.permissions.includes('sales.wholesale.review');
+    const generalManager = req.auth.permissions.includes('sales.wholesale.finalize');
+    if (!manager && !generalManager) throw new AppError(403, 'PERMISSION_DENIED', 'لا توجد صلاحية لاعتماد الفواتير');
+    const records = await wholesaleRecords(req.auth.company.id), row = records.get(String(req.params.invoiceId));
+    if (!row?.invoice) throw new AppError(404, 'INVOICE_NOT_FOUND', 'الفاتورة غير موجودة');
+    const invoice = structuredClone(row.invoice);
+    if (manager && invoice.status === 'pending_wholesale_manager') {
+      if (action === 'approve') {
+        const approved = await finalizeWholesaleInvoice(req.auth, invoice);
+        await saveWholesaleRecord(req.auth, { entityId: invoice.id, recordType: 'invoice', invoice: approved });
+        return res.json({ invoice: approved });
+      }
+      if (action === 'forward' || action === 'return') {
+        if (!note) throw new AppError(400, 'NOTE_REQUIRED', 'سبب التحويل أو الإرجاع إلزامي');
+        invoice.notes = [...(invoice.notes || []), { id: randomUUID(), text: note.slice(0, 1600), authorId: req.auth.user.id, authorName: req.auth.user.displayName, createdAt: new Date().toISOString() }];
+        invoice.status = action === 'forward' ? 'pending_general_manager' : 'returned';
+        invoice.managerDecisionAt = new Date().toISOString(); invoice.managerDecisionBy = req.auth.user.id;
+        await saveWholesaleRecord(req.auth, { entityId: invoice.id, recordType: 'invoice', invoice });
+        return res.json({ invoice });
+      }
+    }
+    if (generalManager && invoice.status === 'pending_general_manager') {
+      if (action === 'approve') {
+        const approved = await finalizeWholesaleInvoice(req.auth, invoice);
+        await saveWholesaleRecord(req.auth, { entityId: invoice.id, recordType: 'invoice', invoice: approved });
+        return res.json({ invoice: approved });
+      }
+      if (action === 'return') {
+        if (!note) throw new AppError(400, 'NOTE_REQUIRED', 'سبب الإرجاع إلزامي');
+        invoice.notes = [...(invoice.notes || []), { id: randomUUID(), text: note.slice(0, 1600), authorId: req.auth.user.id, authorName: req.auth.user.displayName, createdAt: new Date().toISOString() }];
+        invoice.status = 'returned'; invoice.finalDecisionAt = new Date().toISOString(); invoice.finalDecisionBy = req.auth.user.id;
+        await saveWholesaleRecord(req.auth, { entityId: invoice.id, recordType: 'invoice', invoice });
+        return res.json({ invoice });
+      }
+    }
+    throw new AppError(409, 'INVALID_INVOICE_TRANSITION', 'حالة الفاتورة لا تسمح بهذا الإجراء');
   }));
 
   app.use('/api', (req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'المسار غير موجود' } }));
