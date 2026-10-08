@@ -5,7 +5,7 @@ const launcher=document.getElementById('assistantLauncher'),panel=document.getEl
 const history=[];let ready=false,busy=false;
 const addMessage=(text,role,error=false)=>{const node=document.createElement('div');node.className='assistant-bubble '+(role==='user'?'user':'bot')+(error?' assistant-error':'');node.textContent=text;messagesBox.append(node);messagesBox.scrollTop=messagesBox.scrollHeight;};
 async function api(url,options={}){const response=await fetch(url,{credentials:'same-origin',...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error?.message||'تعذر الاتصال بالمساعد');return data;}
-async function checkStatus(){try{const data=await api('/api/v1/assistant/status');ready=Boolean(data.available);status.textContent=data.available?'متصل بمحرك '+data.model:data.configured?'المحرك غير متاح: '+data.model:'لم يُربط محرك محلي بعد';send.disabled=!ready;}catch(error){ready=false;send.disabled=true;status.textContent=error.message;}}
+async function checkStatus(){try{const data=await api('/api/v1/assistant/status');ready=Boolean(data.available);status.textContent=data.available?'متصل سحابيًا · '+data.model:data.configured?'المساعد السحابي غير متاح: '+data.model:'لم يُضبط مفتاح المساعد السحابي على الخادم';send.disabled=!ready;}catch(error){ready=false;send.disabled=true;status.textContent=error.message;}}
 function show(){panel.hidden=false;launcher.setAttribute('aria-expanded','true');input.focus();}
 function hide(){panel.hidden=true;launcher.setAttribute('aria-expanded','false');}
 launcher.addEventListener('click',()=>panel.hidden?show():hide());document.getElementById('assistantClose').addEventListener('click',hide);
