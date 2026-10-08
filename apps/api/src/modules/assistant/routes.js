@@ -106,6 +106,11 @@ export function installAssistantRoutes(app, { authenticate }) {
       if (!candidates.length) return error(res, 503, 'ASSISTANT_MODEL_UNAVAILABLE', 'لا يوجد نموذج متاح لهذا المفتاح في Groq');
       let lastProviderError;
       for (const model of candidates.slice(0, 2)) {
+        const reasoningOptions = model.startsWith('openai/gpt-oss-')
+          ? { include_reasoning: false, reasoning_effort: 'low' }
+          : model.startsWith('qwen/')
+            ? { reasoning_format: 'hidden' }
+            : {};
         let response;
         try {
           response = await fetch(GROQ_API_URL + '/chat/completions', {
@@ -116,8 +121,7 @@ export function installAssistantRoutes(app, { authenticate }) {
               messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...clean],
               max_completion_tokens: 900,
               temperature: 0.7,
-              reasoning_format: 'hidden',
-              reasoning_effort: 'none'
+              ...reasoningOptions
             }),
             signal: AbortSignal.timeout(10000)
           });
