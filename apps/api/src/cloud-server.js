@@ -50,6 +50,7 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
    await store.approveCompany(company.id,company.ownerUserId);res.status(201).json({companyCode:company.code});
   }catch(error){res.status(400).json({error:{message:error.message}});}finally{configuring=false;}
  });
+ app.use((req,_res,next)=>{req.productScope=product;next();});
  app.use(createApp({store,secureCookies:origin.startsWith('https:'),allowedOrigins:[origin],cookieName:product==='retail'?'almahasib_retail_session':'almahasib_session',cookiePath:basePath?basePath+'/':'/'}));
  return {app,store};
 }
