@@ -403,6 +403,30 @@ export class MemoryStore {
     return clone(party);
   }
 
+  async updateCustomer(companyId, customerId, input, actorUserId) {
+    const customer = this.customers.get(customerId);
+    if (!customer || customer.companyId !== companyId) throw new AppError(404, 'CUSTOMER_NOT_FOUND', 'الزبون غير موجود');
+    if (input.code && input.code !== customer.code) this.#assertUnique(this.customers, companyId, 'code', input.code, 'CUSTOMER_CODE_EXISTS');
+    const next = { ...customer, ...input, id: customer.id, companyId, active: input.active === undefined ? customer.active : input.active,
+      creditLimit: decimalString(decimal(input.creditLimit ?? customer.creditLimit ?? '0', { nonNegative: true })) };
+    this.customers.set(customerId, next);
+    this.#audit(companyId, actorUserId, 'customer.updated', 'customer', customerId, {});
+    this.#change(companyId, 'customer', customerId, 'upsert', next);
+    return clone(next);
+  }
+
+  async deleteCustomer(companyId, customerId, actorUserId) {
+    const customer = this.customers.get(customerId);
+    if (!customer || customer.companyId !== companyId) throw new AppError(404, 'CUSTOMER_NOT_FOUND', 'الزبون غير موجود');
+    const linked = [...this.commerceDocuments.values()].some(d => d.companyId === companyId && (d.customerId === customerId || d.partyId === customerId))
+      || [...this.representativeCustomers.values()].some(r => r.companyId === companyId && (r.customerId === customerId || r.partyId === customerId));
+    if (linked) throw new AppError(409, 'CUSTOMER_HAS_HISTORY', 'الزبون مرتبط بسجلات؛ لا يمكن حذفه. استخدم تعطيل الزبون.');
+    this.customers.delete(customerId);
+    this.#audit(companyId, actorUserId, 'customer.deleted', 'customer', customerId, {});
+    this.#change(companyId, 'customer', customerId, 'delete', {id:customerId});
+    return {deleted:true};
+  }
+
   async updateSupplier(companyId, supplierId, input, actorUserId) {
     const supplier = this.suppliers.get(supplierId);
     if (!supplier || supplier.companyId !== companyId) throw new AppError(404, 'SUPPLIER_NOT_FOUND', 'المورد غير موجود');
