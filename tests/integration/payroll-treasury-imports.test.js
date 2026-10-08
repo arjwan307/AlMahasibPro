@@ -108,7 +108,11 @@ test('payroll approval, cashbox closing, and import landed costs post once to SQ
     await runtime.close();runtime=null;
     runtime=await startEnterpriseLocal({dataDirectory:directory,port:33220});
     assert.equal(runtime.store.payrollCycles.size,1);
+    assert.equal(runtime.store.payrollCycles.get(cycle.id).status,'paid');
     assert.equal(runtime.store.cashboxMovements.size,1);
     assert.equal(runtime.store.importCostPostings.size,1);
+    assert.equal(runtime.store.leaveRequests.get(leave.id).status,'approved');
+    assert.equal(runtime.store.overtimeRequests.get(overtime.id).status,'approved');
+    assert.equal(runtime.store.attendanceEvents.size,2);
   } finally { if(runtime) await runtime.close(); await rm(directory,{recursive:true,force:true}); }
 });
