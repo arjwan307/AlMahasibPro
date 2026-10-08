@@ -28,7 +28,9 @@ test('PostgreSQL store executes the foundation workflow and protects financial r
     assert.equal(context.company.id, company.id);
     assert.ok(context.permissions.includes('company.manage'));
     await store.touchSession(hashToken(token));
-    assert.equal(await store.countOnlineUsers(company.id, new Date(Date.now() - 90000).toISOString()), 1);
+    const onlineSince = new Date(Date.now() - 90000).toISOString();
+    assert.deepEqual(await store.listOnlineUserIds(company.id, onlineSince), [login.user.id]);
+    assert.equal(await store.countOnlineUsers(company.id, onlineSince), 1);
 
     const operation = {
       operationId: crypto.randomUUID(), deviceId: 'postgres-test', clientSequence: 1,
