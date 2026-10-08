@@ -22,6 +22,7 @@ test('company-owned SQLite installation persists accounting, stock, users and ba
   const unit=(await create('/api/v1/catalog/units',{code:'PC',name:'قطعة'})).unit;
   const source=(await create('/api/v1/warehouses',{code:'MAIN',name:'الرئيسي'})).warehouse;
   const target=(await create('/api/v1/warehouses',{code:'BRANCH',name:'الفرع'})).warehouse;
+  const surplusWarehouse=(await create('/api/v1/warehouses',{code:'SURPLUS',name:'مخزن فائض الجرد'})).warehouse;
   const item=(await create('/api/v1/catalog/items',{sku:'ITEM-001',name:'كرسي',baseUnitId:unit.id})).item;
   const customer=(await create('/api/v1/customers',{code:'C001',name:'عميل',creditLimit:'100000'})).customer;
   const commit=async document=>create('/api/v1/commerce/commit',{operationId:crypto.randomUUID(),deviceId:'desktop',clientSequence:Date.now(),occurredAt:new Date().toISOString(),document});
@@ -63,6 +64,11 @@ test('company-owned SQLite installation persists accounting, stock, users and ba
   const stocktake=await create('/api/v1/inventory/stocktakes',countInput);
   assert.equal((await create('/api/v1/inventory/stocktakes',countInput)).stocktake.id,stocktake.stocktake.id,'stocktake retry is idempotent');
   assert.equal(stocktake.stocktake.journalEntryId!=null,true,'stocktake variance posts a journal');
+  const missingCost={operationId:crypto.randomUUID(),stocktakeNumber:'COUNT-SURPLUS',warehouseId:surplusWarehouse.id,lines:[{itemId:item.id,countedQuantity:'2'}]};
+  assert.equal((await request('/api/v1/inventory/stocktakes',missingCost)).status,400,'surplus without a valuation cost is rejected');
+  const valuedSurplus={...missingCost,lines:[{...missingCost.lines[0],unitCost:'25'}]},surplusCount=await create('/api/v1/inventory/stocktakes',valuedSurplus);
+  assert.equal(surplusCount.stocktake.lines[0].value,'50.000000');
+  assert.equal([...runtime.store.stockBalances.values()].find(row=>row.warehouseId===surplusWarehouse.id).averageCost,'25.000000');
   const damageInput={operationId:crypto.randomUUID(),writeoffNumber:'DAMAGE-1',warehouseId:target.id,itemId:item.id,quantity:'1',reason:'تلف أثناء المناولة'};
   const damaged=await create('/api/v1/inventory/damaged-stock',damageInput);
   assert.equal((await create('/api/v1/inventory/damaged-stock',damageInput)).writeoff.id,damaged.writeoff.id,'damage retry is idempotent');
@@ -80,9 +86,9 @@ test('company-owned SQLite installation persists accounting, stock, users and ba
   const stock=[...runtime.store.stockBalances.values()].find(row=>row.warehouseId===source.id);assert.equal(stock.quantity,'4.000000');
   const snapshot=await runtime.store.exportBackup();assert.equal(snapshot.subarray(0,15).toString(),'SQLite format 3');
   const backupFile=join(directory,'backup.sqlite');await writeFile(backupFile,snapshot);
-  const restored=new SQLiteStore(backupFile);assert.equal(restored.commerceDocuments.size,3);assert.equal(restored.stocktakes.size,1);assert.equal(restored.stockWriteoffs.size,1);assert.equal(restored.deliveryLoads.size,2);await restored.close();
+  const restored=new SQLiteStore(backupFile);assert.equal(restored.commerceDocuments.size,3);assert.equal(restored.stocktakes.size,2);assert.equal(restored.stockWriteoffs.size,1);assert.equal(restored.deliveryLoads.size,2);await restored.close();
   await runtime.close();runtime=await startEnterpriseLocal({dataDirectory:directory,port:33219});
-  assert.equal(runtime.store.commerceDocuments.size,3);assert.equal(runtime.store.stockTransfers.size,1);assert.equal(runtime.store.stocktakes.size,1);assert.equal(runtime.store.stockWriteoffs.size,1);assert.equal(runtime.store.deliveryLoads.size,2);
+  assert.equal(runtime.store.commerceDocuments.size,3);assert.equal(runtime.store.stockTransfers.size,1);assert.equal(runtime.store.stocktakes.size,2);assert.equal(runtime.store.stockWriteoffs.size,1);assert.equal(runtime.store.deliveryLoads.size,2);
   assert.ok([...runtime.store.journalEntries.values()].some(row=>row.entryNumber==='MANUAL-1'));
   assert.equal((await request('/api/v1/master-data')).status,200,'session survives restart');
   for(const journal of runtime.store.journalEntries.values()){const amount=value=>BigInt(value.replace('.',''));assert.equal(journal.lines.reduce((s,x)=>s+amount(x.debit)-amount(x.credit),0n),0n);}
