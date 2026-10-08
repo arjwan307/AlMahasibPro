@@ -49,7 +49,7 @@ test('sales workspace isolates channels, enforces exact approvals, reservations,
   const photoResponse=await fetch(rt.url+images[0].url,{headers:{Cookie:seller}});assert.equal(photoResponse.status,200);assert.equal(photoResponse.headers.get('content-type'),'image/png');
   await setting('item',item.id,{channel:'wholesale',movement:'strong',maxDiscountPercent:'3',warehouseId:warehouse.id,reservedQuantity:'8'});
   await setting('warehouse',warehouse.id,{damaged:false,placeType:'showroom'});
-  const purchase={documentType:'purchase',documentNumber:'P1',warehouseId:warehouse.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'10',unitPrice:'4'}],payments:[]};
+  const purchase={documentType:'purchase',documentNumber:'P1',warehouseId:warehouse.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'10',unitPrice:'4'}],payments:[{method:'cash',amount:'40'}]};
   assert.equal((await commit(purchase)).status,201);
   const boot=(await request('/api/v1/sales/bootstrap',null,seller)).data;assert.deepEqual(boot.customers.map(x=>x.id),[customer.id]);assert.deepEqual(boot.prices.map(x=>x.priceType),['sale_retail']);assert.equal(boot.profile.phone,'0771');assert.equal(boot.stock[0].averageCost,undefined);assert.equal(boot.items[0].hasPhotos,true);assert.equal(boot.items[0].photos,undefined);assert.equal(boot.warehouses[0].placeType,'showroom');
   const master=(await request('/api/v1/master-data',null,seller)).data;assert.deepEqual(master.customers.map(x=>x.id),[customer.id]);assert.deepEqual(master.prices.map(x=>x.priceType),['sale_retail']);
