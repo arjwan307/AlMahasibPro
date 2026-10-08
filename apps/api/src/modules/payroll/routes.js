@@ -1,13 +1,49 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, asyncRoute, requireFields } from '../../lib/http.js';
 import { decimal, decimalString } from '../../lib/decimal.js';
+import { payloadHash } from '../../lib/security.js';
 
-const dateOnly = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+const dateOnly = value => { if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;const date=new Date(`${value}T00:00:00Z`);return !Number.isNaN(date.valueOf())&&date.toISOString().slice(0,10)===value; };
 const id = value => { const text=String(value||''); if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)) throw new AppError(400,'INVALID_UUID','المعرف غير صالح'); return text; };
 const anyPermission = permissions => (req,res,next) => permissions.some(x=>req.auth.permissions.includes(x)) ? next() : next(new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية لهذه العملية'));
 
 export function installPayrollRoutes(app,{store,authenticate,permit}) {
   app.get('/api/v1/hr/bootstrap',authenticate(store),anyPermission(['employees.read','employees.manage','payroll.read']),asyncRoute(async(req,res)=>res.json(await store.getHrBootstrap(req.auth))));
+
+  app.post('/api/v1/hr/attendance/:eventType',authenticate(store),anyPermission(['attendance.record','attendance.manage']),asyncRoute(async(req,res)=>{
+    if(!['check-in','check-out'].includes(req.params.eventType))throw new AppError(404,'ATTENDANCE_EVENT_NOT_FOUND','حدث الحضور غير معروف');
+    requireFields(req.body,['operationId','employeeId','eventTime']);
+    const eventTime=Date.parse(req.body.eventTime);if(!Number.isFinite(eventTime))throw new AppError(400,'INVALID_ATTENDANCE_TIME','وقت الحضور غير صالح');
+    const operationId=id(req.body.operationId);
+    const payload={eventId:operationId,employeeId:id(req.body.employeeId),eventTime:new Date(eventTime).toISOString(),source:'hr-api'};
+    const operation={operationId,deviceId:'hr-api',clientSequence:Date.now(),schemaVersion:1,entityVersion:null,dependencies:[],occurredAt:payload.eventTime,type:`attendance.${req.params.eventType.replace('-','_')}`,payloadHash:payloadHash(payload),payload};
+    const [result]=await store.pushOperations(req.auth,[operation]);
+    if(result.status!=='acknowledged')throw new AppError(409,result.code||'ATTENDANCE_REJECTED',result.message||'تعذر تسجيل الحضور');
+    res.status(201).json({attendance:result.attendance});
+  }));
+
+  app.post('/api/v1/hr/leaves',authenticate(store),anyPermission(['leaves.create','leaves.manage']),asyncRoute(async(req,res)=>{
+    requireFields(req.body,['operationId','employeeId','leaveType','startDate','endDate']);
+    const b=req.body;if(!dateOnly(b.startDate)||!dateOnly(b.endDate)||b.startDate>b.endDate)throw new AppError(400,'INVALID_LEAVE_DATES','تواريخ الإجازة غير صالحة');
+    const managerEntry=req.auth.permissions.includes('leaves.manage');
+    const leave=await store.createLeaveRequest(req.auth.company.id,{operationId:id(b.operationId),employeeId:id(b.employeeId),leaveType:String(b.leaveType).trim().slice(0,48),startDate:b.startDate,endDate:b.endDate,reason:String(b.reason||'').trim().slice(0,500),managerEntry},req.auth.user.id);
+    res.status(201).json({leave});
+  }));
+  app.post('/api/v1/hr/leaves/:leaveId/decision',authenticate(store),permit('leaves.manage'),asyncRoute(async(req,res)=>{
+    if(typeof req.body?.approved!=='boolean'||(req.body.approved&&typeof req.body.paid!=='boolean'))throw new AppError(400,'INVALID_LEAVE_DECISION','قرار الإجازة غير مكتمل');
+    res.json({leave:await store.decideLeave(req.auth.company.id,id(req.params.leaveId),req.body.approved,req.auth.user.id,req.body.paid)});
+  }));
+
+  app.post('/api/v1/hr/overtime',authenticate(store),anyPermission(['attendance.record','attendance.manage']),asyncRoute(async(req,res)=>{
+    requireFields(req.body,['operationId','employeeId','workDate','multiplier']);
+    const b=req.body,minutes=Number(b.minutes);if(!dateOnly(b.workDate)||!Number.isInteger(minutes)||minutes<1||minutes>1440)throw new AppError(400,'INVALID_OVERTIME','بيانات العمل الإضافي غير صالحة');
+    const overtime=await store.createOvertimeRequest(req.auth.company.id,{operationId:id(b.operationId),employeeId:id(b.employeeId),workDate:b.workDate,minutes,multiplier:decimalString(decimal(b.multiplier,{positive:true})),reason:String(b.reason||'').trim().slice(0,500)},req.auth.user.id);
+    res.status(201).json({overtime});
+  }));
+  app.post('/api/v1/hr/overtime/:overtimeId/decision',authenticate(store),permit('overtime.approve'),asyncRoute(async(req,res)=>{
+    if(typeof req.body?.approved!=='boolean')throw new AppError(400,'INVALID_OVERTIME_DECISION','قرار الإضافي غير صالح');
+    res.json({overtime:await store.decideOvertime(req.auth.company.id,id(req.params.overtimeId),req.body.approved,req.auth.user.id)});
+  }));
 
   app.post('/api/v1/hr/departments',authenticate(store),permit('employees.manage'),asyncRoute(async(req,res)=>{
     requireFields(req.body,['code','name']);
