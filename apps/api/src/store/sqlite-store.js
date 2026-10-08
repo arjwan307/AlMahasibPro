@@ -68,12 +68,10 @@ export class SQLiteStore extends MemoryStore {
               const value = structuredClone(original);
               if (key === 'companies') {
                 value.product = product;
-                if ([...this.companies.values()].some(company => company.code === value.code)) {
-                  const base = product;
-                  let code = base, suffix = 2;
-                  while ([...this.companies.values()].some(company => company.code === code)) code = base + '-' + suffix++;
-                  value.code = code;
-                }
+                const base = product;
+                let code = base, suffix = 2;
+                while ([...this.companies.values()].some(company => company.code === code)) code = base + '-' + suffix++;
+                value.code = code;
               }
               if (!this[key].has(id)) this[key].set(id, value);
             }
