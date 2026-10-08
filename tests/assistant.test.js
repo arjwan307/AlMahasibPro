@@ -67,6 +67,31 @@ test('cloud assistant uses Groq with the server key and requires the existing se
   }
 });
 
+test('cloud assistant selects an available fallback model', async () => {
+  const old = { key: process.env.GROQ_API_KEY, model: process.env.AI_ASSISTANT_GROQ_MODEL };
+  const originalFetch = globalThis.fetch;
+  try {
+    process.env.GROQ_API_KEY = 'server-secret';
+    process.env.AI_ASSISTANT_GROQ_MODEL = 'openai/gpt-oss-20b';
+    globalThis.fetch = async (url, options = {}) => {
+      if (String(url).endsWith('/models')) {
+        return new Response(JSON.stringify({ data: [{ id: 'qwen/qwen3-32b' }] }), { status: 200 });
+      }
+      const request = JSON.parse(options.body);
+      assert.equal(request.model, 'qwen/qwen3-32b');
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'أهلاً بيك.' } }] }), { status: 200 });
+    };
+    const routes = setup();
+    const chat = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({ body: { messages: [{ role: 'user', content: 'مرحبا' }] } }, chat);
+    assert.deepEqual(chat.body, { answer: 'أهلاً بيك.', model: 'qwen/qwen3-32b' });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (old.key === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = old.key;
+    if (old.model === undefined) delete process.env.AI_ASSISTANT_GROQ_MODEL; else process.env.AI_ASSISTANT_GROQ_MODEL = old.model;
+  }
+});
+
 test('cloud assistant reports unconfigured and does not contact a provider without a server key', async () => {
   const old = process.env.GROQ_API_KEY;
   const originalFetch = globalThis.fetch;
