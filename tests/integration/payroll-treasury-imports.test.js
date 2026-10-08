@@ -33,6 +33,7 @@ test('payroll approval, cashbox closing, and import landed costs post once to SQ
     await create('/api/v1/users',{username:'cashier_test',displayName:'كاشير الاختبار',password:'Strong-Cashier-123',roleCode:'cashier'});
     assert.equal((await request('/api/v1/auth/login',{companyCode:'local',username:'cashier_test',password:'Strong-Cashier-123'})).status,200);
     assert.equal((await request('/api/v1/company/branches',{code:'CASHIER',name:'فرع غير مصرح'})).status,403,'cashier cannot manage branches');
+    assert.equal((await request('/api/v1/inventory/damaged-stock',{operationId:crypto.randomUUID(),writeoffNumber:'DENIED',warehouseId:crypto.randomUUID(),itemId:crypto.randomUUID(),quantity:'1',reason:'غير مصرح'})).status,403,'cashier cannot post inventory write-offs');
     assert.equal((await request('/api/v1/hr/payroll/cycles',{cycleCode:'DENIED',periodStart:'2026-10-01',periodEnd:'2026-10-31',currency:'IQD'})).status,403);
     assert.equal((await request('/api/v1/import/shipments',{operationId:crypto.randomUUID(),shipmentNumber:'DENIED',containerNumber:'DENIED',supplierId:crypto.randomUUID(),currency:'USD'})).status,403);
     assert.equal((await request('/api/v1/enterprise/customer-credits/apply',{})).status,403,'cashier cannot apply accounting credits');
