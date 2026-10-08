@@ -49,6 +49,8 @@ export class MemoryStore {
     this.employeeShiftAssignments = new Map(); this.attendanceEvents = new Map(); this.overtimeRequests = new Map();
     this.leaveRequests = new Map(); this.payrollSettings = new Map(); this.payrollCycles = new Map();
     this.payrollPayments = new Map(); this.payrollAdjustments = new Map();
+    this.cashboxes = new Map(); this.cashboxSessions = new Map(); this.cashboxMovements = new Map();
+    this.importShipments = new Map(); this.importCostPostings = new Map();
     this.salesSettings = new Map(); this.salesApprovals = new Map(); this.salesReviews = new Map();
     this.changeSequence = 0;
   }
@@ -480,12 +482,12 @@ export class MemoryStore {
 
   listChartAccounts(companyId) {
     const defaults = [
-      ['1000-CASH','الصندوق','asset'],['1010-BANK','البنك','asset'],['1100-AR','ذمم العملاء','asset'],
+      ['1000-CASH','الصندوق بالدينار','asset'],['1000-CASH-USD','الصندوق بالدولار','asset'],['1010-BANK','البنك','asset'],['1100-AR','ذمم العملاء','asset'],
       ['1150-REP-CASH-CUSTODY','عهدة نقد المندوبين','asset'],['1200-INVENTORY','المخزون','asset'],
       ['1300-EMPLOYEE-ADVANCES','سلف الموظفين','asset'],['1400-EMPLOYEE-RECEIVABLE','ذمم الموظفين','asset'],
       ['2100-AP','ذمم الموردين','liability'],['2200-PAYROLL-DEDUCTIONS','استقطاعات الرواتب','liability'],
       ['2300-PAYROLL-PAYABLE','رواتب مستحقة','liability'],['3000-EQUITY','حقوق الملكية','equity'],
-      ['4100-SALES','المبيعات','revenue'],['4200-SALES-RETURNS','مردودات المبيعات','contra_revenue'],
+      ['4100-SALES','المبيعات','revenue'],['4200-SALES-RETURNS','مردودات المبيعات','contra_revenue'],['4800-OTHER-INCOME','إيرادات أخرى','revenue'],['6150-CASH-SHORTAGE','عجز الصندوق','expense'],
       ['5100-COGS','كلفة البضاعة المباعة','expense'],['6100-PAYROLL-EXPENSE','مصروف الرواتب','expense'],
       ['6150-PAYROLL-RECOVERY','استردادات الرواتب','revenue']
     ];
@@ -603,7 +605,18 @@ export class MemoryStore {
 
   async settleEnterpriseDocument(context, input) {
     const existing = [...this.financialRecords.values()].find(row => row.companyId === context.company.id && row.kind === 'enterprise_settlement' && row.operationId === input.operationId);
-    if (existing) { if (existing.documentId !== input.documentId || existing.amount !== decimalString(decimal(input.amount)) || existing.method !== input.method) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى'); return clone(existing); }
+    if (existing) {
+      const document = this.commerceDocuments.get(existing.documentId);
+      const receivedCurrency = String(input.receivedCurrency || input.currency || document?.currency || '').toUpperCase();
+      const receivedAmount = decimalString(decimal(input.receivedAmount || input.amount, { positive: true }));
+      const postedAmount=receivedCurrency===document?.currency?decimal(receivedAmount):document?.currency==='USD'?divide(decimal(receivedAmount),decimal(existing.exchangeRate)):multiply(decimal(receivedAmount),decimal(existing.exchangeRate));
+      if (existing.documentId !== input.documentId || existing.amount !== decimalString(postedAmount) || existing.method !== input.method ||
+          existing.receiptNumber !== input.receiptNumber || existing.receivedAmount !== receivedAmount || existing.receivedCurrency !== receivedCurrency ||
+          existing.bankName !== (input.bankName || '') || existing.transactionNumber !== (input.transactionNumber || '')) {
+        throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
+      }
+      return clone(existing);
+    }
     this.#assertUnique(this.financialRecords,context.company.id,'receiptNumber',input.receiptNumber,'RECEIPT_NUMBER_EXISTS');
     const document = this.commerceDocuments.get(input.documentId);
     if (!document || document.companyId !== context.company.id || !['sale', 'purchase'].includes(document.documentType)) throw new AppError(400, 'DOCUMENT_NOT_FOUND', 'مستند البيع أو الشراء غير موجود');
@@ -619,7 +632,7 @@ export class MemoryStore {
     if (!((document.currency === 'USD' && receivedCurrency === 'IQD') || (document.currency === 'IQD' && receivedCurrency === 'USD') || receivedCurrency === document.currency)) throw new AppError(400, 'CURRENCY_CONVERSION_NOT_SUPPORTED', 'التحويل مسموح فقط بين الدينار والدولار');
     const amount = receivedCurrency === document.currency ? receivedAmount : document.currency === 'USD' ? divide(receivedAmount, exchangeRate) : multiply(receivedAmount, exchangeRate);
     if (amount > decimal(document.dueAmount) - settled - returned) throw new AppError(409, 'SETTLEMENT_EXCEEDS_DUE', 'المبلغ يتجاوز الرصيد المتبقي');
-    const cash = input.method === 'cash' ? '1000-CASH' : '1010-BANK';
+    const cash = input.method === 'cash' ? (document.currency === 'USD' ? '1000-CASH-USD' : '1000-CASH') : '1010-BANK';
     const lines = document.documentType === 'sale' ? [[cash,amount,ZERO],['1100-AR',ZERO,amount]] : [['2100-AP',amount,ZERO],[cash,ZERO,amount]];
     const journal = this.#simpleJournal(context, input, input.receiptNumber, document.currency, lines);
     const row = { id: randomUUID(), companyId: context.company.id, kind: 'enterprise_settlement', operationId: input.operationId, documentId: document.id, receiptNumber: input.receiptNumber, amount: decimalString(amount), currency: document.currency, receivedAmount: decimalString(receivedAmount), receivedCurrency, exchangeRate: decimalString(exchangeRate), method: input.method, bankName: input.bankName || '', transactionNumber: input.transactionNumber || '', journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
@@ -628,6 +641,173 @@ export class MemoryStore {
     this.#change(context.company.id,'financial_record',row.id,'upsert',row);
     return clone(row);
   }
+
+  async createCashbox(context, input) {
+    const companyId = context.company.id;
+    const code = String(input.code || '').trim().toUpperCase();
+    const currency = String(input.currency || '').toUpperCase();
+    if (!code || !['IQD','USD'].includes(currency)) throw new AppError(400,'INVALID_CASHBOX','رمز الصندوق وعملته غير صالحين');
+    if ([...this.cashboxes.values()].some(x => x.companyId === companyId && (x.code === code || x.currency === currency))) throw new AppError(409,'CASHBOX_EXISTS','يوجد صندوق بهذه العملة أو الرمز');
+    const row = { id: randomUUID(), companyId, code, name: String(input.name || '').trim().slice(0,100), currency, accountCode: currency === 'USD' ? '1000-CASH-USD' : '1000-CASH', active: true, createdBy: context.user.id, createdAt: new Date().toISOString() };
+    this.cashboxes.set(row.id, row);
+    this.#audit(companyId,context.user.id,'cashbox.created','cashbox',row.id,{code,currency});
+    this.#change(companyId,'cashbox',row.id,'upsert',row);
+    return clone(row);
+  }
+
+  async listCashboxes(companyId) {
+    return [...this.cashboxes.values()].filter(x => x.companyId === companyId).map(row => {
+      const open = [...this.cashboxSessions.values()].find(s => s.companyId === companyId && s.cashboxId === row.id && s.status === 'open');
+      return { ...clone(row), openSession: open ? clone(open) : null };
+    });
+  }
+
+  async listCashboxMovements(companyId,cashboxId) {
+    const box=this.cashboxes.get(cashboxId);
+    if(!box||box.companyId!==companyId)throw new AppError(404,'CASHBOX_NOT_FOUND','الصندوق غير موجود');
+    return [...this.cashboxMovements.values()].filter(x=>x.companyId===companyId&&x.cashboxId===cashboxId).sort((a,b)=>String(a.occurredAt).localeCompare(String(b.occurredAt))).map(clone);
+  }
+
+  async openCashbox(context, cashboxId, input) {
+    const companyId = context.company.id, box = this.cashboxes.get(cashboxId);
+    if (!box || box.companyId !== companyId || !box.active) throw new AppError(404,'CASHBOX_NOT_FOUND','الصندوق غير موجود');
+    const existing = [...this.cashboxSessions.values()].find(x => x.companyId === companyId && x.openOperationId === input.operationId);
+    if (existing) {
+      if (existing.cashboxId !== box.id || existing.sessionNumber !== input.sessionNumber || existing.openingBalance !== decimalString(decimal(input.openingBalance,{nonNegative:true}))) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
+      return clone(existing);
+    }
+    if ([...this.cashboxSessions.values()].some(x => x.companyId === companyId && x.cashboxId === box.id && x.status === 'open')) throw new AppError(409,'CASHBOX_ALREADY_OPEN','يوجد شفت مفتوح لهذا الصندوق');
+    const opening = decimal(input.openingBalance,{nonNegative:true});
+    const previous = [...this.cashboxSessions.values()].filter(x => x.companyId === companyId && x.cashboxId === box.id && x.status === 'closed').sort((a,b) => String(b.closedAt).localeCompare(String(a.closedAt)))[0];
+    let journal = null;
+    if (!previous && opening > ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-${box.code}-${input.sessionNumber}`,box.currency,[[box.accountCode,opening,ZERO],['3000-EQUITY',ZERO,opening]]);
+    let openingVariance=ZERO;
+    if(previous){const later=[...this.journalEntries.values()].filter(j=>j.companyId===companyId&&j.currency===box.currency&&j.id!==previous.closingJournalId&&String(j.occurredAt)>previous.closedAt&&String(j.occurredAt)<=input.openedAt&&j.status==='posted').flatMap(j=>j.lines).filter(line=>(line.accountCode||line.account)===box.accountCode).reduce((sum,line)=>sum+decimal(line.debit||'0')-decimal(line.credit||'0'),ZERO);const book=decimal(previous.countedBalance)+later;openingVariance=opening-book;if(openingVariance>ZERO)journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-SURPLUS-${box.code}-${input.sessionNumber}`,box.currency,[[box.accountCode,openingVariance,ZERO],['4800-OTHER-INCOME',ZERO,openingVariance]]);else if(openingVariance<ZERO)journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-SHORT-${box.code}-${input.sessionNumber}`,box.currency,[['6150-CASH-SHORTAGE',-openingVariance,ZERO],[box.accountCode,ZERO,-openingVariance]]);}
+    const row = { id: input.sessionId || randomUUID(), companyId, cashboxId: box.id, sessionNumber: input.sessionNumber, status: 'open', currency: box.currency, openingBalance: decimalString(opening), openingVariance: decimalString(openingVariance), openingJournalId: journal?.id || null, openOperationId: input.operationId, openedAt: input.openedAt, openedBy: context.user.id, expectedBalance: decimalString(opening), countedBalance: null, variance: null };
+    this.cashboxSessions.set(row.id,row);
+    this.#audit(companyId,context.user.id,'cashbox.opened','cashbox_session',row.id,{});
+    this.#change(companyId,'cashbox_session',row.id,'upsert',row);
+    return clone(row);
+  }
+
+  async postCashboxMovement(context, cashboxId, input) {
+    const companyId = context.company.id, box = this.cashboxes.get(cashboxId);
+    if (!box || box.companyId !== companyId || !box.active) throw new AppError(404,'CASHBOX_NOT_FOUND','الصندوق غير موجود');
+    const operationId = String(input.operationId || '');
+    const amount = decimal(input.amount,{positive:true});
+    const existing = [...this.cashboxMovements.values()].find(x => x.companyId === companyId && x.operationId === operationId);
+    if (existing) {
+      if (existing.cashboxId !== box.id || existing.movementNumber !== input.movementNumber || existing.amount !== decimalString(amount) || existing.direction !== input.direction || existing.counterAccountCode !== input.counterAccountCode || existing.reference !== (input.reference || '') || existing.note !== (input.note || '')) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
+      return clone(existing);
+    }
+    if (!['in','out'].includes(input.direction)) throw new AppError(400,'INVALID_CASH_DIRECTION','اتجاه الحركة غير صالح');
+    const session = [...this.cashboxSessions.values()].find(x => x.companyId === companyId && x.cashboxId === box.id && x.status === 'open');
+    if (!session) throw new AppError(409,'CASHBOX_NOT_OPEN','افتح الصندوق قبل تسجيل الحركة');
+    const expectedBefore=this.#cashboxExpectedBalance(session,box);
+    if(input.direction==='out'&&amount>expectedBefore)throw new AppError(409,'INSUFFICIENT_CASH','الرصيد المتوقع في الصندوق لا يكفي للصرف');
+    const counterCode = String(input.counterAccountCode || '').trim().toUpperCase();
+    if (counterCode === box.accountCode || !this.listChartAccounts(companyId).some(x => x.code === counterCode && x.active)) throw new AppError(400,'ACCOUNT_NOT_FOUND','الحساب المقابل غير موجود');
+    const lines = input.direction === 'in' ? [[box.accountCode,amount,ZERO],[counterCode,ZERO,amount]] : [[counterCode,amount,ZERO],[box.accountCode,ZERO,amount]];
+    const journal = this.#simpleJournal(context,{operationId,occurredAt:input.occurredAt},`CASH-${box.code}-${input.movementNumber}`,box.currency,lines);
+    const row = { id: randomUUID(), companyId, cashboxId: box.id, sessionId: session.id, movementNumber: input.movementNumber, operationId, direction: input.direction, amount: decimalString(amount), currency: box.currency, counterAccountCode: counterCode, reference: String(input.reference || '').slice(0,160), note: String(input.note || '').slice(0,500), journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
+    this.cashboxMovements.set(row.id,row);
+    session.expectedBalance = decimalString(this.#cashboxExpectedBalance(session,box));
+    this.#audit(companyId,context.user.id,'cashbox.movement.posted','cashbox_movement',row.id,{direction:row.direction,amount:row.amount});
+    this.#change(companyId,'cashbox_movement',row.id,'upsert',row);
+    return clone(row);
+  }
+
+  async closeCashbox(context, cashboxId, sessionId, input) {
+    const companyId = context.company.id, box = this.cashboxes.get(cashboxId), session = this.cashboxSessions.get(sessionId);
+    if (!box || box.companyId !== companyId || !session || session.companyId !== companyId || session.cashboxId !== box.id) throw new AppError(404,'CASHBOX_SESSION_NOT_FOUND','جلسة الصندوق غير موجودة');
+    if (session.status === 'closed' && session.closeOperationId === input.operationId) {
+      if (session.countedBalance !== decimalString(decimal(input.countedBalance,{nonNegative:true}))) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
+      return clone(session);
+    }
+    if (session.status !== 'open') throw new AppError(409,'CASHBOX_NOT_OPEN','جلسة الصندوق مغلقة');
+    const counted = decimal(input.countedBalance,{nonNegative:true});
+    const expected = this.#cashboxExpectedBalance(session,box);
+    const variance = counted - expected;
+    let journal = null;
+    if (variance > ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.closedAt},`CASH-SURPLUS-${box.code}-${session.sessionNumber}`,box.currency,[[box.accountCode,variance,ZERO],['4800-OTHER-INCOME',ZERO,variance]]);
+    else if (variance < ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.closedAt},`CASH-SHORT-${box.code}-${session.sessionNumber}`,box.currency,[['6150-CASH-SHORTAGE',-variance,ZERO],[box.accountCode,ZERO,-variance]]);
+    session.status = 'closed'; session.expectedBalance = decimalString(expected); session.countedBalance = decimalString(counted); session.variance = decimalString(variance); session.closeOperationId = input.operationId; session.closingJournalId = journal?.id || null; session.closedAt = input.closedAt; session.closedBy = context.user.id;
+    this.#audit(companyId,context.user.id,'cashbox.closed','cashbox_session',session.id,{variance:session.variance});
+    this.#change(companyId,'cashbox_session',session.id,'upsert',session);
+    return clone(session);
+  }
+
+  async createImportShipment(context, input) {
+    const companyId = context.company.id;
+    const existing = [...this.importShipments.values()].find(x => x.companyId === companyId && x.operationId === input.operationId);
+    if (existing) {
+      if (existing.shipmentNumber !== input.shipmentNumber || existing.supplierId !== input.supplierId || existing.containerNumber !== input.containerNumber || existing.currency !== input.currency || existing.origin !== (input.origin || '') || existing.billOfLading !== (input.billOfLading || '')) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
+      return clone(existing);
+    }
+    const supplier=this.suppliers.get(input.supplierId);
+    if(!supplier||supplier.companyId!==companyId||supplier.active===false)throw new AppError(400,'SUPPLIER_NOT_FOUND','المورد غير موجود أو موقوف');
+    if ([...this.importShipments.values()].some(x => x.companyId === companyId && x.shipmentNumber === input.shipmentNumber)) throw new AppError(409,'SHIPMENT_NUMBER_EXISTS','رقم الشحنة مستخدم');
+    if(!['IQD','USD'].includes(input.currency))throw new AppError(400,'INVALID_CURRENCY','عملة الشحنة غير مدعومة');
+    const row = { id: randomUUID(), companyId, operationId: input.operationId, shipmentNumber: input.shipmentNumber, containerNumber: input.containerNumber, supplierId: supplier.id, purchaseDocumentId: null, currency: input.currency, origin: input.origin || '', billOfLading: input.billOfLading || '', shippedAt: input.shippedAt || null, expectedAt: input.expectedAt || null, arrivedAt: null, status: 'in_transit', createdBy: context.user.id, createdAt: new Date().toISOString() };
+    this.importShipments.set(row.id,row);
+    this.#audit(companyId,context.user.id,'import.shipment.created','import_shipment',row.id,{supplierId:supplier.id});
+    this.#change(companyId,'import_shipment',row.id,'upsert',row);
+    return clone(row);
+  }
+
+  async markImportShipmentArrived(context,shipmentId,input){const shipment=this.importShipments.get(shipmentId);if(!shipment||shipment.companyId!==context.company.id)throw new AppError(404,'SHIPMENT_NOT_FOUND','الشحنة غير موجودة');if(shipment.status==='arrived'&&shipment.arrivalOperationId===input.operationId){if(shipment.arrivedAt!==input.arrivedAt)throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');return clone(shipment);}if(shipment.status!=='in_transit')throw new AppError(409,'SHIPMENT_NOT_IN_TRANSIT','الشحنة ليست قيد النقل');shipment.status='arrived';shipment.arrivedAt=input.arrivedAt;shipment.arrivalOperationId=input.operationId;shipment.arrivedBy=context.user.id;this.#audit(context.company.id,context.user.id,'import.shipment.arrived','import_shipment',shipment.id,{});this.#change(context.company.id,'import_shipment',shipment.id,'upsert',shipment);return clone(shipment);}
+
+  async linkImportPurchaseDocument(context,shipmentId,input){const shipment=this.importShipments.get(shipmentId);if(!shipment||shipment.companyId!==context.company.id)throw new AppError(404,'SHIPMENT_NOT_FOUND','الشحنة غير موجودة');if(shipment.purchaseDocumentId===input.purchaseDocumentId&&shipment.linkOperationId===input.operationId)return clone(shipment);if(shipment.status!=='arrived'||shipment.purchaseDocumentId)throw new AppError(409,'SHIPMENT_NOT_READY','لا يمكن ربط فاتورة الشراء بهذه الشحنة');const document=this.commerceDocuments.get(input.purchaseDocumentId);if(!document||document.companyId!==context.company.id||document.documentType!=='purchase'||document.supplierId!==shipment.supplierId||document.currency!==context.company.currency)throw new AppError(400,'IMPORT_PURCHASE_INVALID','فاتورة الشراء لا تطابق مورد الشحنة أو عملة الشركة');if([...this.importShipments.values()].some(x=>x.companyId===context.company.id&&x.purchaseDocumentId===document.id))throw new AppError(409,'IMPORT_DOCUMENT_LINKED','فاتورة الشراء مرتبطة بشحنة مسبقًا');shipment.purchaseDocumentId=document.id;shipment.linkOperationId=input.operationId;shipment.linkedBy=context.user.id;shipment.linkedAt=new Date().toISOString();this.#audit(context.company.id,context.user.id,'import.purchase.linked','import_shipment',shipment.id,{purchaseDocumentId:document.id});this.#change(context.company.id,'import_shipment',shipment.id,'upsert',shipment);return clone(shipment);}
+
+  async postImportCosts(context, shipmentId, input) {
+    const companyId = context.company.id, shipment = this.importShipments.get(shipmentId);
+    if (!shipment || shipment.companyId !== companyId) throw new AppError(404,'SHIPMENT_NOT_FOUND','الشحنة غير موجودة');
+    const existing = [...this.importCostPostings.values()].find(x => x.companyId === companyId && x.operationId === input.operationId);
+    if (existing) {
+      if (existing.shipmentId !== shipment.id || JSON.stringify(existing.allocations) !== JSON.stringify(input.allocations) || JSON.stringify(existing.charges) !== JSON.stringify(input.charges)) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
+      return clone(existing);
+    }
+    if (shipment.status === 'costed') throw new AppError(409,'IMPORT_COSTS_ALREADY_POSTED','تم ترحيل تكاليف الشحنة');
+    if (shipment.status !== 'arrived' || !shipment.purchaseDocumentId) throw new AppError(409,'SHIPMENT_NOT_READY','يجب إثبات الوصول وربط فاتورة الشراء أولًا');
+    const document = this.commerceDocuments.get(shipment.purchaseDocumentId);
+    if(input.currency!==document.currency)throw new AppError(400,'DOCUMENT_CURRENCY_MISMATCH','عملة تكاليف الاستيراد يجب أن تطابق عملة الشركة');
+    const allocations = input.allocations.map(x => ({ itemId: x.itemId, amount: decimalString(decimal(x.amount,{positive:true})) }));
+    if (!allocations.length || new Set(allocations.map(x => x.itemId)).size !== allocations.length) throw new AppError(400,'INVALID_IMPORT_ALLOCATIONS','توزيع تكاليف الاستيراد غير صالح');
+    const total = allocations.reduce((sum,x) => sum + decimal(x.amount),ZERO);
+    const charges=input.charges.map(x=>({code:x.code,description:x.description,amount:decimalString(decimal(x.amount,{positive:true}))}));
+    if(!charges.length||charges.reduce((sum,x)=>sum+decimal(x.amount),ZERO)!==total)throw new AppError(400,'IMPORT_COST_TOTAL_MISMATCH','مجموع بنود الشحن لا يطابق التوزيع على المواد');
+    let capitalized = ZERO, expensed = ZERO;
+    const stockChanges = [];
+    for (const allocation of allocations) {
+      const purchased = document.lines.find(x => x.itemId === allocation.itemId);
+      if (!purchased) throw new AppError(400,'IMPORT_ITEM_NOT_PURCHASED','المادة ليست ضمن فاتورة الشراء');
+      const key = `${companyId}:${document.warehouseId}:${allocation.itemId}`, stock = this.stockBalances.get(key);
+      if (!stock) throw new AppError(409,'IMPORT_STOCK_MISSING','رصيد المادة غير موجود في مخزن الاستلام');
+      const amount = decimal(allocation.amount), received = decimal(purchased.baseQuantity), onHand = decimal(stock.quantity);
+      const stockShare = received > ZERO ? (amount * (onHand < received ? onHand : received) / received) : ZERO;
+      const expenseShare = amount - stockShare;
+      if (onHand > ZERO && stockShare > ZERO) stockChanges.push([key,{...stock,averageCost:decimalString(decimal(stock.averageCost)+divide(stockShare,onHand)),version:stock.version+1}]);
+      capitalized += stockShare; expensed += expenseShare;
+    }
+    const lines = [];
+    if (capitalized > ZERO) lines.push(['1200-INVENTORY',capitalized,ZERO]);
+    if (expensed > ZERO) lines.push(['5100-COGS',expensed,ZERO]);
+    lines.push(['2100-AP',ZERO,total]);
+    const journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.occurredAt},`IMPORT-${shipment.shipmentNumber}`,document.currency,lines);
+    for (const [key,value] of stockChanges) this.stockBalances.set(key,Object.freeze(value));
+    const row = { id: randomUUID(), companyId, shipmentId, operationId: input.operationId, charges, allocations, totalAmount: decimalString(total), capitalizedAmount: decimalString(capitalized), expensedAmount: decimalString(expensed), currency: document.currency, journalEntryId: journal.id, postedAt: input.occurredAt, postedBy: context.user.id };
+    this.importCostPostings.set(row.id,row); shipment.status = 'costed'; shipment.costPostingId = row.id;
+    this.#audit(companyId,context.user.id,'import.costs.posted','import_cost_posting',row.id,{shipmentId});
+    this.#change(companyId,'import_shipment',shipment.id,'upsert',shipment);
+    this.#change(companyId,'import_cost_posting',row.id,'upsert',row);
+    return clone(row);
+  }
+
+  async listImportShipments(companyId) {
+    return [...this.importShipments.values()].filter(x => x.companyId === companyId).map(clone);
+  }
+
+  #cashboxExpectedBalance(session,box){const delta=[...this.journalEntries.values()].filter(j=>j.companyId===session.companyId&&j.currency===box.currency&&j.id!==session.openingJournalId&&String(j.occurredAt)>=session.openedAt&&j.status==='posted').flatMap(j=>j.lines).filter(line=>(line.accountCode||line.account)===box.accountCode).reduce((sum,line)=>sum+decimal(line.debit||'0')-decimal(line.credit||'0'),ZERO);return decimal(session.openingBalance)+delta;}
 
   async listCustomerAccountSummaries(companyId) {
     const company = this.companies.get(companyId), currency = company?.currency || 'IQD', result = {};
@@ -660,7 +840,7 @@ export class MemoryStore {
   async createEmployee(companyId,input,actorUserId){this.#assertUnique(this.employees,companyId,'code',input.code,'EMPLOYEE_CODE_EXISTS');if(input.departmentId&&(!this.departments.get(input.departmentId)||this.departments.get(input.departmentId).companyId!==companyId))throw new AppError(400,'DEPARTMENT_NOT_FOUND','القسم غير موجود');if(input.userId&&(!this.users.get(input.userId)||this.users.get(input.userId).companyId!==companyId))throw new AppError(400,'USER_NOT_FOUND','المستخدم غير موجود');const row={id:randomUUID(),companyId,userId:input.userId||null,departmentId:input.departmentId||null,code:input.code,fullName:input.fullName,jobTitle:input.jobTitle,hireDate:input.hireDate,status:'active'};this.employees.set(row.id,row);this.#audit(companyId,actorUserId,'employee.created','employee',row.id,{});this.#change(companyId,'employee',row.id,'upsert',row);return clone(row);}
   async createEmployeeContract(companyId,employeeId,input,actorUserId){const employee=this.employees.get(employeeId);if(!employee||employee.companyId!==companyId)throw new AppError(404,'EMPLOYEE_NOT_FOUND','الموظف غير موجود');if([...this.employeeContracts.values()].some(x=>x.companyId===companyId&&x.employeeId===employeeId&&x.status==='active'))throw new AppError(409,'ACTIVE_CONTRACT_EXISTS','يوجد عقد فعال للموظف');const row={id:randomUUID(),companyId,employeeId,contractNumber:input.contractNumber,startDate:input.startDate,endDate:input.endDate||null,basicSalary:decimalString(decimal(input.basicSalary,{nonNegative:true})),currency:input.currency,payFrequency:'monthly',status:'active'};this.employeeContracts.set(row.id,row);this.#audit(companyId,actorUserId,'employee.contract.created','employee_contract',row.id,{});this.#change(companyId,'employee_contract',row.id,'upsert',row);return clone(row);}
   async addEmployeeComponent(companyId,employeeId,input,actorUserId){const employee=this.employees.get(employeeId);if(!employee||employee.companyId!==companyId)throw new AppError(404,'EMPLOYEE_NOT_FOUND','الموظف غير موجود');const row={id:randomUUID(),companyId,employeeId,code:input.code,name:input.name,componentType:input.componentType,amount:decimalString(decimal(input.amount,{nonNegative:true})),active:true};this.employeeComponents.set(row.id,row);this.#audit(companyId,actorUserId,'employee.component.created','employee_component',row.id,{});return clone(row);}
-  async createEmployeeAdvance(companyId,employeeId,input,actorUserId){const employee=this.employees.get(employeeId);if(!employee||employee.companyId!==companyId)throw new AppError(404,'EMPLOYEE_NOT_FOUND','الموظف غير موجود');const amount=decimal(input.originalAmount,{positive:true}),installment=decimal(input.installmentAmount,{positive:true});const row={id:randomUUID(),companyId,employeeId,advanceNumber:input.advanceNumber,originalAmount:decimalString(amount),remainingAmount:decimalString(amount),installmentAmount:decimalString(installment),currency:input.currency,status:'active',grantedAt:input.grantedAt};this.employeeAdvances.set(row.id,row);this.#audit(companyId,actorUserId,'employee.advance.created','employee_advance',row.id,{});return clone(row);}
+  async createEmployeeAdvance(companyId,employeeId,input,actorUserId){const employee=this.#employee(companyId,employeeId),amount=decimal(input.originalAmount,{positive:true}),installment=decimal(input.installmentAmount,{positive:true});const existing=[...this.employeeAdvances.values()].find(x=>x.companyId===companyId&&x.operationId===input.operationId);if(existing){if(existing.employeeId!==employeeId||existing.advanceNumber!==input.advanceNumber||existing.originalAmount!==decimalString(amount)||existing.installmentAmount!==decimalString(installment)||existing.currency!==input.currency)throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');return clone(existing);}if(!input.operationId)throw new AppError(400,'OPERATION_ID_REQUIRED','معرف العملية مطلوب');if(input.currency!==this.companies.get(companyId)?.currency)throw new AppError(400,'DOCUMENT_CURRENCY_MISMATCH','عملة السلفة يجب أن تطابق عملة الشركة');if([...this.employeeAdvances.values()].some(x=>x.companyId===companyId&&x.advanceNumber===input.advanceNumber))throw new AppError(409,'ADVANCE_NUMBER_EXISTS','رقم السلفة مستخدم');const cash=input.currency==='USD'?'1000-CASH-USD':'1000-CASH';const journal=this.#simpleJournal({company:{id:companyId},user:{id:actorUserId}},{operationId:input.operationId,occurredAt:input.grantedAt},`ADV-${input.advanceNumber}`,input.currency,[['1300-EMPLOYEE-ADVANCES',amount,ZERO],[cash,ZERO,amount]]);const row={id:randomUUID(),companyId,employeeId,advanceNumber:input.advanceNumber,originalAmount:decimalString(amount),remainingAmount:decimalString(amount),installmentAmount:decimalString(installment),currency:input.currency,status:'active',grantedAt:input.grantedAt,operationId:input.operationId,journalEntryId:journal.id,createdBy:actorUserId};this.employeeAdvances.set(row.id,row);this.#audit(companyId,actorUserId,'employee.advance.created','employee_advance',row.id,{});this.#change(companyId,'employee_advance',row.id,'upsert',row);return clone(row);}
   async createWorkShift(companyId,input,actorUserId){this.#assertUnique(this.workShifts,companyId,'code',input.code,'SHIFT_CODE_EXISTS');const row={id:randomUUID(),companyId,...input,active:true};this.workShifts.set(row.id,row);this.#audit(companyId,actorUserId,'work_shift.created','work_shift',row.id,{});return clone(row);}
   async assignEmployeeShift(companyId,employeeId,input,actorUserId){const employee=this.employees.get(employeeId),shift=this.workShifts.get(input.shiftId);if(!employee||employee.companyId!==companyId||!shift||shift.companyId!==companyId)throw new AppError(404,'EMPLOYEE_OR_SHIFT_NOT_FOUND','الموظف أو الشفت غير موجود');const row={id:randomUUID(),companyId,employeeId,shiftId:input.shiftId,effectiveFrom:input.effectiveFrom,effectiveTo:input.effectiveTo||null};this.employeeShiftAssignments.set(row.id,row);this.#audit(companyId,actorUserId,'employee.shift.assigned','employee_shift_assignment',row.id,{});return clone(row);}
   async createOvertimeRequest(companyId,input,actorUserId){this.#employee(companyId,input.employeeId);const row={id:randomUUID(),companyId,employeeId:input.employeeId,workDate:input.workDate,minutes:input.minutes,multiplier:decimalString(decimal(input.multiplier,{positive:true})),reason:input.reason||null,status:'pending',requestedBy:actorUserId};this.overtimeRequests.set(row.id,row);return clone(row);}
@@ -669,11 +849,11 @@ export class MemoryStore {
   async decideLeave(companyId,id,approved,actorUserId){const row=this.leaveRequests.get(id);if(!row||row.companyId!==companyId||row.status!=='pending')throw new AppError(409,'LEAVE_NOT_PENDING','الإجازة غير متاحة للاعتماد');row.status=approved?'approved':'rejected';row.approvedBy=actorUserId;row.approvedAt=new Date().toISOString();this.#audit(companyId,actorUserId,'leave.decided','leave_request',id,{approved});return clone(row);}
   async setPayrollSettings(companyId,input,actorUserId){const row={companyId,workingDaysPerMonth:input.workingDaysPerMonth,dailyHours:decimalString(decimal(input.dailyHours,{positive:true})),defaultOvertimeMultiplier:decimalString(decimal(input.defaultOvertimeMultiplier,{positive:true})),deductAbsence:input.deductAbsence,attendanceRequired:input.attendanceRequired,updatedBy:actorUserId,updatedAt:new Date().toISOString()};this.payrollSettings.set(companyId,row);this.#audit(companyId,actorUserId,'payroll.settings.updated','payroll_settings',companyId,{});return clone(row);}
   async getHrBootstrap(context){const c=context.company.id,own=this.#employeeByUser(c,context.user.id);const canManage=context.permissions.includes('employees.manage')||context.permissions.includes('payroll.read');const filter=x=>x.companyId===c&&(canManage||x.id===own?.id||x.employeeId===own?.id);return{departments:[...this.departments.values()].filter(x=>x.companyId===c).map(clone),employees:[...this.employees.values()].filter(filter).map(clone),contracts:[...this.employeeContracts.values()].filter(filter).map(clone),components:[...this.employeeComponents.values()].filter(filter).map(clone),advances:[...this.employeeAdvances.values()].filter(filter).map(clone),shifts:[...this.workShifts.values()].filter(x=>x.companyId===c).map(clone),assignments:[...this.employeeShiftAssignments.values()].filter(filter).map(clone),attendance:[...this.attendanceEvents.values()].filter(filter).map(clone),overtime:[...this.overtimeRequests.values()].filter(filter).map(clone),leaves:[...this.leaveRequests.values()].filter(filter).map(clone),payrollCycles:canManage?[...this.payrollCycles.values()].filter(x=>x.companyId===c).map(clone):[],settings:clone(this.payrollSettings.get(c)||this.#defaultPayrollSettings(c)),ownEmployee:own?clone(own):null};}
-  async createPayrollCycle(context,input){const c=context.company.id;if([...this.payrollCycles.values()].some(x=>x.companyId===c&&x.cycleCode===input.cycleCode))throw new AppError(409,'PAYROLL_CYCLE_EXISTS','دورة الرواتب موجودة');const settings=this.payrollSettings.get(c)||this.#defaultPayrollSettings(c);const lines=[];for(const employee of this.employees.values()){if(employee.companyId!==c||employee.status!=='active')continue;const contract=[...this.employeeContracts.values()].find(x=>x.companyId===c&&x.employeeId===employee.id&&x.status==='active'&&x.startDate<=input.periodEnd&&(!x.endDate||x.endDate>=input.periodStart));if(!contract||contract.currency!==input.currency)continue;lines.push(this.#calculatePayrollLine(c,employee,contract,settings,input));}const totalGross=lines.reduce((s,x)=>s+decimal(x.grossAmount),ZERO),totalDeductions=lines.reduce((s,x)=>s+decimal(x.totalDeductions),ZERO),totalNet=lines.reduce((s,x)=>s+decimal(x.netAmount),ZERO);const row={id:input.id,companyId:c,cycleCode:input.cycleCode,periodStart:input.periodStart,periodEnd:input.periodEnd,currency:input.currency,status:'draft',totalGross:decimalString(totalGross),totalDeductions:decimalString(totalDeductions),totalNet:decimalString(totalNet),calculationSnapshot:clone(settings),createdBy:context.user.id,lines};this.payrollCycles.set(row.id,row);this.#audit(c,context.user.id,'payroll.cycle.drafted','payroll_cycle',row.id,{});this.#change(c,'payroll_cycle',row.id,'upsert',row);return clone(row);}
+  async createPayrollCycle(context,input){const c=context.company.id;if([...this.payrollCycles.values()].some(x=>x.companyId===c&&x.cycleCode===input.cycleCode))throw new AppError(409,'PAYROLL_CYCLE_EXISTS','دورة الرواتب موجودة');const settings=this.payrollSettings.get(c)||this.#defaultPayrollSettings(c);const lines=[];for(const employee of this.employees.values()){if(employee.companyId!==c||employee.status!=='active')continue;const contract=[...this.employeeContracts.values()].find(x=>x.companyId===c&&x.employeeId===employee.id&&x.status==='active'&&x.startDate<=input.periodEnd&&(!x.endDate||x.endDate>=input.periodStart));if(!contract||contract.currency!==input.currency)continue;lines.push(this.#calculatePayrollLine(c,employee,contract,settings,input));}if(!lines.length)throw new AppError(409,'PAYROLL_NO_ELIGIBLE_EMPLOYEES','لا يوجد موظفون بعقود فعالة ضمن العملة والفترة المحددتين');const totalGross=lines.reduce((s,x)=>s+decimal(x.grossAmount),ZERO),totalDeductions=lines.reduce((s,x)=>s+decimal(x.totalDeductions),ZERO),totalNet=lines.reduce((s,x)=>s+decimal(x.netAmount),ZERO);const row={id:input.id,companyId:c,cycleCode:input.cycleCode,periodStart:input.periodStart,periodEnd:input.periodEnd,currency:input.currency,status:'draft',totalGross:decimalString(totalGross),totalDeductions:decimalString(totalDeductions),totalNet:decimalString(totalNet),calculationSnapshot:clone(settings),createdBy:context.user.id,lines};this.payrollCycles.set(row.id,row);this.#audit(c,context.user.id,'payroll.cycle.drafted','payroll_cycle',row.id,{});this.#change(c,'payroll_cycle',row.id,'upsert',row);return clone(row);}
   async reviewPayrollCycle(context,id){const row=this.#payrollCycle(context.company.id,id);if(row.status!=='draft')throw new AppError(409,'PAYROLL_NOT_DRAFT','الدورة ليست مسودة');row.status='reviewed';row.reviewedBy=context.user.id;row.reviewedAt=new Date().toISOString();this.#audit(context.company.id,context.user.id,'payroll.cycle.reviewed','payroll_cycle',id,{});return clone(row);}
   async approvePayrollCycle(context,id,operationId){const row=this.#payrollCycle(context.company.id,id);if(row.status==='approved'&&row.approveOperationId===operationId)return clone(row);if(row.status!=='reviewed')throw new AppError(409,'PAYROLL_NOT_REVIEWED','يجب مراجعة الدورة أولًا');if([...this.payrollCycles.values()].some(x=>x.companyId===context.company.id&&x.approveOperationId===operationId))throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم');const journal=this.#payrollAccrualJournal(context,row,operationId);row.status='approved';row.approvedBy=context.user.id;row.approvedAt=new Date().toISOString();row.approveOperationId=operationId;row.accrualJournalId=journal.id;this.#audit(context.company.id,context.user.id,'payroll.cycle.approved','payroll_cycle',id,{});return clone(row);}
-  async payPayrollCycle(context,id,input){const row=this.#payrollCycle(context.company.id,id);if(row.status==='paid'&&row.payOperationId===input.operationId)return clone(row);if(row.status!=='approved')throw new AppError(409,'PAYROLL_NOT_APPROVED','الدورة غير معتمدة للصرف');if([...this.payrollPayments.values()].some(x=>x.companyId===context.company.id&&(x.cycleId===id||x.operationId===input.operationId)))throw new AppError(409,'PAYROLL_ALREADY_PAID','الدورة مصروفة أو معرف العملية مستخدم');const journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.paidAt},`PAY-${row.cycleCode}`,row.currency,[['2300-PAYROLL-PAYABLE',decimal(row.totalNet),ZERO],['1000-CASH',ZERO,decimal(row.totalNet)]]);const payment={id:randomUUID(),companyId:context.company.id,cycleId:id,paymentNumber:input.paymentNumber,amount:row.totalNet,currency:row.currency,operationId:input.operationId,paidAt:input.paidAt,paidBy:context.user.id};this.payrollPayments.set(payment.id,Object.freeze(payment));row.status='paid';row.payOperationId=input.operationId;row.paymentJournalId=journal?.id;row.paidAt=input.paidAt;row.paidBy=context.user.id;this.#audit(context.company.id,context.user.id,'payroll.cycle.paid','payroll_cycle',id,{});return clone(row);}
-  async adjustPayrollCycle(context,id,input){const cycle=this.#payrollCycle(context.company.id,id);if(!['approved','paid'].includes(cycle.status))throw new AppError(409,'PAYROLL_NOT_LOCKED','التسوية بعد اعتماد الدورة فقط');this.#employee(context.company.id,input.employeeId);const existing=[...this.payrollAdjustments.values()].find(x=>x.companyId===context.company.id&&x.operationId===input.operationId);if(existing)return clone(existing);const amount=decimal(input.amount,{positive:true});const lines=input.adjustmentType==='earning'?[['6100-PAYROLL-EXPENSE',amount,ZERO],['2300-PAYROLL-PAYABLE',ZERO,amount]]:[['1400-EMPLOYEE-RECEIVABLE',amount,ZERO],['6150-PAYROLL-RECOVERY',ZERO,amount]];const journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.occurredAt},`ADJ-${input.adjustmentNumber}`,input.currency,lines);const row={id:randomUUID(),companyId:context.company.id,cycleId:id,employeeId:input.employeeId,adjustmentNumber:input.adjustmentNumber,adjustmentType:input.adjustmentType,amount:decimalString(amount),currency:input.currency,reason:input.reason,operationId:input.operationId,journalEntryId:journal.id,createdBy:context.user.id,createdAt:input.occurredAt};this.payrollAdjustments.set(row.id,Object.freeze(row));this.#audit(context.company.id,context.user.id,'payroll.adjustment.posted','payroll_adjustment',row.id,{cycleId:id});return clone(row);}
+  async payPayrollCycle(context,id,input){const row=this.#payrollCycle(context.company.id,id);if(row.status==='paid'&&row.payOperationId===input.operationId){const payment=[...this.payrollPayments.values()].find(x=>x.companyId===context.company.id&&x.cycleId===id);if(payment?.paymentNumber!==input.paymentNumber)throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');return clone(row);}if(row.status!=='approved')throw new AppError(409,'PAYROLL_NOT_APPROVED','الدورة غير معتمدة للصرف');if([...this.payrollPayments.values()].some(x=>x.companyId===context.company.id&&(x.cycleId===id||x.operationId===input.operationId)))throw new AppError(409,'PAYROLL_ALREADY_PAID','الدورة مصروفة أو معرف العملية مستخدم');const cash=row.currency==='USD'?'1000-CASH-USD':'1000-CASH';const journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.paidAt},`PAY-${row.cycleCode}`,row.currency,[['2300-PAYROLL-PAYABLE',decimal(row.totalNet),ZERO],[cash,ZERO,decimal(row.totalNet)]]);const payment={id:randomUUID(),companyId:context.company.id,cycleId:id,paymentNumber:input.paymentNumber,amount:row.totalNet,currency:row.currency,operationId:input.operationId,paidAt:input.paidAt,paidBy:context.user.id};this.payrollPayments.set(payment.id,Object.freeze(payment));row.status='paid';row.payOperationId=input.operationId;row.paymentJournalId=journal?.id;row.paidAt=input.paidAt;row.paidBy=context.user.id;this.#audit(context.company.id,context.user.id,'payroll.cycle.paid','payroll_cycle',id,{});return clone(row);}
+  async adjustPayrollCycle(context,id,input){const cycle=this.#payrollCycle(context.company.id,id);if(!['approved','paid'].includes(cycle.status))throw new AppError(409,'PAYROLL_NOT_LOCKED','التسوية بعد اعتماد الدورة فقط');this.#employee(context.company.id,input.employeeId);const existing=[...this.payrollAdjustments.values()].find(x=>x.companyId===context.company.id&&x.operationId===input.operationId);if(existing){if(existing.cycleId!==id||existing.employeeId!==input.employeeId||existing.adjustmentType!==input.adjustmentType||existing.amount!==decimalString(decimal(input.amount,{positive:true}))||existing.currency!==input.currency||existing.reason!==input.reason)throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');return clone(existing);}const amount=decimal(input.amount,{positive:true});const lines=input.adjustmentType==='earning'?[['6100-PAYROLL-EXPENSE',amount,ZERO],['2300-PAYROLL-PAYABLE',ZERO,amount]]:[['1400-EMPLOYEE-RECEIVABLE',amount,ZERO],['6150-PAYROLL-RECOVERY',ZERO,amount]];const journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.occurredAt},`ADJ-${input.adjustmentNumber}`,input.currency,lines);const row={id:randomUUID(),companyId:context.company.id,cycleId:id,employeeId:input.employeeId,adjustmentNumber:input.adjustmentNumber,adjustmentType:input.adjustmentType,amount:decimalString(amount),currency:input.currency,reason:input.reason,operationId:input.operationId,journalEntryId:journal.id,createdBy:context.user.id,createdAt:input.occurredAt};this.payrollAdjustments.set(row.id,Object.freeze(row));this.#audit(context.company.id,context.user.id,'payroll.adjustment.posted','payroll_adjustment',row.id,{cycleId:id});return clone(row);}
 
   async setBarcode(companyId, input, actorUserId) {
     if ([...this.itemBarcodes.values()].some((row) => row.companyId === companyId && row.barcode === input.barcode)) throw new AppError(409, 'BARCODE_EXISTS', 'الباركود مستخدم');
@@ -978,7 +1158,7 @@ export class MemoryStore {
       const handover = this.representativeHandovers.get(p.handoverId); if (!handover || handover.companyId !== companyId || handover.status !== 'submitted') throw new AppError(409, 'HANDOVER_NOT_SUBMITTED', 'التسليم غير متاح للمراجعة');
       const reviewed = decimal(p.reviewedCash, { nonNegative: true }); const custody = [...this.custodyMovements.values()].filter((m) => m.companyId === companyId && m.representativeId === rep.id && m.currency === handover.currency).reduce((s, m) => s + decimal(m.amount), ZERO); if (reviewed > custody) throw new AppError(409, 'HANDOVER_EXCEEDS_CUSTODY', 'النقد المراجع يتجاوز العهدة');
       if (handover.lines.length) this.#transferRepresentativeStock(context, operation, rep.vehicleWarehouseId, handover.destinationWarehouseId, handover.lines, `RET-${handover.handoverNumber}`, rep.id);
-      this.#recordCustody(companyId, rep.id, operation, 'cash_handover', -reviewed, handover.currency, 'handover', handover.id); this.#simpleJournal(context, operation, `HND-${handover.handoverNumber}`, handover.currency, [['1000-CASH', reviewed, ZERO], ['1150-REP-CASH-CUSTODY', ZERO, reviewed]]);
+      const cashAccount = handover.currency === 'USD' ? '1000-CASH-USD' : '1000-CASH'; this.#recordCustody(companyId, rep.id, operation, 'cash_handover', -reviewed, handover.currency, 'handover', handover.id); this.#simpleJournal(context, operation, `HND-${handover.handoverNumber}`, handover.currency, [[cashAccount, reviewed, ZERO], ['1150-REP-CASH-CUSTODY', ZERO, reviewed]]);
       handover.status = 'reviewed'; handover.reviewedCash = decimalString(reviewed); handover.cashVariance = decimalString(reviewed - decimal(handover.expectedCash)); handover.reviewOperationId = operation.operationId; handover.reviewedAt = operation.occurredAt; handover.reviewedBy = context.user.id; this.#change(companyId, 'representative_handover', handover.id, 'upsert', handover); return { entityId: handover.id, handover: clone(handover) };
     }
     throw new AppError(400, 'UNSUPPORTED_OPERATION', 'عملية المندوب غير مدعومة');
@@ -992,7 +1172,23 @@ export class MemoryStore {
   }
   #recordDebt(companyId, customerId, representativeId, documentId, operation, type, amount, currency) { const row = { id: randomUUID(), companyId, customerId, representativeId, documentId, operationId: operation.operationId, movementType: type, amount: decimalString(amount), currency, occurredAt: operation.occurredAt }; this.debtMovements.set(row.id, Object.freeze(row)); }
   #recordCustody(companyId, representativeId, operation, type, amount, currency, referenceType, referenceId) { const row = { id: randomUUID(), companyId, representativeId, operationId: operation.operationId, movementType: type, amount: decimalString(amount), currency, referenceType, referenceId, occurredAt: operation.occurredAt }; this.custodyMovements.set(row.id, Object.freeze(row)); }
-  #simpleJournal(context, operation, number, currency, lines) { const journal = { id: randomUUID(), companyId: context.company.id, entryNumber: number, status: 'posted', currency, description: number, occurredAt: operation.occurredAt, createdBy: context.user.id, lines: lines.filter(([,d,c]) => d || c).map(([accountCode,d,c]) => ({ accountCode, debit: decimalString(d), credit: decimalString(c) })) };const debit=journal.lines.reduce((s,x)=>s+decimal(x.debit),ZERO),credit=journal.lines.reduce((s,x)=>s+decimal(x.credit),ZERO);if(debit!==credit)throw new AppError(500,'UNBALANCED_JOURNAL','القيد غير متوازن'); this.journalEntries.set(journal.id, Object.freeze(journal));return clone(journal); }
+  #simpleJournal(context, operation, number, currency, lines) {
+    const normalized = lines.filter(([,debit,credit]) => debit || credit).map(([accountCode,debit,credit]) => ({ accountCode, debit: decimalString(debit), credit: decimalString(credit) }));
+    const companyId = context.company.id;
+    const existing = operation.operationId ? [...this.journalEntries.values()].find(row => row.companyId === companyId && row.operationId === operation.operationId) : null;
+    if (existing) {
+      if (existing.entryNumber !== number || existing.currency !== currency || JSON.stringify(existing.lines) !== JSON.stringify(normalized)) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
+      return clone(existing);
+    }
+    if ([...this.journalEntries.values()].some(row => row.companyId === companyId && row.entryNumber === number)) throw new AppError(409,'ENTRY_NUMBER_EXISTS','رقم القيد مستخدم');
+    const journal = { id: randomUUID(), companyId, entryNumber: number, operationId: operation.operationId || null, status: 'posted', currency, description: number, occurredAt: operation.occurredAt, createdBy: context.user.id, lines: normalized };
+    const debit = journal.lines.reduce((sum,row) => sum + decimal(row.debit),ZERO), credit = journal.lines.reduce((sum,row) => sum + decimal(row.credit),ZERO);
+    if (debit !== credit) throw new AppError(500,'UNBALANCED_JOURNAL','القيد غير متوازن');
+    this.journalEntries.set(journal.id,Object.freeze(journal));
+    this.#audit(companyId,context.user.id,'journal.posted','journal_entry',journal.id,{});
+    this.#change(companyId,'journal_entry',journal.id,'upsert',journal);
+    return clone(journal);
+  }
   #employee(companyId,id){const row=this.employees.get(id);if(!row||row.companyId!==companyId)throw new AppError(404,'EMPLOYEE_NOT_FOUND','الموظف غير موجود');return row;}
   #employeeByUser(companyId,userId){return[...this.employees.values()].find(x=>x.companyId===companyId&&x.userId===userId)||null;}
   #defaultPayrollSettings(companyId){return{companyId,workingDaysPerMonth:30,dailyHours:'8.000000',defaultOvertimeMultiplier:'1.500000',deductAbsence:false,attendanceRequired:false};}
@@ -1221,14 +1417,14 @@ export class MemoryStore {
     const due = total - paid;
     const lines = [];
     const add = (account, debit, credit) => { if (debit || credit) lines.push({ account, debit: decimalString(debit), credit: decimalString(credit) }); };
-    const cashAccount = document.representativeId ? '1150-REP-CASH-CUSTODY' : '1000-CASH';
+    const cashAccount = document.representativeId ? '1150-REP-CASH-CUSTODY' : document.currency === 'USD' ? '1000-CASH-USD' : '1000-CASH';
     if (document.documentType === 'purchase') {
-      add('1200-INVENTORY', total, ZERO); add('1000-CASH', ZERO, paid); add('2100-AP', ZERO, due);
+      add('1200-INVENTORY', total, ZERO); add(document.currency === 'USD' ? '1000-CASH-USD' : '1000-CASH', ZERO, paid); add('2100-AP', ZERO, due);
     } else if (document.documentType === 'sale') {
       add(cashAccount, paid, ZERO); add('1100-AR', due, ZERO); add('4100-SALES', ZERO, total);
       add('5100-COGS', inventoryCost, ZERO); add('1200-INVENTORY', ZERO, inventoryCost);
     } else if (document.documentType === 'purchase_return') {
-      add('1000-CASH', paid, ZERO); add('2100-AP', due, ZERO); add('1200-INVENTORY', ZERO, total);
+      add(document.currency === 'USD' ? '1000-CASH-USD' : '1000-CASH', paid, ZERO); add('2100-AP', due, ZERO); add('1200-INVENTORY', ZERO, total);
     } else {
       add('4200-SALES-RETURNS', total, ZERO); add(cashAccount, ZERO, paid); add('1100-AR', ZERO, due);
       add('1200-INVENTORY', inventoryCost, ZERO); add('5100-COGS', ZERO, inventoryCost);

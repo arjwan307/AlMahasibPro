@@ -30,6 +30,7 @@ test('company-owned SQLite installation persists accounting, stock, users and ba
   const document=[...runtime.store.commerceDocuments.values()].find(row=>row.documentNumber==='S1');
   const settlement={operationId:crypto.randomUUID(),documentId:document.id,amount:'100',receiptNumber:'PAY1',method:'cash'};
   await create('/api/v1/enterprise/settlements',settlement);await create('/api/v1/enterprise/settlements',settlement);
+  assert.equal((await request('/api/v1/enterprise/settlements',{...settlement,amount:'101'})).status,409,'same settlement operation cannot change its amount');
   assert.equal((await request('/api/v1/enterprise/settlements',{...settlement,operationId:crypto.randomUUID(),amount:'250'})).status,409);
   const journalInput={operationId:crypto.randomUUID(),entryNumber:'MANUAL-1',occurredAt:new Date().toISOString(),description:'اختبار قيد يدوي',lines:[
    {accountCode:'1000-CASH',debit:'125',credit:'0'},

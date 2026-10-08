@@ -1,0 +1,98 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { startEnterpriseLocal } from '../../apps/local/enterprise-server.js';
+
+test('payroll approval, cashbox closing, and import landed costs post once to SQLite and the ledger',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'erp-finance-test-'));
+  let runtime,cookie='';
+  try {
+    runtime=await startEnterpriseLocal({dataDirectory:directory,port:33220});
+    async function request(path,body,method='POST'){const response=await fetch(runtime.url+path,{headers:{...(body?{'Content-Type':'application/json'}:{}),...(cookie?{Cookie:cookie}:{})},...(body?{method,body:JSON.stringify(body)}:{})});if(response.headers.get('set-cookie'))cookie=response.headers.get('set-cookie').split(';')[0];const data=await response.json();return{status:response.status,data};}
+    async function create(path,body){const result=await request(path,body);assert.equal(result.status,201,JSON.stringify(result.data));return result.data;}
+    const owner={legalName:'شركة الاختبار المالي',ownerName:'المدير',username:'finance_admin',password:'Strong-Offline-123'};
+    await create('/api/local/setup',owner);
+    assert.equal((await request('/api/v1/auth/login',{companyCode:'local',username:owner.username,password:owner.password})).status,200);
+    const ownerCookie=cookie;
+    await create('/api/v1/users',{username:'cashier_test',displayName:'كاشير الاختبار',password:'Strong-Cashier-123',roleCode:'cashier'});
+    assert.equal((await request('/api/v1/auth/login',{companyCode:'local',username:'cashier_test',password:'Strong-Cashier-123'})).status,200);
+    assert.equal((await request('/api/v1/hr/payroll/cycles',{cycleCode:'DENIED',periodStart:'2026-10-01',periodEnd:'2026-10-31',currency:'IQD'})).status,403);
+    assert.equal((await request('/api/v1/import/shipments',{operationId:crypto.randomUUID(),shipmentNumber:'DENIED',containerNumber:'DENIED',supplierId:crypto.randomUUID(),currency:'USD'})).status,403);
+    cookie=ownerCookie;
+
+    assert.equal((await request('/api/v1/hr/payroll/settings',{workingDaysPerMonth:30,dailyHours:'8',defaultOvertimeMultiplier:'1.5',deductAbsence:false,attendanceRequired:false},'PUT')).status,200);
+    const employee=(await create('/api/v1/hr/employees',{code:'EMP-1',fullName:'موظف اختبار',hireDate:'2026-01-01'})).employee;
+    await create(`/api/v1/hr/employees/${employee.id}/contracts`,{contractNumber:'CTR-1',startDate:'2026-01-01',basicSalary:'1000000',currency:'IQD'});
+    await create(`/api/v1/hr/employees/${employee.id}/components`,{code:'ALLOW',name:'مخصص',componentType:'allowance',amount:'100000'});
+    await create(`/api/v1/hr/employees/${employee.id}/components`,{code:'DEDUCT',name:'استقطاع',componentType:'deduction',amount:'50000'});
+    const advance=(await create(`/api/v1/hr/employees/${employee.id}/advances`,{operationId:crypto.randomUUID(),advanceNumber:'ADV-1',originalAmount:'200000',installmentAmount:'50000',currency:'IQD'})).advance;
+    assert.equal(advance.journalEntryId!=null,true);
+    const cycle=(await create('/api/v1/hr/payroll/cycles',{cycleCode:'2026-10',periodStart:'2026-10-01',periodEnd:'2026-10-31',currency:'IQD'})).cycle;
+    assert.equal(cycle.lines[0].grossAmount,'1100000.000000');
+    assert.equal(cycle.lines[0].totalDeductions,'100000.000000');
+    assert.equal(cycle.lines[0].netAmount,'1000000.000000');
+    await request(`/api/v1/hr/payroll/cycles/${cycle.id}/review`,{});
+    const approvalId=crypto.randomUUID();
+    assert.equal((await request(`/api/v1/hr/payroll/cycles/${cycle.id}/approve`,{operationId:approvalId})).status,200);
+    const approvedJournalCount=runtime.store.journalEntries.size;
+    await request(`/api/v1/hr/payroll/cycles/${cycle.id}/approve`,{operationId:approvalId});
+    assert.equal(runtime.store.journalEntries.size,approvedJournalCount,'approval retry does not duplicate accrual');
+    assert.equal(runtime.store.employeeAdvances.get(advance.id).remainingAmount,'150000.000000');
+    const payId=crypto.randomUUID();
+    assert.equal((await request(`/api/v1/hr/payroll/cycles/${cycle.id}/pay`,{operationId:payId,paymentNumber:'PAY-1'})).status,200);
+    const paidJournalCount=runtime.store.journalEntries.size;
+    await request(`/api/v1/hr/payroll/cycles/${cycle.id}/pay`,{operationId:payId,paymentNumber:'PAY-1'});
+    assert.equal(runtime.store.journalEntries.size,paidJournalCount,'payment retry does not duplicate cash or the journal');
+    assert.equal((await request(`/api/v1/hr/payroll/cycles/${cycle.id}/pay`,{operationId:payId,paymentNumber:'PAY-CHANGED'})).status,409);
+    await create(`/api/v1/hr/payroll/cycles/${cycle.id}/adjustments`,{operationId:crypto.randomUUID(),employeeId:employee.id,adjustmentNumber:'ADJ-1',adjustmentType:'recovery',amount:'25000',currency:'IQD',reason:'تسوية اختبار'});
+
+    const box=(await create('/api/v1/treasury/cashboxes',{code:'MAIN-IQD',name:'الصندوق الرئيسي',currency:'IQD'})).cashbox;
+    const opened=(await create(`/api/v1/treasury/cashboxes/${box.id}/open`,{operationId:crypto.randomUUID(),sessionNumber:'SHIFT-1',openingBalance:'100'})).session;
+    const movementInput={operationId:crypto.randomUUID(),movementNumber:'CASH-1',direction:'out',amount:'25',counterAccountCode:'5100-COGS',reference:'مصروف تجريبي'};
+    const movement=(await create(`/api/v1/treasury/cashboxes/${box.id}/movements`,movementInput)).movement;
+    const cashJournalCount=runtime.store.journalEntries.size;
+    await create(`/api/v1/treasury/cashboxes/${box.id}/movements`,movementInput);
+    assert.equal(runtime.store.journalEntries.size,cashJournalCount,'cash movement retry is idempotent');
+    assert.equal((await request(`/api/v1/treasury/cashboxes/${box.id}/movements`,{...movementInput,amount:'26'})).status,409);
+    const insufficient=await request(`/api/v1/treasury/cashboxes/${box.id}/movements`,{...movementInput,operationId:crypto.randomUUID(),movementNumber:'CASH-TOO-MUCH',amount:'100'});
+    assert.equal(insufficient.status,409);assert.equal(insufficient.data.error.code,'INSUFFICIENT_CASH');
+    const closeInput={operationId:crypto.randomUUID(),countedBalance:'70'};
+    const closed=(await request(`/api/v1/treasury/cashboxes/${box.id}/sessions/${opened.id}/close`,closeInput));
+    assert.equal(closed.status,200,JSON.stringify(closed.data));
+    assert.equal(closed.data.session.expectedBalance,'75.000000');
+    assert.equal(closed.data.session.variance,'-5.000000');
+    assert.equal((await request(`/api/v1/treasury/cashboxes/${box.id}/sessions/${opened.id}/close`,closeInput)).data.session.id,opened.id);
+    assert.equal((await request(`/api/v1/treasury/cashboxes/${box.id}/movements`,null)).data.movements.length,1);
+
+    const unit=(await create('/api/v1/catalog/units',{code:'PC',name:'قطعة'})).unit;
+    const warehouse=(await create('/api/v1/warehouses',{code:'IMPORT',name:'مخزن الاستيراد'})).warehouse;
+    const item=(await create('/api/v1/catalog/items',{sku:'IMP-1',name:'مادة مستوردة',baseUnitId:unit.id})).item;
+    const supplier=(await create('/api/v1/suppliers',{code:'SUP-1',name:'مورد الاستيراد'})).supplier;
+    const purchase=(await create('/api/v1/commerce/commit',{operationId:crypto.randomUUID(),deviceId:'test',clientSequence:1,occurredAt:new Date().toISOString(),document:{documentType:'purchase',documentNumber:'IMP-PUR-1',warehouseId:warehouse.id,partyId:supplier.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'10',unitPrice:'100'}],payments:[]}})).result.document;
+    const shipment=(await create('/api/v1/import/shipments',{operationId:crypto.randomUUID(),shipmentNumber:'SHIP-1',containerNumber:'CONT-1',supplierId:supplier.id,currency:'USD',origin:'البصرة',billOfLading:'BL-1'})).shipment;
+    const arrived=await request(`/api/v1/import/shipments/${shipment.id}/arrival`,{operationId:crypto.randomUUID(),arrivedAt:new Date().toISOString()});
+    assert.equal(arrived.status,200,JSON.stringify(arrived.data));
+    await request(`/api/v1/import/shipments/${shipment.id}/purchase-document`,{operationId:crypto.randomUUID(),purchaseDocumentId:purchase.id});
+    const costInput={operationId:crypto.randomUUID(),currency:'IQD',charges:[{code:'freight',description:'أجور الشحن',amount:'20'}],allocations:[{itemId:item.id,amount:'20'}]};
+    const landed=(await create(`/api/v1/import/shipments/${shipment.id}/costs`,costInput)).cost;
+    assert.equal(landed.capitalizedAmount,'20.000000');
+    const companyId=[...runtime.store.companies.values()][0].id;
+    assert.equal(runtime.store.stockBalances.get(`${companyId}:${warehouse.id}:${item.id}`).averageCost,'102.000000');
+    const importsJournalCount=runtime.store.journalEntries.size;
+    await create(`/api/v1/import/shipments/${shipment.id}/costs`,costInput);
+    assert.equal(runtime.store.journalEntries.size,importsJournalCount,'landed-cost retry does not post a second journal');
+    assert.equal((await request(`/api/v1/import/shipments/${shipment.id}/costs`,{...costInput,allocations:[{itemId:item.id,amount:'21'}],charges:[{code:'freight',description:'أجور الشحن',amount:'21'}]})).status,409);
+
+    for(const journal of runtime.store.journalEntries.values()) {
+      const total=journal.lines.reduce((sum,line)=>sum+BigInt(line.debit.replace('.',''))-BigInt(line.credit.replace('.','')),0n);
+      assert.equal(total,0n,`journal ${journal.entryNumber} is balanced`);
+    }
+    await runtime.close();runtime=null;
+    runtime=await startEnterpriseLocal({dataDirectory:directory,port:33220});
+    assert.equal(runtime.store.payrollCycles.size,1);
+    assert.equal(runtime.store.cashboxMovements.size,1);
+    assert.equal(runtime.store.importCostPostings.size,1);
+  } finally { if(runtime) await runtime.close(); await rm(directory,{recursive:true,force:true}); }
+});
