@@ -44,6 +44,17 @@ function modelUnavailable(message) {
   return /does not exist|do not have access|model.*not found|model.*not available|model.*unavailable/i.test(String(message));
 }
 
+function cleanModelReply(value) {
+  return String(value || '')
+    .replace(/<think\\b[^>]*>[\\s\\S]*?<\\/think>/gi, '')
+    .replace(/<analysis\\b[^>]*>[\\s\\S]*?<\\/analysis>/gi, '')
+    .replace(/<reasoning\\b[^>]*>[\\s\\S]*?<\\/reasoning>/gi, '')
+    .replace(/<think\\b[^>]*>[\\s\\S]*$/gi, '')
+    .replace(/<analysis\\b[^>]*>[\\s\\S]*$/gi, '')
+    .replace(/<reasoning\\b[^>]*>[\\s\\S]*$/gi, '')
+    .trim();
+}
+
 function error(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
 }
@@ -90,7 +101,7 @@ export function installAssistantRoutes(app, { authenticate }) {
         });
         const data = await response.json().catch(() => ({}));
         if (response.ok) {
-          const answer = String(data.choices?.[0]?.message?.content || '').trim().slice(0, 6000);
+          const answer = cleanModelReply(data.choices?.[0]?.message?.content).slice(0, 6000);
           if (!answer) return error(res, 502, 'ASSISTANT_EMPTY_REPLY', 'لم يصل رد صالح من المساعد السحابي');
           return res.json({ answer, model });
         }
