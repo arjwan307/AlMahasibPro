@@ -117,6 +117,12 @@ test('payroll approval, cashbox closing, and import landed costs post once to SQ
     await create(`/api/v1/import/shipments/${shipment.id}/costs`,costInput);
     assert.equal(runtime.store.journalEntries.size,importsJournalCount,'landed-cost retry does not post a second journal');
     assert.equal((await request(`/api/v1/import/shipments/${shipment.id}/costs`,{...costInput,allocations:[{itemId:item.id,amount:'21'}],charges:[{code:'freight',description:'أجور الشحن',amount:'21'}]})).status,409);
+    await request('/api/v1/auth/login',{companyCode:'local',username:'branch_keeper',password:'Strong-Branch-123'});
+    assert.equal((await request('/api/v1/import/shipments',null,'GET')).data.shipments.some(row=>row.id===shipment.id),false,'branch users cannot view another branch shipment');
+    const branchShipment=(await create('/api/v1/import/shipments',{operationId:crypto.randomUUID(),shipmentNumber:'BR-SHIP',containerNumber:'BR-CONT',supplierId:supplier.id,currency:'IQD'})).shipment;
+    assert.equal((await request(`/api/v1/import/shipments/${branchShipment.id}/arrival`,{operationId:crypto.randomUUID(),arrivedAt:new Date().toISOString()})).status,200);
+    assert.equal((await request(`/api/v1/import/shipments/${branchShipment.id}/purchase-document`,{operationId:crypto.randomUUID(),purchaseDocumentId:purchase.id})).status,403,'branch shipment cannot link a purchase from outside its branch');
+    cookie=ownerCookie;
 
     for(const journal of runtime.store.journalEntries.values()) {
       const total=journal.lines.reduce((sum,line)=>sum+BigInt(line.debit.replace('.',''))-BigInt(line.credit.replace('.','')),0n);
