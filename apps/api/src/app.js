@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 21415)
-Total output lines: 1145
-
 import { installSalesRoutes, salesRep, salesScoped } from './sales-workspace.js';
 import express from 'express';
 import { PERMISSIONS } from './permissions.js';
@@ -408,7 +405,326 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(201).json({ device });
   }));
 
-  app.put('/api/v1/…6415 tokens truncated…ter || '').trim().slice(0, 240),
+  app.put('/api/v1/pos/devices/:deviceId/allocations/:itemId', authenticate(store), permit('inventory.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['quantity']);
+    const allocation = await store.setPosAllocation(req.auth.company.id, uuid(req.params.deviceId, 'deviceId'), {
+      itemId: uuid(req.params.itemId, 'itemId'), quantity: decimalInput(req.body.quantity, { nonNegative: true }),
+      expiresAt: req.body.expiresAt || null
+    }, req.auth.user.id);
+    res.json({ allocation });
+  }));
+
+  app.get('/api/v1/pos/bootstrap', authenticate(store), asyncRoute(async (req, res) => {
+    const deviceId = uuid(req.query.deviceId, 'deviceId');
+    res.json(await store.getPosBootstrap(req.auth.company.id, deviceId));
+  }));
+
+  app.post('/api/v1/pos/operations', authenticate(store), asyncRoute(async (req, res) => {
+    const allowedTypes = ['pos.shift.open', 'pos.sale', 'pos.return', 'pos.shift.close'];
+    if (!allowedTypes.includes(req.body.type)) throw new AppError(400, 'INVALID_POS_OPERATION', 'عملية الكاشير غير صالحة');
+    const operation = validateOperation({
+      operationId: req.body.operationId, deviceId: req.body.deviceId, clientSequence: req.body.clientSequence,
+      occurredAt: req.body.occurredAt, schemaVersion: 1, dependencies: req.body.dependencies || [],
+      type: req.body.type, payload: validatePosPayload(req.body.type, req.body.payload)
+    });
+    requirePosPermission(req.auth, operation.type);
+    const [result] = await store.pushOperations(req.auth, [operation]);
+    res.status(result.status === 'acknowledged' ? 201 : 409).json({ result });
+  }));
+
+  app.post('/api/v1/sync/push', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    if (!Array.isArray(req.body?.operations) || req.body.operations.length > 100) {
+      throw new AppError(400, 'INVALID_SYNC_BATCH', 'دفعة المزامنة يجب أن تحتوي حتى 100 عملية');
+    }
+    const operations = req.body.operations.map(validateOperation);
+    for (const operation of operations) {
+      if (operation.type === 'financial.record' && !req.auth.permissions.includes('accounting.post')) {
+        throw new AppError(403, 'PERMISSION_DENIED', 'لا توجد صلاحية لتسجيل العملية المالية');
+      }
+      if (operation.type === 'commerce.commit') { operation.payload=validateCommercePayload(operation.payload);operation.payloadHash=payloadHash(operation.payload);requireCommercePermission(req.auth, operation.payload.documentType); }
+      if (operation.type.startsWith('pos.')) requirePosPermission(req.auth, operation.type);
+      if (operation.type.startsWith('representative.')) { if(salesRep(req.auth)&&store.salesSettings?.has('user:'+req.auth.user.id))throw new AppError(403,'USE_SALES_WORKSPACE','استخدم صفحة المبيعات الحالية');operation.payload = validateRepresentativePayload(operation.type, operation.payload); requireRepresentativePermission(req.auth, operation.type); }
+    }
+    const results = await store.pushOperations(req.auth, operations);
+    for(const operation of operations){if(operation.type==='market.transaction.shift_close'&&results.some(r=>r.operationId===operation.operationId&&r.status==='acknowledged'))await revokeScannerShift(req.auth.company.id,operation.payload.shiftId);}
+    res.json({ results });
+  }));
+
+  app.get('/api/v1/sync/pull', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    const cursor = Math.max(0, Number.parseInt(req.query.cursor || '0', 10) || 0);
+    const page=await store.pullChanges(req.auth.company.id,cursor,100);
+    if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';page.changes=page.changes.filter(x=>x.entityType==='unit'||x.entityType==='item'||x.entityType==='item_unit'||(x.entityType==='price'&&['sale','sale_'+channel].includes(x.payload?.priceType))||(x.entityType==='customer'&&(store.salesSettings.get('customer:'+x.entityId)?.channel||'retail')===channel));}
+    res.json(page);
+  }));
+
+  app.get('/api/v1/sync/status', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    res.json(await store.syncStatus(req.auth.company.id, req.auth.user.id, req.auth.session.deviceId));
+  }));
+
+  // Company-scoped market cloud snapshot. This deliberately stores the snapshot
+  // through the existing sync change stream, so Mongo-backed stores persist it
+  // with the same company isolation as every other synchronized entity.
+  async function currentMarketSnapshot(companyId) {
+    let cursor=0,latestRow=null,guard=0;
+    do { const page=await store.pullChanges(companyId,cursor,500); for(const row of page.changes||[]) if(row.entityType==='market.snapshot') latestRow=row;
+      if(!page.hasMore||page.nextCursor===cursor)break; cursor=page.nextCursor; guard+=1;
+    } while(guard<200);
+    return latestRow?.payload||latestRow?.data||null;
+  }
+  async function marketTransactionExists(companyId,predicate) {
+    let cursor=0,guard=0;
+    do { const page=await store.pullChanges(companyId,cursor,500);
+      for(const row of page.changes||[]) if(row.entityType==='market.transaction'&&predicate(row.payload||row.data||{})) return true;
+      if(!page.hasMore||page.nextCursor===cursor)break; cursor=page.nextCursor; guard+=1;
+    } while(guard<200);
+    return false;
+  }
+
+  app.post('/api/v1/market/stock-reversal', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
+    const kind=String(req.body?.kind||''), invoice=String(req.body?.invoice||'');
+    if(!['return','cancel'].includes(kind)||!invoice) throw new AppError(400,'INVALID_MARKET_REVERSAL','عملية المرتجع أو الإلغاء غير صالحة');
+    if(await marketTransactionExists(req.auth.company.id,(x)=>x.invoice===invoice&&x.kind==='cancel')) throw new AppError(409,'MARKET_INVOICE_CANCELLED','الفاتورة ملغاة مسبقًا');
+    if(kind==='cancel'&&await marketTransactionExists(req.auth.company.id,(x)=>x.invoice===invoice&&x.kind==='return')) throw new AppError(409,'MARKET_INVOICE_HAS_RETURN','لا يمكن إلغاء فاتورة عليها مرتجع');
+    const snapshot=await currentMarketSnapshot(req.auth.company.id); if(!snapshot?.catalog) throw new AppError(409,'MARKET_CATALOG_NOT_SYNCED','المخزون المركزي غير متاح');
+    const catalog=structuredClone(snapshot.catalog),lines=Array.isArray(req.body?.lines)?req.body.lines:[];
+    if(!lines.length) throw new AppError(400,'INVALID_MARKET_REVERSAL','لا توجد مواد لإعادتها');
+    for(const line of lines){const item=catalog.find(x=>String(x.id)===String(line.itemId)),qty=Number(line.quantity||0);if(!item||!(qty>0))throw new AppError(409,'MARKET_ITEM_NOT_FOUND','أحد أصناف المرتجع غير موجود');item.qty=Number(item.qty||0)+qty}
+    const now=new Date().toISOString(),snap=validateOperation({operationId:randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now(),occurredAt:now,schemaVersion:1,dependencies:[],type:'market.snapshot',payload:{catalog,updatedAt:now}});
+    const tx=validateOperation({operationId:randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now()+1,occurredAt:now,schemaVersion:1,dependencies:[],type:'market.transaction.'+kind,payload:{...req.body,id:String(req.body?.id||randomUUID()),kind,occurredAt:now}});
+    const results=await store.pushOperations(req.auth,[snap,tx]);if(results.some(x=>x.status!=='acknowledged'))throw new AppError(409,'MARKET_REVERSAL_REJECTED','تعذر اعتماد العملية مركزيًا');
+    res.json({ok:true,snapshot:{catalog,updatedAt:now}});
+  }));
+
+  const marketScannerLinks = new Map();
+  const scannerCollection = store.db?.collection('market_scanner_links');
+  async function getScannerLink(token){
+    return scannerCollection ? scannerCollection.findOne({_id:token,revoked:false}) : marketScannerLinks.get(token);
+  }
+  async function revokeScannerShift(companyId,shiftId){
+    if(scannerCollection)await scannerCollection.updateMany({companyId,shiftId,revoked:false},{$set:{revoked:true},$unset:{codes:''}});
+    else for(const [token,link] of marketScannerLinks)if(link.companyId===companyId&&link.shiftId===shiftId)marketScannerLinks.delete(token);
+  }
+  function requireScannerLink(link){
+    if(!link||link.revoked)throw new AppError(410,'SCANNER_LINK_EXPIRED','تم إيقاف الربط أو إغلاق الشفت');
+    return link;
+  }
+  app.post('/api/v1/market/scanner/pair', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
+    const terminal=String(req.body?.terminal||'main').slice(0,128),shiftId=uuid(req.body?.shiftId,'shiftId');
+    const opened=await marketTransactionExists(req.auth.company.id,x=>x.kind==='shift_open'&&x.shiftId===shiftId);
+    const closed=await marketTransactionExists(req.auth.company.id,x=>x.kind==='shift_close'&&x.shiftId===shiftId);
+    if(!opened||closed)throw new AppError(409,'SCANNER_SHIFT_NOT_OPEN','افتح الشفت وزامنه قبل ربط الماسح');
+    await revokeScannerShift(req.auth.company.id,shiftId);
+    const token=randomUUID().replace(/-/g,''),link={_id:token,companyId:req.auth.company.id,terminal,shiftId,cashier:String(req.body?.cashier||'').slice(0,100),createdAt:new Date().toISOString(),revoked:false,codes:[]};
+    if(scannerCollection)await scannerCollection.insertOne(link);else marketScannerLinks.set(token,link);
+    res.set('Cache-Control','no-store').json({token,expiresIn:null,validUntil:'shift_close_or_disconnect'});
+  }));
+  app.get('/api/v1/market/scanner/:token/status', asyncRoute(async (req,res)=>{
+    requireScannerLink(await getScannerLink(req.params.token));
+    res.set('Cache-Control','no-store').json({ok:true,expiresIn:null});
+  }));
+  app.post('/api/v1/market/scanner/:token/scan', asyncRoute(async (req,res)=>{
+    requireScannerLink(await getScannerLink(req.params.token));
+    const barcode=String(req.body?.barcode||'').trim();if(!barcode||barcode.length>128)throw new AppError(400,'INVALID_BARCODE','باركود غير صالح');
+    const code={barcode,at:new Date().toISOString()};
+    if(scannerCollection){const result=await scannerCollection.updateOne({_id:req.params.token,revoked:false},{$push:{codes:{$each:[code],$slice:-100}}});if(!result.matchedCount)requireScannerLink(null);}
+    else{const link=requireScannerLink(marketScannerLinks.get(req.params.token));link.codes.push(code);if(link.codes.length>100)link.codes.splice(0,link.codes.length-100);}
+    res.json({ok:true});
+  }));
+  app.get('/api/v1/market/scanner/:token/poll', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
+    const link=requireScannerLink(await getScannerLink(req.params.token));if(link.companyId!==req.auth.company.id)requireScannerLink(null);
+    let codes;
+    if(scannerCollection){const old=await scannerCollection.findOneAndUpdate({_id:req.params.token,companyId:req.auth.company.id,revoked:false},{$set:{codes:[]}},{returnDocument:'before'});requireScannerLink(old);codes=old.codes||[];}
+    else codes=link.codes.splice(0);
+    res.set('Cache-Control','no-store').json({codes});
+  }));
+  app.post('/api/v1/market/scanner/disconnect', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
+    const shiftId=uuid(req.body?.shiftId,'shiftId');await revokeScannerShift(req.auth.company.id,shiftId);res.json({ok:true});
+  }));
+
+  app.post('/api/v1/market/sale', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+    if (!lines.length || lines.length > 500) throw new AppError(400, 'INVALID_MARKET_SALE', 'فاتورة البيع غير صالحة');
+    let cursor = 0, latestRow = null, guard = 0;
+    do {
+      const page = await store.pullChanges(req.auth.company.id, cursor, 500);
+      for (const row of page.changes || []) if (row.entityType === 'market.snapshot') latestRow = row;
+      if (!page.hasMore || page.nextCursor === cursor) break;
+      cursor = page.nextCursor; guard += 1;
+    } while (guard < 200);
+    const latest = latestRow?.payload || latestRow?.data || null;
+    if (!latest?.catalog) throw new AppError(409, 'MARKET_CATALOG_NOT_SYNCED', 'يجب مزامنة مخزون الحاسبة الرئيسية أولًا');
+    const catalog = structuredClone(latest.catalog);
+    for (const line of lines) {
+      const item = catalog.find((x) => String(x.id) === String(line.itemId));
+      const qty = Number(line.quantity || 0);
+      if (!item || !(qty > 0)) throw new AppError(409, 'MARKET_ITEM_NOT_FOUND', 'أحد أصناف الفاتورة غير موجود');
+      if (Number(item.qty || 0) < qty) throw new AppError(409, 'MARKET_STOCK_INSUFFICIENT', 'الرصيد غير كافٍ للصنف: ' + String(item.name || ''));
+    }
+    for (const line of lines) {
+      const item = catalog.find((x) => String(x.id) === String(line.itemId));
+      item.qty = Number(item.qty || 0) - Number(line.quantity || 0);
+    }
+    const now = new Date().toISOString(), snapshotOperation = validateOperation({
+      operationId: randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
+      clientSequence: Date.now(), occurredAt: now, schemaVersion: 1, dependencies: [], type: 'market.snapshot',
+      payload: { catalog, updatedAt: now }
+    });
+    const saleId = String(req.body?.id || randomUUID()), saleOperation = validateOperation({
+      operationId: randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
+      clientSequence: Date.now() + 1, occurredAt: now, schemaVersion: 1, dependencies: [], type: 'market.transaction.sale',
+      payload: { ...req.body, id: saleId, kind: 'sale', occurredAt: now }
+    });
+    const results = await store.pushOperations(req.auth, [snapshotOperation, saleOperation]);
+    if (results.some((x) => x.status !== 'acknowledged')) throw new AppError(409, 'MARKET_SALE_REJECTED', 'تعذر اعتماد البيع مركزيًا');
+    res.json({ ok: true, saleId, snapshot: { catalog, updatedAt: now } });
+  }));
+
+  app.get('/api/v1/market/cashier-events', authenticate(store), permit('sync.use'), asyncRoute(async(req,res)=>{
+    const cursor=Math.max(0,Number.parseInt(req.query.cursor||'0',10)||0),page=await store.pullChanges(req.auth.company.id,cursor,500);
+    res.set('Cache-Control','no-store').json({events:(page.changes||[]).filter(x=>x.entityType==='market.transaction').map(x=>x.payload||x.data),nextCursor:page.nextCursor,hasMore:page.hasMore});
+  }));
+
+  app.get('/api/v1/market/transactions', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    let cursor = 0, rows = [], guard = 0;
+    do {
+      const page = await store.pullChanges(req.auth.company.id, cursor, 500);
+      rows.push(...(page.changes || []).filter((row) => row.entityType === 'market.transaction').map((row) => row.payload || row.data).filter(Boolean));
+      if (!page.hasMore || page.nextCursor === cursor) break;
+      cursor = page.nextCursor; guard += 1;
+    } while (guard < 200);
+    res.json({ transactions: rows.slice(-5000) });
+  }));
+
+  app.get('/api/v1/market/snapshot', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    let cursor = 0, latest = null, guard = 0;
+    do {
+      const page = await store.pullChanges(req.auth.company.id, cursor, 500);
+      for (const row of page.changes || []) if (row.entityType === 'market.snapshot') latest = row;
+      if (!page.hasMore || page.nextCursor === cursor) break;
+      cursor = page.nextCursor; guard += 1;
+    } while (guard < 200);
+    res.json({ snapshot: latest?.payload || latest?.data || null });
+  }));
+
+  app.post('/api/v1/market/snapshot', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    let cursor = 0, latestRow = null, guard = 0;
+    do {
+      const page = await store.pullChanges(req.auth.company.id, cursor, 500);
+      for (const row of page.changes || []) if (row.entityType === 'market.snapshot') latestRow = row;
+      if (!page.hasMore || page.nextCursor === cursor) break;
+      cursor = page.nextCursor; guard += 1;
+    } while (guard < 200);
+    const latest = latestRow?.payload || latestRow?.data || null;
+    const baseUpdatedAt = req.body?.baseUpdatedAt == null ? null : String(req.body.baseUpdatedAt);
+    if (latest?.updatedAt && baseUpdatedAt !== String(latest.updatedAt)) {
+      return res.status(409).json({ ok:false, code:'MARKET_SNAPSHOT_CONFLICT', message:'تم تعديل المخزون من جهاز آخر', snapshot:latest });
+    }
+    const catalog = Array.isArray(req.body?.catalog) ? req.body.catalog.slice(0, 10000).map((x) => ({
+      id: String(x.id || '').slice(0,128), name: String(x.name || '').slice(0,200),
+      category: String(x.category || 'غير مصنف').slice(0,100), barcode: String(x.barcode || '').slice(0,64),
+      cost: Number(x.cost || 0), price: Number(x.price || 0), qty: Number(x.qty || 0),
+      minQty: Number(x.minQty || 0), unit: String(x.unit || 'قطعة').slice(0,32), demo: x.demo === true
+    })) : null;
+    if (!catalog) throw new AppError(400, 'INVALID_MARKET_CATALOG', 'بيانات أصناف الماركت غير صالحة');
+    const operation = validateOperation({
+      operationId: randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
+      clientSequence: Date.now(), occurredAt: new Date().toISOString(), schemaVersion: 1,
+      dependencies: [], type: 'market.snapshot', payload: { catalog, updatedAt: String(req.body?.clientUpdatedAt || new Date().toISOString()) }
+    });
+    const results = await store.pushOperations(req.auth, [operation]);
+    res.json({ ok: true, result: results[0] });
+  }));
+
+  app.get('/api/v1/enterprise/reports', authenticate(store), permit('accounting.read'), asyncRoute(async (req, res) => {
+    const data = await store.listEnterpriseData(req.auth.company.id);
+    if (!req.auth.permissions.includes('users.manage')) delete data.users;
+    res.json(data);
+  }));
+  app.post('/api/v1/enterprise/transfers', authenticate(store), permit('inventory.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['operationId','sourceWarehouseId','destinationWarehouseId','transferNumber']);
+    if (!Array.isArray(req.body.lines) || !req.body.lines.length || req.body.lines.length > 500) throw new AppError(400,'LINES_REQUIRED','بنود التحويل مطلوبة');
+    res.status(201).json({ transfer: await store.transferEnterpriseStock(req.auth, {
+      operationId: uuid(req.body.operationId,'operationId'), occurredAt: new Date().toISOString(), transferNumber: String(req.body.transferNumber).slice(0,64),
+      sourceWarehouseId: uuid(req.body.sourceWarehouseId,'sourceWarehouseId'), destinationWarehouseId: uuid(req.body.destinationWarehouseId,'destinationWarehouseId'),
+      lines: req.body.lines.map(line => ({ itemId: uuid(line.itemId,'itemId'), quantity: decimalInput(line.quantity,{positive:true}) }))
+    }) });
+  }));
+  app.post('/api/v1/enterprise/settlements', authenticate(store), permit('accounting.post'), asyncRoute(async (req, res) => {
+    requireFields(req.body,['operationId','documentId','amount','receiptNumber','method']);
+    if (!['cash','bank','bank_transfer','check'].includes(req.body.method)) throw new AppError(400,'INVALID_METHOD','طريقة الدفع غير صالحة');
+    const receivedCurrency = req.body.receivedCurrency || req.body.currency;
+    res.status(201).json({ settlement: await store.settleEnterpriseDocument(req.auth, {
+      operationId: uuid(req.body.operationId,'operationId'), documentId: uuid(req.body.documentId,'documentId'), amount: decimalInput(req.body.amount,{positive:true}),
+      receiptNumber: String(req.body.receiptNumber).slice(0,64), method: req.body.method,
+      bankName: String(req.body.bankName || '').trim().slice(0,160), transactionNumber: String(req.body.transactionNumber || '').trim().slice(0,120),
+      receivedAmount: decimalInput(req.body.receivedAmount || req.body.amount,{positive:true}), receivedCurrency: receivedCurrency ? currency(receivedCurrency) : undefined,
+      exchangeRate: decimalInput(req.body.exchangeRate || '1',{positive:true}),
+      occurredAt: /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paymentDate||'')) ? new Date(req.body.paymentDate+'T12:00:00.000Z').toISOString() : new Date().toISOString()
+    }) });
+  }));
+  app.get('/api/v1/enterprise/backup', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
+    if (typeof store.exportBackup !== 'function') throw new AppError(400,'LOCAL_BACKUP_ONLY','النسخ الاحتياطي هنا خاص بقاعدة الجهاز');
+    res.setHeader('Content-Disposition','attachment; filename="AlMahasibPro-backup.sqlite"');
+    res.type('application/octet-stream').send(await store.exportBackup());
+  }));
+
+  async function wholesaleRecords(companyId) {
+    const latest = new Map(); let cursor = 0, guard = 0;
+    do {
+      const page = await store.pullChanges(companyId, cursor, 500);
+      for (const row of page.changes || []) {
+        const payload = row.payload || row.data || {};
+        if (row.entityType === 'draft' && payload.feature === 'wholesale-invoice' && payload.entityId) latest.set(String(payload.entityId), payload);
+      }
+      if (!page.hasMore || page.nextCursor === cursor) break;
+      cursor = page.nextCursor; guard += 1;
+    } while (guard < 200);
+    return latest;
+  }
+  async function saveWholesaleRecord(context, record) {
+    const now = new Date().toISOString();
+    const operation = validateOperation({
+      operationId: randomUUID(), deviceId: String(context.session.deviceId || 'wholesale-web'),
+      clientSequence: Date.now() + Math.floor(Math.random() * 100000), occurredAt: now,
+      schemaVersion: 1, dependencies: [], type: 'draft.wholesale_invoice',
+      payload: { ...record, feature: 'wholesale-invoice', updatedAt: now, updatedBy: context.user.id }
+    });
+    const [result] = await store.pushOperations(context, [operation]);
+    if (result.status !== 'acknowledged') throw new AppError(409, result.code || 'INVOICE_SAVE_FAILED', result.message || 'تعذر حفظ الفاتورة');
+    return operation.payload;
+  }
+  const invoiceTemplates = ['classic', 'modern', 'trade', 'minimal', 'luxury'];
+  const defaultInvoiceSettings = (company) => ({ entityId: 'wholesale-settings', feature: 'wholesale-invoice', recordType: 'settings', template: 'classic', commercialName: company?.legalName || '', logo: '', address: company?.address || '', phone: company?.phone || '', registration: '', footer: 'شكرًا لتعاملكم معنا', signatory: '' });
+
+  app.get('/api/v1/wholesale/invoices', authenticate(store), permitAny(['sales.read', 'sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize']), asyncRoute(async (req, res) => {
+    const records = await wholesaleRecords(req.auth.company.id);
+    let invoices = [...records.values()].filter((x) => x.recordType === 'invoice').map((x) => x.invoice);
+    const canReview = req.auth.permissions.includes('sales.wholesale.review') || req.auth.permissions.includes('sales.wholesale.finalize') || req.auth.permissions.includes('sales.invoice.template.manage');
+    if (!canReview) invoices = invoices.filter((x) => x.createdBy === req.auth.user.id);
+    invoices.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    res.json({ invoices });
+  }));
+
+  app.get('/api/v1/wholesale/accounts', authenticate(store), permitAny(['sales.read', 'sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize']), asyncRoute(async (req, res) => {
+    res.json({ accounts: await store.listCustomerAccountSummaries(req.auth.company.id) });
+  }));
+
+  app.get('/api/v1/wholesale/settings', authenticate(store), permitAny(['sales.read', 'sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize']), asyncRoute(async (req, res) => {
+    const records = await wholesaleRecords(req.auth.company.id);
+    const row = records.get('wholesale-settings');
+    res.json({ settings: row?.recordType === 'settings' ? row.settings : defaultInvoiceSettings(req.auth.company) });
+  }));
+
+  app.post('/api/v1/wholesale/settings', authenticate(store), permit('sales.invoice.template.manage'), asyncRoute(async (req, res) => {
+    const b = req.body || {};
+    if (!invoiceTemplates.includes(String(b.template || ''))) throw new AppError(400, 'INVALID_INVOICE_TEMPLATE', 'قالب الفاتورة غير صالح');
+    const logo = String(b.logo || '');
+    if (logo && (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(logo) || logo.length > 1400000)) throw new AppError(400, 'INVALID_INVOICE_LOGO', 'ارفع شعارًا بصيغة PNG أو JPG أو WebP بحجم لا يتجاوز 1MB');
+    const settings = {
+      entityId: 'wholesale-settings', recordType: 'settings', template: String(b.template),
+      commercialName: String(b.commercialName || '').trim().slice(0, 140), logo,
+      address: String(b.address || '').trim().slice(0, 240), phone: String(b.phone || '').trim().slice(0, 48),
+      registration: String(b.registration || '').trim().slice(0, 80), footer: String(b.footer || '').trim().slice(0, 240),
       signatory: String(b.signatory || '').trim().slice(0, 100)
     };
     await saveWholesaleRecord(req.auth, { entityId: 'wholesale-settings', recordType: 'settings', settings });
