@@ -114,6 +114,30 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({company});
   }));
 
+  app.get('/api/v1/company/branches', authenticate(store), permitAny(['company.manage', 'inventory.read']), (req, res) => {
+    res.json({ branches: req.auth.company.branches || [] });
+  });
+  app.post('/api/v1/company/branches', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['code', 'name']);
+    const name = String(req.body.name).trim();
+    if (!name || name.length > 120) throw new AppError(400, 'INVALID_BRANCH_NAME', 'اسم الفرع مطلوب ولا يتجاوز ١٢٠ حرفًا');
+    const branch = await store.createBranch(req.auth.company.id, { code: entityCode(req.body.code), name }, req.auth.user.id);
+    res.status(201).json({ branch });
+  }));
+  app.patch('/api/v1/company/branches/:branchId', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
+    const input = {};
+    if (req.body.code !== undefined) input.code = entityCode(req.body.code);
+    if (req.body.name !== undefined) {
+      input.name = String(req.body.name).trim();
+      if (!input.name || input.name.length > 120) throw new AppError(400, 'INVALID_BRANCH_NAME', 'اسم الفرع مطلوب ولا يتجاوز ١٢٠ حرفًا');
+    }
+    if (req.body.active !== undefined) {
+      if (typeof req.body.active !== 'boolean') throw new AppError(400, 'INVALID_BRANCH_STATUS', 'حالة الفرع غير صالحة');
+      input.active = req.body.active;
+    }
+    res.json({ branch: await store.updateBranch(req.auth.company.id, uuid(req.params.branchId, 'branchId'), input, req.auth.user.id) });
+  }));
+
   app.get('/api/v1/bootstrap', authenticate(store), (req, res) => {
     res.json({
       ...publicContext(req.auth),
@@ -342,9 +366,12 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   app.post('/api/v1/warehouses', authenticate(store), permit('inventory.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['code', 'name']);
     if (req.body.kind && !['standard', 'vehicle', 'pos'].includes(req.body.kind)) throw new AppError(400, 'INVALID_WAREHOUSE_KIND', 'نوع المخزن غير صالح');
+    const branchId = req.body.branchId ? uuid(req.body.branchId, 'branchId') : null;
+    const branchScopes = (req.auth.scopes || []).filter((x) => x.type === 'branch');
+    if (branchScopes.length && !branchScopes.some((scope) => scope.id === branchId)) throw new AppError(403, 'BRANCH_SCOPE_DENIED', 'الفرع خارج نطاق حسابك');
     const warehouse = await store.createWarehouse(req.auth.company.id, {
       code: entityCode(req.body.code), name: req.body.name.trim(), kind: req.body.kind,
-      branchId: req.body.branchId ? uuid(req.body.branchId, 'branchId') : null
+      branchId
     }, req.auth.user.id);
     res.status(201).json({ warehouse });
   }));
@@ -953,6 +980,9 @@ function validateScopes(scopes, company) {
   }
   if (scopes.some((scope) => scope.type === 'company' && scope.id !== company.id)) {
     throw new AppError(400, 'CROSS_COMPANY_SCOPE', 'لا يمكن منح نطاق لشركة أخرى');
+  }
+  if (scopes.some((scope) => scope.type === 'branch' && !(company.branches || []).some((branch) => branch.id === scope.id && branch.active !== false))) {
+    throw new AppError(400, 'INVALID_BRANCH_SCOPE', 'نطاق الفرع غير موجود أو متوقف');
   }
   return scopes;
 }
