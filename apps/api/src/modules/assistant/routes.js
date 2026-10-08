@@ -46,15 +46,14 @@ function modelUnavailable(message) {
 
 function cleanModelReply(value) {
   return String(value || '')
-    .replace(/<think\\b[^>]*>[\\s\\S]*?<\\/think>/gi, '')
-    .replace(/<analysis\\b[^>]*>[\\s\\S]*?<\\/analysis>/gi, '')
-    .replace(/<reasoning\\b[^>]*>[\\s\\S]*?<\\/reasoning>/gi, '')
-    .replace(/<think\\b[^>]*>[\\s\\S]*$/gi, '')
-    .replace(/<analysis\\b[^>]*>[\\s\\S]*$/gi, '')
-    .replace(/<reasoning\\b[^>]*>[\\s\\S]*$/gi, '')
+    .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, '')
+    .replace(/<analysis\b[^>]*>[\s\S]*?<\/analysis>/gi, '')
+    .replace(/<reasoning\b[^>]*>[\s\S]*?<\/reasoning>/gi, '')
+    .replace(/<think\b[^>]*>[\s\S]*$/gi, '')
+    .replace(/<analysis\b[^>]*>[\s\S]*$/gi, '')
+    .replace(/<reasoning\b[^>]*>[\s\S]*$/gi, '')
     .trim();
 }
-
 function error(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
 }
