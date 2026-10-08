@@ -39,7 +39,7 @@ test('cloud assistant uses Groq with the server key and requires the existing se
 
     const status = capture();
     await routes['GET /api/v1/assistant/status'].handler({}, status);
-    assert.deepEqual(status.body, { available: true, configured: true, model: 'openai/gpt-oss-20b' });
+    assert.deepEqual(status.body, { available: true, configured: true, model: 'openai/gpt-oss-20b', errorCode: null });
     assert.equal(calls[0].url, 'https://api.groq.com/openai/v1/models');
     assert.equal(calls[0].options.headers.Authorization, 'Bearer server-secret');
 
@@ -64,6 +64,55 @@ test('cloud assistant uses Groq with the server key and requires the existing se
     globalThis.fetch = originalFetch;
     if (old.key === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = old.key;
     if (old.model === undefined) delete process.env.AI_ASSISTANT_GROQ_MODEL; else process.env.AI_ASSISTANT_GROQ_MODEL = old.model;
+  }
+});
+
+test('cloud assistant returns a clear timeout when the Groq model catalog stalls', async () => {
+  const old = process.env.GROQ_API_KEY;
+  const originalFetch = globalThis.fetch;
+  try {
+    process.env.GROQ_API_KEY = 'server-secret';
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls += 1;
+      const timeout = new Error('timeout');
+      timeout.name = 'TimeoutError';
+      throw timeout;
+    };
+    const routes = setup();
+    const chat = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({ body: { messages: [{ role: 'user', content: 'مرحبا' }] } }, chat);
+    assert.equal(chat.statusCode, 504);
+    assert.equal(chat.body.error.code, 'ASSISTANT_PROVIDER_TIMEOUT');
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (old === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = old;
+  }
+});
+
+test('cloud assistant returns a clear timeout when a completion request stalls', async () => {
+  const old = process.env.GROQ_API_KEY;
+  const originalFetch = globalThis.fetch;
+  try {
+    process.env.GROQ_API_KEY = 'server-secret';
+    let calls = 0;
+    globalThis.fetch = async (url) => {
+      calls += 1;
+      if (String(url).endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: 'qwen/qwen3-32b' }] }), { status: 200 });
+      const timeout = new Error('timeout');
+      timeout.name = 'TimeoutError';
+      throw timeout;
+    };
+    const routes = setup();
+    const chat = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({ body: { messages: [{ role: 'user', content: 'مرحبا' }] } }, chat);
+    assert.equal(chat.statusCode, 504);
+    assert.equal(chat.body.error.code, 'ASSISTANT_PROVIDER_TIMEOUT');
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (old === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = old;
   }
 });
 
