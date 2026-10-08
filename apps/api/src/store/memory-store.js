@@ -153,6 +153,41 @@ export class MemoryStore {
     return this.#publicCompany(company);
   }
 
+  async createBranch(companyId, input, actorUserId) {
+    const company = this.companies.get(companyId);
+    if (!company) throw new AppError(404, 'COMPANY_NOT_FOUND', 'الشركة غير موجودة');
+    const code = String(input.code || '').trim().toUpperCase();
+    if ((company.branches || []).some((branch) => branch.code.toUpperCase() === code)) {
+      throw new AppError(409, 'BRANCH_CODE_EXISTS', 'رمز الفرع مستخدم');
+    }
+    const branch = { id: randomUUID(), name: String(input.name).trim(), code, active: true, createdAt: new Date().toISOString() };
+    company.branches = [...(company.branches || []), branch];
+    this.#audit(companyId, actorUserId, 'branch.created', 'branch', branch.id, {});
+    this.#change(companyId, 'company', companyId, 'upsert', this.#publicCompany(company));
+    return clone(branch);
+  }
+
+  async updateBranch(companyId, branchId, input, actorUserId) {
+    const company = this.companies.get(companyId);
+    if (!company) throw new AppError(404, 'COMPANY_NOT_FOUND', 'الشركة غير موجودة');
+    const branches = company.branches || [];
+    const index = branches.findIndex((branch) => branch.id === branchId);
+    if (index < 0) throw new AppError(404, 'BRANCH_NOT_FOUND', 'الفرع غير موجود');
+    const current = branches[index];
+    const code = input.code === undefined ? current.code : String(input.code).trim().toUpperCase();
+    if (branches.some((branch) => branch.id !== branchId && branch.code.toUpperCase() === code)) {
+      throw new AppError(409, 'BRANCH_CODE_EXISTS', 'رمز الفرع مستخدم');
+    }
+    if (input.active === false && [...this.warehouses.values()].some((warehouse) => warehouse.companyId === companyId && warehouse.branchId === branchId && warehouse.active !== false)) {
+      throw new AppError(409, 'BRANCH_HAS_WAREHOUSES', 'انقل المخازن النشطة قبل إيقاف الفرع');
+    }
+    const updated = { ...current, code, name: input.name === undefined ? current.name : String(input.name).trim(), active: input.active === undefined ? current.active !== false : input.active };
+    company.branches = branches.map((branch) => branch.id === branchId ? updated : branch);
+    this.#audit(companyId, actorUserId, 'branch.updated', 'branch', branchId, { active: updated.active });
+    this.#change(companyId, 'company', companyId, 'upsert', this.#publicCompany(company));
+    return clone(updated);
+  }
+
   async listPendingCompanies() {
     return [...this.companies.values()].filter((company) => company.status === 'pending').map((company) => this.#publicCompany(company));
   }
@@ -458,6 +493,12 @@ export class MemoryStore {
   }
 
   async createWarehouse(companyId, input, actorUserId) {
+    if (input.branchId) {
+      const company = this.companies.get(companyId);
+      if (!company?.branches?.some((branch) => branch.id === input.branchId && branch.active !== false)) {
+        throw new AppError(400, 'BRANCH_NOT_FOUND', 'الفرع المحدد غير موجود أو متوقف');
+      }
+    }
     this.#assertUnique(this.warehouses, companyId, 'code', input.code, 'WAREHOUSE_CODE_EXISTS');
     const warehouse = { id: randomUUID(), companyId, code: input.code, name: input.name, kind: input.kind || 'standard', branchId: input.branchId || null, active: true };
     this.warehouses.set(warehouse.id, warehouse);
