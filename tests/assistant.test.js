@@ -39,7 +39,7 @@ test('cloud assistant uses Groq with the server key and requires the existing se
 
     const status = capture();
     await routes['GET /api/v1/assistant/status'].handler({}, status);
-    assert.deepEqual(status.body, { available: true, configured: true, model: 'openai/gpt-oss-20b' });
+    assert.deepEqual(status.body, { available: true, configured: true, model: 'openai/gpt-oss-20b', errorCode: null });
     assert.equal(calls[0].url, 'https://api.groq.com/openai/v1/models');
     assert.equal(calls[0].options.headers.Authorization, 'Bearer server-secret');
 
