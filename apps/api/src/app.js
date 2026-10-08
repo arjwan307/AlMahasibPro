@@ -235,6 +235,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
 
   app.get('/api/v1/master-data', authenticate(store), permitAny(['catalog.read', 'customers.read', 'suppliers.read', 'inventory.read']), asyncRoute(async (req, res) => {
     const m=await store.listMasterData(req.auth.company.id);
+    filterWarehouseScope(req.auth, m);
     if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';m.customers=m.customers.filter(x=>(store.salesSettings.get('customer:'+x.id)?.channel||'retail')===channel);m.suppliers=[];m.prices=m.prices.filter(x=>['sale','sale_'+channel].includes(x.priceType));m.stock=m.stock.map(({averageCost,...x})=>x);}
     res.json(m);
   }));
@@ -416,12 +417,15 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       type: 'commerce.commit', payload: validateCommercePayload(req.body.document)
     });
     requireCommercePermission(req.auth, operation.payload.documentType);
+    assertWarehouseScope(req.auth, store.warehouses.get(operation.payload.warehouseId));
+    for (const line of operation.payload.lines) if (line.warehouseId) assertWarehouseScope(req.auth, store.warehouses.get(line.warehouseId));
     const [result] = await store.pushOperations(req.auth, [operation]);
     res.status(result.status === 'acknowledged' ? 201 : 409).json({ result });
   }));
 
   app.get('/api/v1/commerce/documents', authenticate(store), permitAny(['sales.read', 'purchasing.read']), asyncRoute(async (req, res) => {
     let documents=await store.listCommerceDocuments(req.auth.company.id);
+    documents=documents.filter(document=>warehouseScopeAllows(req.auth,store.warehouses.get(document.warehouseId)));
     if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';documents=documents.filter(x=>x.documentType.startsWith('sale')&&x.customerId&&(store.salesSettings.get('customer:'+x.customerId)?.channel||'retail')===channel).map(x=>({...x,lines:x.lines.map(({unitCost,...line})=>line)}));}
     res.json({documents});
   }));
@@ -670,11 +674,14 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
 
   app.get('/api/v1/enterprise/reports', authenticate(store), permit('accounting.read'), asyncRoute(async (req, res) => {
     const data = await store.listEnterpriseData(req.auth.company.id);
+    data.transfers=(data.transfers||[]).filter(transfer=>warehouseScopeAllows(req.auth,store.warehouses.get(transfer.sourceWarehouseId))&&warehouseScopeAllows(req.auth,store.warehouses.get(transfer.destinationWarehouseId)));
     if (!req.auth.permissions.includes('users.manage')) delete data.users;
     res.json(data);
   }));
   app.post('/api/v1/enterprise/transfers', authenticate(store), permit('inventory.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['operationId','sourceWarehouseId','destinationWarehouseId','transferNumber']);
+    assertWarehouseScope(req.auth, store.warehouses.get(uuid(req.body.sourceWarehouseId, 'sourceWarehouseId')));
+    assertWarehouseScope(req.auth, store.warehouses.get(uuid(req.body.destinationWarehouseId, 'destinationWarehouseId')));
     if (!Array.isArray(req.body.lines) || !req.body.lines.length || req.body.lines.length > 500) throw new AppError(400,'LINES_REQUIRED','بنود التحويل مطلوبة');
     res.status(201).json({ transfer: await store.transferEnterpriseStock(req.auth, {
       operationId: uuid(req.body.operationId,'operationId'), occurredAt: new Date().toISOString(), transferNumber: String(req.body.transferNumber).slice(0,64),
@@ -971,6 +978,29 @@ function validateOperation(operation) {
     occurredAt: operation.occurredAt || new Date().toISOString(), type: operation.type,
     payloadHash: computedHash, payload: operation.payload
   };
+}
+
+function warehouseScopeAllows(context, warehouse) {
+  if (!warehouse || warehouse.companyId !== context.company.id) return false;
+  const scopes = context.scopes || [];
+  const warehouseScopes = scopes.filter(scope => scope.type === 'warehouse');
+  const branchScopes = scopes.filter(scope => scope.type === 'branch');
+  return (!warehouseScopes.length || warehouseScopes.some(scope => scope.id === warehouse.id)) &&
+    (!branchScopes.length || branchScopes.some(scope => scope.id === warehouse.branchId));
+}
+
+function assertWarehouseScope(context, warehouse) {
+  if (!warehouse || warehouse.companyId !== context.company.id) throw new AppError(404, 'WAREHOUSE_NOT_FOUND', 'المخزن غير موجود');
+  if (!warehouseScopeAllows(context, warehouse)) throw new AppError(403, 'WAREHOUSE_SCOPE_DENIED', 'المخزن خارج نطاق حسابك');
+}
+
+function filterWarehouseScope(context, masterData) {
+  const scoped = (context.scopes || []).some(scope => scope.type === 'warehouse' || scope.type === 'branch');
+  if (!scoped) return masterData;
+  masterData.warehouses = masterData.warehouses.filter(warehouse => warehouseScopeAllows(context, warehouse));
+  const allowed = new Set(masterData.warehouses.map(warehouse => warehouse.id));
+  masterData.stock = masterData.stock.filter(row => allowed.has(row.warehouseId));
+  return masterData;
 }
 
 function validateScopes(scopes, company) {
