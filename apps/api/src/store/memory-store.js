@@ -296,11 +296,37 @@ export class MemoryStore {
   }
 
   async createSession({ tokenHash, userId, deviceId, expiresAt }) {
-    const session = { id: randomUUID(), tokenHash, userId, deviceId, expiresAt, revokedAt: null, createdAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const session = { id: randomUUID(), tokenHash, userId, deviceId, expiresAt, revokedAt: null, createdAt: now, lastSeenAt: now };
     this.sessions.set(tokenHash, session);
     const user = this.users.get(userId);
     this.#audit(user.companyId, userId, 'session.created', 'session', session.id, { deviceId });
     return clone(session);
+  }
+
+  async touchSession(tokenHash) {
+    const session = this.sessions.get(tokenHash);
+    if (!session || session.revokedAt || Date.parse(session.expiresAt) <= Date.now()) return false;
+    session.lastSeenAt = new Date().toISOString();
+    return true;
+  }
+
+  async listOnlineUserIds(companyId, since) {
+    const cutoff = Date.parse(since);
+    const now = Date.now();
+    const company = this.companies.get(companyId);
+    if (!company || company.status !== 'active' || !Number.isFinite(cutoff)) return [];
+    const online = new Set();
+    for (const session of this.sessions.values()) {
+      if (session.revokedAt || Date.parse(session.expiresAt) <= now || !session.lastSeenAt || Date.parse(session.lastSeenAt) < cutoff) continue;
+      const user = this.users.get(session.userId);
+      if (user?.companyId === companyId && user.status === 'active') online.add(user.id);
+    }
+    return [...online];
+  }
+
+  async countOnlineUsers(companyId, since) {
+    return (await this.listOnlineUserIds(companyId, since)).length;
   }
 
   async getSessionContext(tokenHash) {

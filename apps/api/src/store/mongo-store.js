@@ -15,7 +15,7 @@ const MAP_FIELDS = [
 ];
 const ARRAY_FIELDS = ['changes','audit','serverOutbox'];
 const WRITE_METHODS = [
-  'transferEnterpriseStock','settleEnterpriseDocument','seedPlatformAdmin','createPlatformAdmin','setCompanyStatus','updatePlatformCompany','deletePlatformCompany','registerCompany','approveCompany','createSession','revokeSession','createUser','updateUser','createUnit',
+  'transferEnterpriseStock','settleEnterpriseDocument','seedPlatformAdmin','createPlatformAdmin','setCompanyStatus','updatePlatformCompany','deletePlatformCompany','registerCompany','approveCompany','createSession','revokeSession','touchSession','createUser','updateUser','createUnit',
   'createItem','addItemUnit','setPrice','createParty','createWarehouse','createDepartment','createEmployee',
   'createEmployeeContract','addEmployeeComponent','createEmployeeAdvance','createWorkShift','assignEmployeeShift',
   'createOvertimeRequest','decideOvertime','createLeaveRequest','decideLeave','setPayrollSettings',

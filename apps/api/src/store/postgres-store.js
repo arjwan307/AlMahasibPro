@@ -112,8 +112,8 @@ export class PostgresStore {
     return this.#transaction({ platform: true }, async (client) => {
       const user = await client.query(`SELECT company_id FROM users WHERE id = $1`, [userId]);
       const result = await client.query(
-        `INSERT INTO sessions (company_id, user_id, token_hash, device_id, expires_at)
-         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        `INSERT INTO sessions (company_id, user_id, token_hash, device_id, expires_at, last_seen_at)
+         VALUES ($1, $2, $3, $4, $5, now()) RETURNING *`,
         [user.rows[0]?.company_id ?? null, userId, tokenHash, deviceId, expiresAt]
       );
       return mapSession(result.rows[0]);
@@ -156,6 +156,33 @@ export class PostgresStore {
         scopes: scopesResult.rows
       };
     });
+  }
+
+  async touchSession(tokenHash) {
+    return this.#transaction({ platform: true }, async (client) => {
+      const result = await client.query(
+        `UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now() RETURNING id`, [tokenHash]
+      );
+      return result.rowCount > 0;
+    });
+  }
+
+  async listOnlineUserIds(companyId, since) {
+    return this.#transaction({ companyId }, async (client) => {
+      const result = await client.query(
+        `SELECT DISTINCT s.user_id
+         FROM sessions s
+         JOIN users u ON u.id = s.user_id AND u.company_id = s.company_id
+         JOIN companies c ON c.id = s.company_id
+         WHERE s.company_id = $1 AND c.status = 'active' AND u.status = 'active'
+           AND s.revoked_at IS NULL AND s.expires_at > now() AND s.last_seen_at >= $2::timestamptz`, [companyId, since]
+      );
+      return result.rows.map(row => row.user_id);
+    });
+  }
+
+  async countOnlineUsers(companyId, since) {
+    return (await this.listOnlineUserIds(companyId, since)).length;
   }
 
   async revokeSession(tokenHash) {
