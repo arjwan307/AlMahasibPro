@@ -21,10 +21,13 @@ test('payroll approval, cashbox closing, and import landed costs post once to SQ
     const branch=(await create('/api/v1/company/branches',{code:'SOUTH',name:'الفرع الجنوبي'})).branch;
     assert.equal((await request('/api/v1/company/branches',{code:'SOUTH',name:'مكرر'})).status,409);
     assert.equal((await request('/api/v1/users',{username:'bad_scope',displayName:'نطاق غير صالح',password:'Strong-Invalid-123',roleCode:'warehouse_keeper',scopes:[{type:'branch',id:crypto.randomUUID()}]})).status,400);
+    const companyWarehouse=(await create('/api/v1/warehouses',{code:'OTHER-BRANCH',name:'مخزن الشركة'})).warehouse;
     await create('/api/v1/users',{username:'branch_keeper',displayName:'أمين الفرع',password:'Strong-Branch-123',roleCode:'warehouse_keeper',scopes:[{type:'branch',id:branch.id}]});
     assert.equal((await request('/api/v1/auth/login',{companyCode:'local',username:'branch_keeper',password:'Strong-Branch-123'})).status,200);
     assert.equal((await request('/api/v1/warehouses',{code:'DENY-BRANCH',name:'محاولة دون فرع'})).status,403,'branch scoped users must select an authorized branch');
-    assert.equal((await request('/api/v1/warehouses',{code:'BRANCH-WH',name:'مخزن الفرع',branchId:branch.id})).status,201);
+    const branchWarehouse=(await request('/api/v1/warehouses',{code:'BRANCH-WH',name:'مخزن الفرع',branchId:branch.id})).data.warehouse;
+    assert.equal((await request('/api/v1/master-data',null,'GET')).data.warehouses.some(warehouse=>warehouse.id===companyWarehouse.id),false,'master data hides warehouses from other branches');
+    assert.equal((await request('/api/v1/enterprise/transfers',{operationId:crypto.randomUUID(),sourceWarehouseId:branchWarehouse.id,destinationWarehouseId:companyWarehouse.id,transferNumber:'BRANCH-DENIED'})).status,403,'branch users cannot transfer stock outside their branch');
     cookie=ownerCookie;
     assert.equal((await request(`/api/v1/company/branches/${branch.id}`,{active:false},'PATCH')).status,409,'branch with active warehouses cannot be disabled');
     await create('/api/v1/users',{username:'cashier_test',displayName:'كاشير الاختبار',password:'Strong-Cashier-123',roleCode:'cashier'});
