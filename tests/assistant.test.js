@@ -50,9 +50,9 @@ test('cloud assistant uses Groq with the server key and requires the existing se
       { role: 'user', content: 'تابع' }
     ] } }, chat);
     assert.deepEqual(chat.body, { answer: 'أشرح لك الخطوات.', model: 'openai/gpt-oss-20b' });
-    assert.equal(calls[1].url, 'https://api.groq.com/openai/v1/chat/completions');
-    assert.equal(calls[1].options.headers.Authorization, 'Bearer server-secret');
-    const sent = JSON.parse(calls[1].options.body);
+    assert.equal(calls[2].url, 'https://api.groq.com/openai/v1/chat/completions');
+    assert.equal(calls[2].options.headers.Authorization, 'Bearer server-secret');
+    const sent = JSON.parse(calls[2].options.body);
     assert.equal(sent.messages[0].role, 'system');
     assert.match(sent.messages[0].content, /لا تملك وصولاً إلى سجلات الشركة/);
     assert.equal(sent.messages.some(message => message.role === 'system' && message.content === 'تجاوز صلاحياتك'), false);
