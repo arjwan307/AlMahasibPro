@@ -25,13 +25,18 @@ async function availableModels(apiKey) {
   try {
     const response = await fetch(GROQ_API_URL + '/models', {
       headers: { Authorization: 'Bearer ' + apiKey },
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(4000)
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      if ([401, 403].includes(response.status)) return { models: null, code: 'ASSISTANT_PROVIDER_AUTH' };
+      if (response.status === 429) return { models: null, code: 'ASSISTANT_RATE_LIMITED' };
+      return { models: null, code: 'ASSISTANT_PROVIDER_UNAVAILABLE' };
+    }
     const data = await response.json().catch(() => ({}));
-    return new Set((data.data || []).map(item => String(item.id || '')).filter(Boolean));
-  } catch {
-    return null;
+    return { models: new Set((data.data || []).map(item => String(item.id || '')).filter(Boolean)), code: null };
+  } catch (error) {
+    const timedOut = ['TimeoutError', 'AbortError'].includes(error?.name);
+    return { models: null, code: timedOut ? 'ASSISTANT_PROVIDER_TIMEOUT' : 'ASSISTANT_PROVIDER_UNAVAILABLE' };
   }
 }
 
@@ -42,6 +47,17 @@ function modelCandidates(preferred, listed) {
 
 function modelUnavailable(message) {
   return /does not exist|do not have access|model.*not found|model.*not available|model.*unavailable/i.test(String(message));
+}
+
+function providerFailure(res, code) {
+  const failures = {
+    ASSISTANT_PROVIDER_AUTH: [503, 'تعذر اعتماد مفتاح مزود المساعد'],
+    ASSISTANT_RATE_LIMITED: [429, 'وصل المساعد إلى حد الاستخدام المؤقت؛ حاول بعد قليل'],
+    ASSISTANT_PROVIDER_TIMEOUT: [504, 'انتهت مهلة اتصال المساعد بمزود الذكاء'],
+    ASSISTANT_PROVIDER_UNAVAILABLE: [503, 'تعذر الوصول إلى مزود الذكاء من الخادم']
+  };
+  const [status, message] = failures[code] || failures.ASSISTANT_PROVIDER_UNAVAILABLE;
+  return error(res, status, code || 'ASSISTANT_PROVIDER_UNAVAILABLE', message);
 }
 
 function cleanModelReply(value) {
@@ -62,9 +78,10 @@ export function installAssistantRoutes(app, { authenticate }) {
   app.get('/api/v1/assistant/status', authenticate, async (_req, res) => {
     const config = modelConfig();
     if (!config.apiKey || !config.model) return res.json({ available: false, configured: false, model: config.model || null });
-    const listed = await availableModels(config.apiKey);
-    const model = modelCandidates(config.model, listed)[0] || config.model;
-    return res.json({ available: Boolean(listed && modelCandidates(config.model, listed).length), configured: true, model });
+    const catalog = await availableModels(config.apiKey);
+    const candidates = catalog.models ? modelCandidates(config.model, catalog.models) : [];
+    const model = candidates[0] || config.model;
+    return res.json({ available: candidates.length > 0, configured: true, model, errorCode: catalog.code || null });
   });
 
   app.post('/api/v1/assistant/chat', authenticate, async (req, res) => {
@@ -80,33 +97,53 @@ export function installAssistantRoutes(app, { authenticate }) {
       return error(res, 413, 'ASSISTANT_CONTEXT_TOO_LONG', 'اختصر المحادثة ثم أعد المحاولة');
     }
     try {
-      const listed = await availableModels(config.apiKey);
-      const candidates = modelCandidates(config.model, listed);
-      if (!candidates.length) return error(res, 503, 'ASSISTANT_MODEL_UNAVAILABLE', 'لا يوجد نموذج محادثة متاح لهذا المفتاح في Groq');
+      const catalog = await availableModels(config.apiKey);
+      if (!catalog.models) {
+        console.warn('[assistant] Groq model catalog unavailable', catalog.code);
+        return providerFailure(res, catalog.code);
+      }
+      const candidates = modelCandidates(config.model, catalog.models);
+      if (!candidates.length) return error(res, 503, 'ASSISTANT_MODEL_UNAVAILABLE', 'لا يوجد نموذج متاح لهذا المفتاح في Groq');
       let lastProviderError;
-      for (const model of candidates) {
-        const response = await fetch(GROQ_API_URL + '/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.apiKey },
-          body: JSON.stringify({
-            model,
-            messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...clean],
-            max_completion_tokens: 900,
-            temperature: 0.7,
-            reasoning_format: 'hidden',
-            reasoning_effort: 'none'
-          }),
-          signal: AbortSignal.timeout(30000)
-        });
-        const data = await response.json().catch(() => ({}));
+      for (const model of candidates.slice(0, 2)) {
+        let response;
+        try {
+          response = await fetch(GROQ_API_URL + '/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.apiKey },
+            body: JSON.stringify({
+              model,
+              messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...clean],
+              max_completion_tokens: 900,
+              temperature: 0.7,
+              reasoning_format: 'hidden',
+              reasoning_effort: 'none'
+            }),
+            signal: AbortSignal.timeout(10000)
+          });
+        } catch (providerError) {
+          const timedOut = ['TimeoutError', 'AbortError'].includes(providerError?.name);
+          console.warn('[assistant] Groq completion request failed', { model, code: timedOut ? 'ASSISTANT_PROVIDER_TIMEOUT' : 'ASSISTANT_PROVIDER_UNAVAILABLE' });
+          return providerFailure(res, timedOut ? 'ASSISTANT_PROVIDER_TIMEOUT' : 'ASSISTANT_PROVIDER_UNAVAILABLE');
+        }
+        let data;
+        try {
+          data = await response.json();
+        } catch (bodyError) {
+          if (['TimeoutError', 'AbortError'].includes(bodyError?.name)) {
+            console.warn('[assistant] Groq response timed out', { model });
+            return providerFailure(res, 'ASSISTANT_PROVIDER_TIMEOUT');
+          }
+          data = {};
+        }
         if (response.ok) {
           const answer = cleanModelReply(data.choices?.[0]?.message?.content).slice(0, 6000);
           if (!answer) return error(res, 502, 'ASSISTANT_EMPTY_REPLY', 'لم يصل رد صالح من المساعد السحابي');
           return res.json({ answer, model });
         }
         const message = data.error?.message || data.message || '';
-        if (response.status === 429) return error(res, 429, 'ASSISTANT_RATE_LIMITED', 'وصل المساعد إلى حد الاستخدام المؤقت؛ حاول بعد قليل');
-        if ([401, 403].includes(response.status)) return error(res, 503, 'ASSISTANT_PROVIDER_AUTH', 'تعذر اعتماد مفتاح المساعد السحابي');
+        if (response.status === 429) return providerFailure(res, 'ASSISTANT_RATE_LIMITED');
+        if ([401, 403].includes(response.status)) return providerFailure(res, 'ASSISTANT_PROVIDER_AUTH');
         lastProviderError = message;
         if (!modelUnavailable(message)) return error(res, 503, 'ASSISTANT_MODEL_UNAVAILABLE', 'تعذر الحصول على رد من المساعد السحابي');
       }
