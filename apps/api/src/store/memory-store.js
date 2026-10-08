@@ -54,16 +54,6 @@ export class MemoryStore {
   }
 
   async close() {}
-  async importFurnitureCatalog(companyId,actorUserId,catalog) {
-    const company=this.companies.get(companyId);if(!company||company.status!=='active')throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
-    const actor=this.users.get(actorUserId);if(!actor||actor.companyId!==companyId)throw new AppError(403,'USER_SCOPE','المستخدم خارج الشركة');
-    const result={companyId,companyName:company.legalName,version:catalog.version,itemsCreated:0,warehousesCreated:0,pricesCreated:0,existingItems:0};
-    let unit=[...this.units.values()].find(x=>x.companyId===companyId&&x.code==='FUR-UNIT');if(!unit)unit=await this.createUnit(companyId,{code:'FUR-UNIT',name:'وحدة أثاث / طقم',decimalPlaces:0},actorUserId);
-    const warehouses=new Map();for(const definition of catalog.warehouses){let warehouse=[...this.warehouses.values()].find(x=>x.companyId===companyId&&x.code===definition.code);if(!warehouse){warehouse=await this.createWarehouse(companyId,{...definition,kind:'standard'},actorUserId);result.warehousesCreated++;}warehouses.set(definition.code,warehouse);}
-    for(const definition of catalog.items){if([...this.items.values()].some(x=>x.companyId===companyId&&x.sku===definition.sku)){result.existingItems++;continue;}const warehouse=warehouses.get(definition.warehouseCode);if(!warehouse)throw new AppError(400,'WAREHOUSE_NOT_FOUND','مخزن الكتالوج غير موجود');const item=await this.createItem(companyId,{sku:definition.sku,name:definition.name,description:definition.metadata.description,category:definition.metadata.group,baseUnitId:unit.id},actorUserId);result.itemsCreated++;await this.saveSalesSetting('item:'+item.id,{...definition.metadata,companyId,defaultWarehouseId:warehouse.id,channel:'both',movement:'moving',maxDiscountPercent:'5.000000',reserved:{}},actorUserId);for(const [priceType,amount] of [['sale_retail',definition.retail],['sale_wholesale',definition.wholesale]]){await this.setPrice(companyId,{itemId:item.id,unitId:unit.id,priceType,currency:'IQD',amount:String(amount)},actorUserId);result.pricesCreated++;}this.stockBalances.set(companyId+':'+warehouse.id+':'+item.id,{companyId,warehouseId:warehouse.id,itemId:item.id,quantity:decimalString(decimal(String(definition.quantity??0),{nonNegative:true})),averageCost:'0.000000'});}
-    this.#audit(companyId,actorUserId,'catalog.furniture.imported','catalog',catalog.version,result);return clone(result);
-  }
-
   async saveSalesSetting(key,value,actor) { this.salesSettings.set(key,clone(value));this.#audit(value.companyId,actor,'sales.setting.updated','sales_setting',key,{});return clone(value); }
   async saveSalesApproval(row) { this.salesApprovals.set(row.id,clone(row));this.#audit(row.companyId,row.reviewedBy||row.userId,'sales.approval.'+row.status,'sales_approval',row.id,{});return clone(row); }
   async saveSalesReview(row) { this.salesReviews.set(row.id,clone(row));return clone(row); }
