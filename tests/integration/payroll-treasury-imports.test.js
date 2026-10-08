@@ -20,6 +20,7 @@ test('payroll approval, cashbox closing, and import landed costs post once to SQ
     assert.equal((await request('/api/v1/auth/login',{companyCode:'local',username:'cashier_test',password:'Strong-Cashier-123'})).status,200);
     assert.equal((await request('/api/v1/hr/payroll/cycles',{cycleCode:'DENIED',periodStart:'2026-10-01',periodEnd:'2026-10-31',currency:'IQD'})).status,403);
     assert.equal((await request('/api/v1/import/shipments',{operationId:crypto.randomUUID(),shipmentNumber:'DENIED',containerNumber:'DENIED',supplierId:crypto.randomUUID(),currency:'USD'})).status,403);
+    assert.equal((await request('/api/v1/enterprise/customer-credits/apply',{})).status,403,'cashier cannot apply accounting credits');
     cookie=ownerCookie;
 
     assert.equal((await request('/api/v1/hr/payroll/settings',{workingDaysPerMonth:30,dailyHours:'8',defaultOvertimeMultiplier:'1.5',deductAbsence:true,attendanceRequired:false},'PUT')).status,200);
