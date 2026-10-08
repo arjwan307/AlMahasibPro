@@ -27,6 +27,8 @@ test('PostgreSQL store executes the foundation workflow and protects financial r
     const context = await store.getSessionContext(hashToken(token));
     assert.equal(context.company.id, company.id);
     assert.ok(context.permissions.includes('company.manage'));
+    await store.touchSession(hashToken(token));
+    assert.equal(await store.countOnlineUsers(company.id, new Date(Date.now() - 90000).toISOString()), 1);
 
     const operation = {
       operationId: crypto.randomUUID(), deviceId: 'postgres-test', clientSequence: 1,
