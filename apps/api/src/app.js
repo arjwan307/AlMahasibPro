@@ -887,6 +887,7 @@ function authenticate(store) {
     const tokenHash = hashToken(token);
     const context = await store.getSessionContext(tokenHash);
     if (!context) throw new AppError(401, 'SESSION_INVALID', 'الجلسة منتهية أو ملغاة');
+    if (req.productScope && (context.company?.product || 'company') !== req.productScope) throw new AppError(401, 'PRODUCT_SESSION_SCOPE', 'جلسة الدخول لا تخص هذا المنتج');
     req.auth = { ...context, tokenHash };
     next();
   });
