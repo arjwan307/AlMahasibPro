@@ -23,6 +23,14 @@ test('balanced manual journal posts and affects trial balance',async()=>{
   assert.equal(rows.find(x=>x.accountCode==='6100-PAYROLL-EXPENSE').credit,'150000.000000');
   assert.equal(rows.reduce((n,x)=>n+Number(x.debit),0),rows.reduce((n,x)=>n+Number(x.credit),0));
 });
+test('trial balance keeps identical accounts in different currencies separate',async()=>{
+  const {store,context}=fixture();
+  await store.postManualJournal(context,journal());
+  store.journalEntries.set('usd-entry',{id:'usd-entry',companyId:context.company.id,entryNumber:'USD-1',status:'posted',currency:'USD',lines:[{accountCode:'1000-CASH',debit:'25.000000',credit:'0.000000'},{accountCode:'3000-EQUITY',debit:'0.000000',credit:'25.000000'}]});
+  const cash=store.trialBalance(context.company.id).filter(row=>row.accountCode==='1000-CASH');
+  assert.equal(cash.find(row=>row.currency==='IQD').balance,'150000.000000');
+  assert.equal(cash.find(row=>row.currency==='USD').balance,'25.000000');
+});
 test('unbalanced journal rejected without persistence',async()=>{
   const {store,context}=fixture();
   await assert.rejects(store.postManualJournal(context,journal({lines:[{accountCode:'1000-CASH',debit:'150',credit:'0'},{accountCode:'1010-BANK',debit:'0',credit:'149'}]})),{code:'UNBALANCED_JOURNAL'});

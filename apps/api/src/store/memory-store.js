@@ -482,7 +482,7 @@ export class MemoryStore {
 
   listChartAccounts(companyId) {
     const defaults = [
-      ['1000-CASH','الصندوق بالدينار','asset'],['1000-CASH-USD','الصندوق بالدولار','asset'],['1010-BANK','البنك','asset'],['1100-AR','ذمم العملاء','asset'],
+      ['1000-CASH','الصندوق بالدينار','asset'],['1000-CASH-USD','الصندوق بالدولار','asset'],['1010-BANK','البنك بالدينار','asset'],['1010-BANK-USD','البنك بالدولار','asset'],['1100-AR','ذمم العملاء','asset'],
       ['1150-REP-CASH-CUSTODY','عهدة نقد المندوبين','asset'],['1200-INVENTORY','المخزون','asset'],
       ['1300-EMPLOYEE-ADVANCES','سلف الموظفين','asset'],['1400-EMPLOYEE-RECEIVABLE','ذمم الموظفين','asset'],
       ['2100-AP','ذمم الموردين','liability'],['2200-PAYROLL-DEDUCTIONS','استقطاعات الرواتب','liability'],
@@ -496,9 +496,12 @@ export class MemoryStore {
   }
 
   trialBalance(companyId) {
-    const rows=new Map(this.listChartAccounts(companyId).map(a=>[a.code,{accountCode:a.code,name:a.name,type:a.type,debit:ZERO,credit:ZERO}]));
-    for(const j of this.journalEntries.values())if(j.companyId===companyId&&j.status==='posted')for(const l of j.lines){const code=l.accountCode||l.account;if(!rows.has(code))rows.set(code,{accountCode:code,name:code,type:'unknown',debit:ZERO,credit:ZERO});const r=rows.get(code);r.debit+=decimal(l.debit||'0');r.credit+=decimal(l.credit||'0');}
-    return [...rows.values()].map(r=>({accountCode:r.accountCode,name:r.name,type:r.type,debit:decimalString(r.debit),credit:decimalString(r.credit),balance:decimalString(r.debit-r.credit)}));
+    const baseCurrency=this.companies.get(companyId)?.currency||'IQD',accounts=new Map(this.listChartAccounts(companyId).map(a=>[a.code,a]));
+    const rows=new Map();
+    const rowFor=(code,currency)=>{const key=`${code}:${currency}`;if(!rows.has(key)){const account=accounts.get(code);rows.set(key,{accountCode:code,name:account?.name||code,type:account?.type||'unknown',currency,debit:ZERO,credit:ZERO});}return rows.get(key);};
+    for(const account of accounts.values())rowFor(account.code,baseCurrency);
+    for(const journal of this.journalEntries.values())if(journal.companyId===companyId&&journal.status==='posted')for(const line of journal.lines){const row=rowFor(line.accountCode||line.account,journal.currency||baseCurrency);row.debit+=decimal(line.debit||'0');row.credit+=decimal(line.credit||'0');}
+    return [...rows.values()].map(row=>({accountCode:row.accountCode,name:row.name,type:row.type,currency:row.currency,debit:decimalString(row.debit),credit:decimalString(row.credit),balance:decimalString(row.debit-row.credit)}));
   }
 
   async createChartAccount(companyId,input,actorUserId) {
@@ -632,7 +635,7 @@ export class MemoryStore {
     if (!((document.currency === 'USD' && receivedCurrency === 'IQD') || (document.currency === 'IQD' && receivedCurrency === 'USD') || receivedCurrency === document.currency)) throw new AppError(400, 'CURRENCY_CONVERSION_NOT_SUPPORTED', 'التحويل مسموح فقط بين الدينار والدولار');
     const amount = receivedCurrency === document.currency ? receivedAmount : document.currency === 'USD' ? divide(receivedAmount, exchangeRate) : multiply(receivedAmount, exchangeRate);
     if (amount > decimal(document.dueAmount) - settled - returned) throw new AppError(409, 'SETTLEMENT_EXCEEDS_DUE', 'المبلغ يتجاوز الرصيد المتبقي');
-    const cash = input.method === 'cash' ? (document.currency === 'USD' ? '1000-CASH-USD' : '1000-CASH') : '1010-BANK';
+    const cash = input.method === 'cash' ? (document.currency === 'USD' ? '1000-CASH-USD' : '1000-CASH') : (document.currency === 'USD' ? '1010-BANK-USD' : '1010-BANK');
     const lines = document.documentType === 'sale' ? [[cash,amount,ZERO],['1100-AR',ZERO,amount]] : [['2100-AP',amount,ZERO],[cash,ZERO,amount]];
     const journal = this.#simpleJournal(context, input, input.receiptNumber, document.currency, lines);
     const row = { id: randomUUID(), companyId: context.company.id, kind: 'enterprise_settlement', operationId: input.operationId, documentId: document.id, receiptNumber: input.receiptNumber, amount: decimalString(amount), currency: document.currency, receivedAmount: decimalString(receivedAmount), receivedCurrency, exchangeRate: decimalString(exchangeRate), method: input.method, bankName: input.bankName || '', transactionNumber: input.transactionNumber || '', journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
@@ -658,7 +661,7 @@ export class MemoryStore {
   async listCashboxes(companyId) {
     return [...this.cashboxes.values()].filter(x => x.companyId === companyId).map(row => {
       const open = [...this.cashboxSessions.values()].find(s => s.companyId === companyId && s.cashboxId === row.id && s.status === 'open');
-      return { ...clone(row), openSession: open ? clone(open) : null };
+      return { ...clone(row), openSession: open ? { ...clone(open), expectedBalance: decimalString(this.#cashboxExpectedBalance(open,row)) } : null };
     });
   }
 
@@ -741,7 +744,7 @@ export class MemoryStore {
     const companyId = context.company.id;
     const existing = [...this.importShipments.values()].find(x => x.companyId === companyId && x.operationId === input.operationId);
     if (existing) {
-      if (existing.shipmentNumber !== input.shipmentNumber || existing.supplierId !== input.supplierId || existing.containerNumber !== input.containerNumber || existing.currency !== input.currency || existing.origin !== (input.origin || '') || existing.billOfLading !== (input.billOfLading || '')) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
+      if (existing.shipmentNumber !== input.shipmentNumber || existing.supplierId !== input.supplierId || existing.containerNumber !== input.containerNumber || existing.currency !== input.currency || existing.origin !== (input.origin || '') || existing.billOfLading !== (input.billOfLading || '') || existing.shippedAt !== (input.shippedAt || null) || existing.expectedAt !== (input.expectedAt || null)) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
       return clone(existing);
     }
     const supplier=this.suppliers.get(input.supplierId);
@@ -755,7 +758,7 @@ export class MemoryStore {
     return clone(row);
   }
 
-  async markImportShipmentArrived(context,shipmentId,input){const shipment=this.importShipments.get(shipmentId);if(!shipment||shipment.companyId!==context.company.id)throw new AppError(404,'SHIPMENT_NOT_FOUND','الشحنة غير موجودة');if(shipment.status==='arrived'&&shipment.arrivalOperationId===input.operationId){if(shipment.arrivedAt!==input.arrivedAt)throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');return clone(shipment);}if(shipment.status!=='in_transit')throw new AppError(409,'SHIPMENT_NOT_IN_TRANSIT','الشحنة ليست قيد النقل');shipment.status='arrived';shipment.arrivedAt=input.arrivedAt;shipment.arrivalOperationId=input.operationId;shipment.arrivedBy=context.user.id;this.#audit(context.company.id,context.user.id,'import.shipment.arrived','import_shipment',shipment.id,{});this.#change(context.company.id,'import_shipment',shipment.id,'upsert',shipment);return clone(shipment);}
+  async markImportShipmentArrived(context,shipmentId,input){const shipment=this.importShipments.get(shipmentId);if(!shipment||shipment.companyId!==context.company.id)throw new AppError(404,'SHIPMENT_NOT_FOUND','الشحنة غير موجودة');if(shipment.status==='arrived'&&shipment.arrivalOperationId===input.operationId){if(shipment.arrivedAt!==input.arrivedAt)throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');return clone(shipment);}if(shipment.status!=='in_transit')throw new AppError(409,'SHIPMENT_NOT_IN_TRANSIT','الشحنة ليست قيد النقل');if(shipment.shippedAt&&input.arrivedAt<shipment.shippedAt)throw new AppError(400,'ARRIVAL_BEFORE_SHIPMENT','تاريخ الوصول يسبق تاريخ الشحن');shipment.status='arrived';shipment.arrivedAt=input.arrivedAt;shipment.arrivalOperationId=input.operationId;shipment.arrivedBy=context.user.id;this.#audit(context.company.id,context.user.id,'import.shipment.arrived','import_shipment',shipment.id,{});this.#change(context.company.id,'import_shipment',shipment.id,'upsert',shipment);return clone(shipment);}
 
   async linkImportPurchaseDocument(context,shipmentId,input){const shipment=this.importShipments.get(shipmentId);if(!shipment||shipment.companyId!==context.company.id)throw new AppError(404,'SHIPMENT_NOT_FOUND','الشحنة غير موجودة');if(shipment.purchaseDocumentId===input.purchaseDocumentId&&shipment.linkOperationId===input.operationId)return clone(shipment);if(shipment.status!=='arrived'||shipment.purchaseDocumentId)throw new AppError(409,'SHIPMENT_NOT_READY','لا يمكن ربط فاتورة الشراء بهذه الشحنة');const document=this.commerceDocuments.get(input.purchaseDocumentId);if(!document||document.companyId!==context.company.id||document.documentType!=='purchase'||document.supplierId!==shipment.supplierId||document.currency!==context.company.currency)throw new AppError(400,'IMPORT_PURCHASE_INVALID','فاتورة الشراء لا تطابق مورد الشحنة أو عملة الشركة');if([...this.importShipments.values()].some(x=>x.companyId===context.company.id&&x.purchaseDocumentId===document.id))throw new AppError(409,'IMPORT_DOCUMENT_LINKED','فاتورة الشراء مرتبطة بشحنة مسبقًا');shipment.purchaseDocumentId=document.id;shipment.linkOperationId=input.operationId;shipment.linkedBy=context.user.id;shipment.linkedAt=new Date().toISOString();this.#audit(context.company.id,context.user.id,'import.purchase.linked','import_shipment',shipment.id,{purchaseDocumentId:document.id});this.#change(context.company.id,'import_shipment',shipment.id,'upsert',shipment);return clone(shipment);}
 
