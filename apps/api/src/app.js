@@ -138,6 +138,16 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({ branch: await store.updateBranch(req.auth.company.id, uuid(req.params.branchId, 'branchId'), input, req.auth.user.id) });
   }));
 
+  app.post('/api/v1/presence/heartbeat', authenticate(store), asyncRoute(async (req, res) => {
+    await store.touchSession(req.auth.tokenHash);
+    res.status(204).end();
+  }));
+  app.get('/api/v1/presence/online-users', authenticate(store), permit('users.manage'), asyncRoute(async (req, res) => {
+    const since = new Date(Date.now() - 90_000).toISOString();
+    const count = await store.countOnlineUsers(req.auth.company.id, since);
+    res.json({ count, windowSeconds: 90, observedAt: new Date().toISOString() });
+  }));
+
   app.get('/api/v1/bootstrap', authenticate(store), (req, res) => {
     res.json({
       ...publicContext(req.auth),
