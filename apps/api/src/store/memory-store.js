@@ -32,6 +32,9 @@ export class MemoryStore {
     this.suppliers = new Map();
     this.warehouses = new Map();
     this.stockBalances = new Map();
+    this.stocktakes = new Map();
+    this.stockWriteoffs = new Map();
+    this.deliveryLoads = new Map();
     this.commerceDocuments = new Map();
     this.journalEntries = new Map();
     this.chartAccounts = new Map();
@@ -67,6 +70,51 @@ export class MemoryStore {
   async saveSalesSetting(key,value,actor) { this.salesSettings.set(key,clone(value));this.#audit(value.companyId,actor,'sales.setting.updated','sales_setting',key,{});return clone(value); }
   async saveSalesApproval(row) { this.salesApprovals.set(row.id,clone(row));this.#audit(row.companyId,row.reviewedBy||row.userId,'sales.approval.'+row.status,'sales_approval',row.id,{});return clone(row); }
   async saveSalesReview(row) { this.salesReviews.set(row.id,clone(row));return clone(row); }
+
+  async postStocktake(context, input) {
+    const companyId=context.company.id, existing=[...this.stocktakes.values()].find(x=>x.companyId===companyId&&x.operationId===input.operationId);
+    const fingerprint=JSON.stringify({warehouseId:input.warehouseId,countedAt:input.countedAt,lines:input.lines});
+    if(existing){if(existing.fingerprint!==fingerprint)throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');return clone(existing);}
+    if([...this.stockWriteoffs.values(),...this.deliveryLoads.values()].some(x=>x.companyId===companyId&&x.operationId===input.operationId))throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لعملية أخرى');
+    if([...this.stocktakes.values()].some(x=>x.companyId===companyId&&x.stocktakeNumber===input.stocktakeNumber))throw new AppError(409,'STOCKTAKE_NUMBER_EXISTS','رقم الجرد مستخدم');
+    const warehouse=this.warehouses.get(input.warehouseId);if(!warehouse||warehouse.companyId!==companyId)throw new AppError(404,'WAREHOUSE_NOT_FOUND','المخزن غير موجود');
+    if(!input.lines.length||new Set(input.lines.map(x=>x.itemId)).size!==input.lines.length)throw new AppError(400,'INVALID_STOCKTAKE_LINES','بنود الجرد فارغة أو مكررة');
+    const rows=input.lines.map(line=>{const item=this.items.get(line.itemId);if(!item||item.companyId!==companyId)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');const key=`${companyId}:${warehouse.id}:${item.id}`,balance=this.stockBalances.get(key)||{companyId,warehouseId:warehouse.id,itemId:item.id,quantity:'0.000000',averageCost:'0.000000',version:0},counted=decimal(line.countedQuantity,{nonNegative:true}),book=decimal(balance.quantity),delta=counted-book;return{key,balance,itemId:item.id,counted:decimalString(counted),book:decimalString(book),delta:decimalString(delta),cost:decimalString(decimal(balance.averageCost,{nonNegative:true})),value:decimalString(multiply(delta,decimal(balance.averageCost,{nonNegative:true})))};});
+    const deltaValue=rows.reduce((sum,row)=>sum+decimal(row.value),ZERO);let journal=null;
+    const countedAt=input.countedAt||new Date().toISOString();
+    if(deltaValue>ZERO)journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:countedAt},`STK-${input.stocktakeNumber}`,context.company.currency,[['1200-INVENTORY',deltaValue,ZERO],['4900-INVENTORY-COUNT-SURPLUS',ZERO,deltaValue]]);
+    else if(deltaValue<ZERO)journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:countedAt},`STK-${input.stocktakeNumber}`,context.company.currency,[['5300-INVENTORY-SHRINKAGE',-deltaValue,ZERO],['1200-INVENTORY',ZERO,-deltaValue]]);
+    for(const row of rows){this.stockBalances.set(row.key,{...row.balance,quantity:row.counted,averageCost:row.counted==='0.000000'?'0.000000':row.balance.averageCost,version:row.balance.version+1});this.#change(companyId,'stock_balance',row.itemId,'upsert',this.stockBalances.get(row.key));}
+    const result={id:randomUUID(),companyId,warehouseId:warehouse.id,stocktakeNumber:input.stocktakeNumber,operationId:input.operationId,status:'posted',countedAt,lines:rows.map(({key,balance,...x})=>x),journalEntryId:journal?.id||null,createdBy:context.user.id,fingerprint};
+    this.stocktakes.set(result.id,Object.freeze(result));this.#audit(companyId,context.user.id,'inventory.stocktake.posted','stocktake',result.id,{journalEntryId:result.journalEntryId});this.#change(companyId,'stocktake',result.id,'upsert',result);return clone(result);
+  }
+
+  async writeOffDamagedStock(context,input){
+    const companyId=context.company.id,existing=[...this.stockWriteoffs.values()].find(x=>x.companyId===companyId&&x.operationId===input.operationId),fingerprint=JSON.stringify(input);
+    if(existing){if(existing.fingerprint!==fingerprint)throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');return clone(existing);}
+    if([...this.stocktakes.values(),...this.deliveryLoads.values()].some(x=>x.companyId===companyId&&x.operationId===input.operationId))throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لعملية أخرى');
+    if([...this.stockWriteoffs.values()].some(x=>x.companyId===companyId&&x.writeoffNumber===input.writeoffNumber))throw new AppError(409,'WRITEOFF_NUMBER_EXISTS','رقم التالف مستخدم');
+    const warehouse=this.warehouses.get(input.warehouseId),item=this.items.get(input.itemId);if(!warehouse||warehouse.companyId!==companyId)throw new AppError(404,'WAREHOUSE_NOT_FOUND','المخزن غير موجود');if(!item||item.companyId!==companyId)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
+    const key=`${companyId}:${warehouse.id}:${item.id}`,balance=this.stockBalances.get(key);const qty=decimal(input.quantity,{positive:true});if(!balance||decimal(balance.quantity)<qty)throw new AppError(409,'INSUFFICIENT_STOCK','المخزون لا يكفي لإثبات التالف');
+    const cost=decimal(balance.averageCost,{nonNegative:true}),value=multiply(qty,cost),remaining=decimal(balance.quantity)-qty;
+    const occurredAt=input.occurredAt||new Date().toISOString(),journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt},`DMG-${input.writeoffNumber}`,context.company.currency,[['5300-DAMAGED-STOCK',value,ZERO],['1200-INVENTORY',ZERO,value]]);
+    this.stockBalances.set(key,{...balance,quantity:decimalString(remaining),averageCost:remaining===ZERO?'0.000000':balance.averageCost,version:balance.version+1});this.#change(companyId,'stock_balance',item.id,'upsert',this.stockBalances.get(key));
+    const row={id:randomUUID(),companyId,warehouseId:warehouse.id,itemId:item.id,quantity:decimalString(qty),unitCost:decimalString(cost),amount:decimalString(value),reason:input.reason,writeoffNumber:input.writeoffNumber,operationId:input.operationId,occurredAt,journalEntryId:journal.id,createdBy:context.user.id,fingerprint};this.stockWriteoffs.set(row.id,Object.freeze(row));this.#audit(companyId,context.user.id,'inventory.damaged.writeoff','stock_writeoff',row.id,{journalEntryId:journal.id});this.#change(companyId,'stock_writeoff',row.id,'upsert',row);return clone(row);
+  }
+
+  async recordDeliveryLoad(context,input){
+    const companyId=context.company.id,existing=[...this.deliveryLoads.values()].find(x=>x.companyId===companyId&&x.operationId===input.operationId),fingerprint=JSON.stringify(input);
+    if(existing){if(existing.fingerprint!==fingerprint)throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');return clone(existing);}
+    if([...this.stocktakes.values(),...this.stockWriteoffs.values()].some(x=>x.companyId===companyId&&x.operationId===input.operationId))throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لعملية أخرى');
+    if([...this.deliveryLoads.values()].some(x=>x.companyId===companyId&&x.loadNumber===input.loadNumber))throw new AppError(409,'LOAD_NUMBER_EXISTS','رقم التحميل مستخدم');
+    const document=this.commerceDocuments.get(input.documentId);if(!document||document.companyId!==companyId||document.documentType!=='sale'||document.status!=='posted')throw new AppError(404,'SALE_NOT_FOUND','فاتورة البيع غير موجودة');
+    if(!input.lines.length||new Set(input.lines.map(x=>x.originalLineId)).size!==input.lines.length)throw new AppError(400,'INVALID_LOAD_LINES','بنود التحميل فارغة أو مكررة');
+    const prepared=input.lines.map(line=>{const original=document.lines.find(x=>x.id===line.originalLineId);if(!original)throw new AppError(400,'INVOICE_LINE_NOT_FOUND','بند الفاتورة غير موجود');const qty=decimal(line.quantity,{positive:true}),loaded=[...this.deliveryLoads.values()].filter(x=>x.companyId===companyId&&x.documentId===document.id).flatMap(x=>x.lines).filter(x=>x.originalLineId===original.id).reduce((sum,x)=>sum+decimal(x.quantity),ZERO);if(loaded+qty>decimal(original.baseQuantity))throw new AppError(409,'LOAD_EXCEEDS_INVOICE','التحميل يتجاوز الكمية المتبقية في الفاتورة');return{originalLineId:original.id,itemId:original.itemId,quantity:decimalString(qty),previouslyLoaded:decimalString(loaded),remainingAfter:decimalString(decimal(original.baseQuantity)-loaded-qty)};});
+    const loadedAfter=[...this.deliveryLoads.values()].filter(x=>x.companyId===companyId&&x.documentId===document.id).flatMap(x=>x.lines).reduce((sum,x)=>sum+decimal(x.quantity),ZERO)+prepared.reduce((sum,x)=>sum+decimal(x.quantity),ZERO);
+    const allQuantity=document.lines.reduce((sum,x)=>sum+decimal(x.baseQuantity),ZERO),status=loadedAfter===allQuantity?'delivered':'partially_delivered';
+    const row={id:randomUUID(),companyId,documentId:document.id,warehouseId:document.warehouseId,loadNumber:input.loadNumber,operationId:input.operationId,status:'posted',loadedAt:input.loadedAt||new Date().toISOString(),lines:prepared,fiscalJournalEntryId:[...this.journalEntries.values()].find(x=>x.companyId===companyId&&x.documentId===document.id)?.id||null,stockReferenceDocumentId:document.id,createdBy:context.user.id,fingerprint};
+    this.deliveryLoads.set(row.id,Object.freeze(row));this.commerceDocuments.set(document.id,Object.freeze({...document,deliveryStatus:status,loadedQuantity:decimalString(loadedAfter),remainingLoadQuantity:decimalString(allQuantity-loadedAfter)}));this.#audit(companyId,context.user.id,'sales.delivery.loaded','delivery_load',row.id,{documentId:document.id,status});this.#change(companyId,'delivery_load',row.id,'upsert',row);this.#change(companyId,'commerce_document',document.id,'upsert',this.commerceDocuments.get(document.id));return clone(row);
+  }
 
 
   async seedPlatformAdmin({ username, passwordHash, displayName = 'Platform Admin' }) {
