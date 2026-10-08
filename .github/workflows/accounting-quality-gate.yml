@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/enterprise-windows-local
+      - integration/almahasibpro-complete
   workflow_dispatch:
 jobs:
   accounting-tests:
