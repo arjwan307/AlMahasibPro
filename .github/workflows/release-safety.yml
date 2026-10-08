@@ -1,0 +1,30 @@
+name: Release safety checks
+
+on:
+  push:
+    branches: [main, integration/almahasibpro-complete, feature/enterprise-windows-local, 'fix/**', 'feature/**']
+  pull_request:
+    branches: [main, integration/almahasibpro-complete, feature/enterprise-windows-local]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Syntax-check API modules
+        run: |
+          find apps/api/src -name '*.js' -type f -print0 | xargs -0 -n1 node --check
+      - name: Assert essential accounting store is intact
+        run: |
+          node --input-type=module -e "import { MemoryStore } from './apps/api/src/store/memory-store.js'; if (typeof MemoryStore !== 'function' || Object.getOwnPropertyNames(MemoryStore.prototype).length < 5) process.exit(1)"
+      - name: Run repository tests
+        run: npm test

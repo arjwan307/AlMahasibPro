@@ -4,7 +4,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test tests/**/*.test.js",
+    "test": "node --test tests/*.test.js tests/*.test.cjs tests/integration/*.test.js tests/integration/*.test.cjs",
     "db:migrate": "node database/migrate.js",
     "seed:platform-admin": "node database/seed-platform-admin.js",
     "start:enterprise": "node apps/local/enterprise-server.js",

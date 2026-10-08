@@ -61,7 +61,7 @@ test('sales workspace isolates channels, enforces exact approvals, reservations,
   assert.equal((await request('/api/v1/sales/approvals/'+id+'/decision',{status:'approved'},seller)).status,403);
   assert.equal(asked.data.approval.managerUserId,retailManager.id);assert.equal((await request('/api/v1/sales/bootstrap',null,wholeManagerCookie)).data.approvals.length,0);assert.equal((await request('/api/v1/sales/approvals/'+id+'/decision',{status:'approved'},wholeManagerCookie)).status,403);assert.equal((await request('/api/v1/sales/approvals/'+id+'/decision',{status:'approved'},retailManagerCookie)).status,200);
   assert.equal((await commit({...sale,approvalId:id,lines:[{...sale.lines[0],quantity:'5'}]},seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
-  assert.equal((await commit({...sale,approvalId:id,partyId:wholesale.id},wholeCookie)).data.result.code,'PRICE_CHANGED');
+  assert.equal((await commit({...sale,approvalId:id,partyId:wholesale.id},wholeCookie)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
   const op=crypto.randomUUID(),posted=await commit({...sale,approvalId:id},seller,op);assert.equal(posted.status,201,JSON.stringify(posted.data));assert.equal(posted.data.result.document.assignedSalesManagerId,retailManager.id);assert.equal(posted.data.result.document.subtotal,'36.000000');assert.equal(posted.data.result.document.dueAmount,'26.000000');assert.equal(posted.data.result.document.delivery.mode,'both');
   assert.equal((await commit({...sale,approvalId:id},seller,op)).data.result.entityId,posted.data.result.entityId);
   assert.equal((await commit({...sale,approvalId:id,documentNumber:'REUSE'},seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');

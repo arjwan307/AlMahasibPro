@@ -651,11 +651,12 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   app.post('/api/v1/enterprise/settlements', authenticate(store), permit('accounting.post'), asyncRoute(async (req, res) => {
     requireFields(req.body,['operationId','documentId','amount','receiptNumber','method']);
     if (!['cash','bank','bank_transfer','check'].includes(req.body.method)) throw new AppError(400,'INVALID_METHOD','طريقة الدفع غير صالحة');
+    const receivedCurrency = req.body.receivedCurrency || req.body.currency;
     res.status(201).json({ settlement: await store.settleEnterpriseDocument(req.auth, {
       operationId: uuid(req.body.operationId,'operationId'), documentId: uuid(req.body.documentId,'documentId'), amount: decimalInput(req.body.amount,{positive:true}),
       receiptNumber: String(req.body.receiptNumber).slice(0,64), method: req.body.method,
       bankName: String(req.body.bankName || '').trim().slice(0,160), transactionNumber: String(req.body.transactionNumber || '').trim().slice(0,120),
-      receivedAmount: decimalInput(req.body.receivedAmount || req.body.amount,{positive:true}), receivedCurrency: currency(req.body.receivedCurrency || req.body.currency || 'USD'),
+      receivedAmount: decimalInput(req.body.receivedAmount || req.body.amount,{positive:true}), receivedCurrency: receivedCurrency ? currency(receivedCurrency) : undefined,
       exchangeRate: decimalInput(req.body.exchangeRate || '1',{positive:true}),
       occurredAt: /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paymentDate||'')) ? new Date(req.body.paymentDate+'T12:00:00.000Z').toISOString() : new Date().toISOString()
     }) });

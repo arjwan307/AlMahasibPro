@@ -26,6 +26,7 @@ export class MemoryStore {
     this.stockBalances = new Map();
     this.commerceDocuments = new Map();
     this.journalEntries = new Map();
+    this.chartAccounts = new Map();
     this.serverOutbox = [];
     this.itemBarcodes = new Map();
     this.posDevices = new Map();
@@ -48,10 +49,15 @@ export class MemoryStore {
     this.employeeShiftAssignments = new Map(); this.attendanceEvents = new Map(); this.overtimeRequests = new Map();
     this.leaveRequests = new Map(); this.payrollSettings = new Map(); this.payrollCycles = new Map();
     this.payrollPayments = new Map(); this.payrollAdjustments = new Map();
+    this.salesSettings = new Map(); this.salesApprovals = new Map(); this.salesReviews = new Map();
     this.changeSequence = 0;
   }
 
   async close() {}
+  async saveSalesSetting(key,value,actor) { this.salesSettings.set(key,clone(value));this.#audit(value.companyId,actor,'sales.setting.updated','sales_setting',key,{});return clone(value); }
+  async saveSalesApproval(row) { this.salesApprovals.set(row.id,clone(row));this.#audit(row.companyId,row.reviewedBy||row.userId,'sales.approval.'+row.status,'sales_approval',row.id,{});return clone(row); }
+  async saveSalesReview(row) { this.salesReviews.set(row.id,clone(row));return clone(row); }
+
 
   async seedPlatformAdmin({ username, passwordHash, displayName = 'Platform Admin' }) {
     const existing = [...this.users.values()].find((user) => user.platformAdmin && user.username === username);
@@ -93,7 +99,7 @@ export class MemoryStore {
     return this.#publicCompany(company);
   }
 
-  async registerCompany({ code, legalName, timezone, currency, phone, address, owner }) {
+  async registerCompany({ code, legalName, timezone, currency, phone, address, owner, product = null }) {
     if ([...this.companies.values()].some((company) => company.code === code)) {
       throw new AppError(409, 'COMPANY_CODE_EXISTS', 'رمز الشركة مستخدم');
     }
@@ -101,7 +107,7 @@ export class MemoryStore {
     const now = new Date().toISOString();
     const branchId = randomUUID();
     const company = {
-      id: companyId, code, legalName, timezone, currency, phone, address, status: 'pending',
+      id: companyId, code, legalName, timezone, currency, phone, address, product, status: 'pending',
       createdAt: now, approvedAt: null, ownerUserId: null,
       branches: [{ id: branchId, name: 'الفرع الرئيسي', code: 'main', active: true }]
     };
@@ -122,6 +128,21 @@ export class MemoryStore {
     return this.#publicCompany(company);
   }
 
+  async updateCompanyAccountingSettings(companyId, input, actorUserId) {
+    const company=this.companies.get(companyId);
+    if(!company) throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
+    const baseCurrency=String(input.baseCurrency||company.currency||'IQD').toUpperCase();
+    if(!['IQD','USD'].includes(baseCurrency)) throw new AppError(400,'INVALID_CURRENCY','عملة الشركة يجب أن تكون IQD أو USD');
+    if(baseCurrency!==company.currency && [...this.commerceDocuments.values()].some(x=>x.companyId===companyId)) throw new AppError(409,'BASE_CURRENCY_LOCKED','لا يمكن تغيير عملة الحسابات بعد تسجيل أول فاتورة');
+    company.currency=baseCurrency;
+    company.usdToIqdRate=decimalString(decimal(input.usdToIqdRate||company.usdToIqdRate||'1300',{positive:true}));
+    company.exchangeRateUpdatedAt=new Date().toISOString();
+    company.exchangeRateUpdatedBy=actorUserId;
+    this.#audit(companyId,actorUserId,'company.accounting_settings.updated','company',companyId,{currency:baseCurrency});
+    this.#change(companyId,'company',companyId,'upsert',this.#publicCompany(company));
+    return this.#publicCompany(company);
+  }
+
   async listPendingCompanies() {
     return [...this.companies.values()].filter((company) => company.status === 'pending').map((company) => this.#publicCompany(company));
   }
@@ -131,7 +152,7 @@ export class MemoryStore {
     if (!company) throw new AppError(404, 'COMPANY_NOT_FOUND', 'الشركة غير موجودة');
     if (company.status === 'active') return this.#publicCompany(company);
     if (approvedCode) {
-      const code=String(approvedCode).trim().toUpperCase();
+      const code=String(approvedCode).trim().toLowerCase();
       if ([...this.companies.values()].some((x)=>x.id!==companyId && x.code===code)) throw new AppError(409,'COMPANY_CODE_EXISTS','رمز الشركة مستخدم');
       company.code=code;
     }
@@ -175,7 +196,7 @@ export class MemoryStore {
       const user = [...this.users.values()].find((candidate) => candidate.platformAdmin && candidate.username === username);
       return user ? { user: clone(user), company: null } : null;
     }
-    const company = [...this.companies.values()].find((candidate) => candidate.code === companyCode);
+    const company = [...this.companies.values()].find((candidate) => String(candidate.code).toLowerCase() === companyCode);
     if (!company) return null;
     const user = [...this.users.values()].find((candidate) => candidate.companyId === company.id && candidate.username === username);
     return user ? { user: clone(user), company: this.#publicCompany(company) } : null;
@@ -197,7 +218,7 @@ export class MemoryStore {
     const company = user.companyId ? this.companies.get(user.companyId) : null;
     if (company && company.status !== 'active') return null;
     const roles = user.roleIds.map((id) => this.roles.get(id)).filter(Boolean);
-    const permissions = user.platformAdmin ? ['company.approve'] : [...new Set(roles.flatMap((role) => role.permissions))];
+    const permissions = user.platformAdmin ? ['company.approve'] : (user.permissions ?? [...new Set(roles.flatMap((role) => role.permissions))]);
     return {
       session: clone(session), user: this.#publicUser(user), company: company ? this.#publicCompany(company) : null,
       roles: roles.map(({ passwordHash, ...role }) => clone(role)), permissions, scopes: clone(user.scopes)
@@ -211,8 +232,36 @@ export class MemoryStore {
     this.#audit(user?.companyId ?? null, actorUserId, 'session.revoked', 'session', session?.id ?? null, {});
   }
 
+  async listLoginRoles(companyCode) {
+    const company = [...this.companies.values()].find(row => row.code.toLowerCase() === companyCode && row.status === 'active');
+    if (!company) return [];
+    return (await this.listRoles(company.id)).map(({ code, name }) => ({ code, name }));
+  }
+
   async listRoles(companyId) {
     return [...this.roles.values()].filter((role) => role.companyId === companyId).map(clone);
+  }
+
+  async createRole(companyId, input, actorUserId) {
+    if ([...this.roles.values()].some(role => role.companyId === companyId && role.name === input.name)) throw new AppError(409, 'ROLE_NAME_EXISTS', 'اسم الدور موجود في الشركة');
+    const id = randomUUID();
+    const role = { id, companyId, code: 'custom_' + id, name: input.name, system: false, permissions: [...new Set(input.permissions)] };
+    this.roles.set(id, role);
+    this.#audit(companyId, actorUserId, 'role.created', 'role', id, { name: role.name, permissions: role.permissions });
+    this.#change(companyId, 'role', id, 'upsert', role);
+    return clone(role);
+  }
+
+  #validatedUserSalesProfile(companyId,input,roleCode,userId=null){
+    if(input===undefined)return undefined;
+    if(!input||typeof input!=='object'||!['none','representative','manager'].includes(input.kind))throw new AppError(400,'INVALID_SALES_PROFILE','حدد نوع الحساب');
+    if(input.kind==='none'){if(roleCode==='representative')throw new AppError(400,'SALES_CHANNEL_REQUIRED','حدد مندوب مفرد أو جملة');return {companyId,channel:'retail',salesManager:false,managerUserId:null};}
+    if(!['retail','wholesale'].includes(input.channel))throw new AppError(400,'SALES_CHANNEL_REQUIRED','حدد مفرد أو جملة');
+    if(input.kind==='representative'&&roleCode!=='representative'||input.kind==='manager'&&roleCode==='representative')throw new AppError(400,'SALES_ROLE_MISMATCH','الدور لا يطابق نوع حساب المبيعات');
+    const maxDiscountPercent=decimalString(decimal(input.maxDiscountPercent||'0',{nonNegative:true}));if(decimal(maxDiscountPercent)>decimal('100'))throw new AppError(400,'INVALID_DISCOUNT','الخصم لا يتجاوز ١٠٠٪');
+    const result={companyId,channel:input.channel,salesManager:input.kind==='manager',managerUserId:null,phone:String(input.phone||'').slice(0,40),location:String(input.location||'').slice(0,200),maxDiscountPercent};
+    if(input.kind==='representative'&&input.managerUserId){const manager=this.users.get(input.managerUserId),profile=this.salesSettings.get('user:'+input.managerUserId);if(input.managerUserId===userId||!manager||manager.companyId!==companyId||manager.status!=='active'||!profile?.salesManager||profile.channel!==input.channel)throw new AppError(400,'INVALID_SALES_MANAGER','اختر مدير مبيعات نشطًا من نفس النوع وفي شركتك');result.managerUserId=manager.id;}
+    return result;
   }
 
   async createUser(companyId, input, actorUserId) {
@@ -221,16 +270,51 @@ export class MemoryStore {
     }
     const role = [...this.roles.values()].find((candidate) => candidate.companyId === companyId && candidate.code === input.roleCode);
     if (!role) throw new AppError(400, 'ROLE_NOT_FOUND', 'الدور غير موجود');
+    const salesProfile=this.#validatedUserSalesProfile(companyId,input.salesProfile,input.roleCode);
+    if(input.status!==undefined&&!['active','disabled'].includes(input.status))throw new AppError(400,'INVALID_STATUS','حالة الحساب غير صالحة');
+    const defaultSalesPermissions=['catalog.read','customers.read','inventory.read','sales.read','sales.create','sales.approve','sales.return','sync.use'];
+    if (input.permissions != null && (!Array.isArray(input.permissions) || input.permissions.some(value => !PERMISSIONS.includes(value) || value === 'company.approve'))) throw new AppError(400, 'INVALID_PERMISSIONS', 'الصلاحيات غير صالحة');
     const user = {
       id: randomUUID(), companyId, username: input.username, displayName: input.displayName,
-      passwordHash: input.passwordHash, platformAdmin: false, status: 'active', roleIds: [role.id],
+      passwordHash: input.passwordHash, platformAdmin: false, status: input.status||'active', roleIds: [role.id], ...(input.permissions != null ? {permissions: [...input.permissions]} : salesProfile?.salesManager?{permissions:defaultSalesPermissions}:{}),
       scopes: input.scopes?.length ? clone(input.scopes) : [{ type: 'company', id: companyId }],
       createdAt: new Date().toISOString()
     };
     this.users.set(user.id, user);
+    if(salesProfile)await this.saveSalesSetting('user:'+user.id,salesProfile,actorUserId);
     this.#audit(companyId, actorUserId, 'user.created', 'user', user.id, { roleCode: input.roleCode });
     this.#change(companyId, 'user', user.id, 'upsert', this.#publicUser(user));
     return this.#publicUser(user);
+  }
+
+  async listUsers(companyId) {
+    return [...this.users.values()].filter(user => user.companyId === companyId).map(user => ({
+      ...this.#publicUser(user), roleCode: this.roles.get(user.roleIds[0])?.code,
+      salesProfile: {...clone(this.salesSettings.get('user:'+user.id)||{}),kind:this.salesSettings.get('user:'+user.id)?.salesManager?'manager':this.roles.get(user.roleIds[0])?.code==='representative'?'representative':'none'},
+      permissions: user.permissions ?? [...new Set(user.roleIds.flatMap(id => this.roles.get(id)?.permissions || []))]
+    }));
+  }
+
+  async updateUser(companyId, userId, input, actorUserId) {
+    const user = this.users.get(userId);
+    if (!user || user.companyId !== companyId || user.platformAdmin) throw new AppError(404, 'USER_NOT_FOUND', 'المستخدم غير موجود');
+    const role = [...this.roles.values()].find(row => row.companyId === companyId && row.code === input.roleCode);
+    if (!role) throw new AppError(400, 'ROLE_NOT_FOUND', 'الدور غير موجود');
+    if ([...this.users.values()].some(row => row.companyId === companyId && row.id !== userId && row.username === input.username)) throw new AppError(409, 'USERNAME_EXISTS', 'اسم المستخدم مستخدم في الشركة');
+    if (!['active', 'disabled'].includes(input.status)) throw new AppError(400, 'INVALID_STATUS', 'حالة الحساب غير صالحة');
+    const salesProfile=this.#validatedUserSalesProfile(companyId,input.salesProfile,input.roleCode,userId);
+    const permissions = input.permissions ?? (salesProfile?.salesManager?['catalog.read','customers.read','inventory.read','sales.read','sales.create','sales.approve','sales.return','sync.use']:role.permissions);
+    if (!Array.isArray(permissions) || permissions.some(value => !PERMISSIONS.includes(value) || value === 'company.approve')) throw new AppError(400, 'INVALID_PERMISSIONS', 'الصلاحيات غير صالحة');
+    if (userId === actorUserId && (input.status !== 'active' || !permissions.includes('users.manage'))) throw new AppError(409, 'SELF_LOCKOUT', 'لا يمكنك إيقاف حسابك أو إزالة صلاحية إدارة المستخدمين منه');
+    const managers = await this.listUsers(companyId);
+    if (user.status === 'active' && managers.find(row => row.id === userId)?.permissions.includes('users.manage') && (input.status !== 'active' || !permissions.includes('users.manage')) && !managers.some(row => row.id !== userId && row.status === 'active' && row.permissions.includes('users.manage'))) throw new AppError(409, 'LAST_MANAGER', 'يجب إبقاء مسؤول نشط لإدارة المستخدمين');
+    Object.assign(user, { username: input.username, displayName: input.displayName, status: input.status, roleIds: [role.id], permissions: [...permissions], updatedAt: new Date().toISOString() });
+    if(salesProfile)await this.saveSalesSetting('user:'+userId,salesProfile,actorUserId);
+    if (input.passwordHash) user.passwordHash = input.passwordHash;
+    if (input.passwordHash || input.status === 'disabled') for (const session of this.sessions.values()) if (session.userId === userId) session.revokedAt = new Date().toISOString();
+    this.#audit(companyId, actorUserId, 'user.updated', 'user', userId, { roleCode: input.roleCode, status: input.status, permissions, passwordChanged: Boolean(input.passwordHash) });
+    this.#change(companyId, 'user', userId, 'upsert', this.#publicUser(user));
+    return (await this.listUsers(companyId)).find(row => row.id === userId);
   }
 
   async createUnit(companyId, input, actorUserId) {
@@ -246,13 +330,29 @@ export class MemoryStore {
     this.#assertUnique(this.items, companyId, 'sku', input.sku, 'ITEM_SKU_EXISTS');
     const unit = this.units.get(input.baseUnitId);
     if (!unit || unit.companyId !== companyId) throw new AppError(400, 'UNIT_NOT_FOUND', 'الوحدة غير موجودة');
-    const item = { id: randomUUID(), companyId, sku: input.sku, name: input.name, baseUnitId: unit.id, active: true };
+    const item = { id: randomUUID(), companyId, sku: input.sku, name: input.name, description: String(input.description || '').slice(0,4000), category: input.category||'', baseUnitId: unit.id, active: true };
     this.items.set(item.id, item);
     const itemUnit = { id: randomUUID(), companyId, itemId: item.id, unitId: unit.id, conversionFactor: '1.000000', isBase: true };
     this.itemUnits.set(itemUnit.id, itemUnit);
     this.#audit(companyId, actorUserId, 'item.created', 'item', item.id, {});
     this.#change(companyId, 'item', item.id, 'upsert', { ...item, units: [itemUnit] });
     return clone({ ...item, units: [itemUnit] });
+  }
+
+  async listItemCategories(companyId){return [...new Set(this.salesSettings.get('categories:'+companyId)?.names||[])];}
+  async createItemCategory(companyId,name,actorUserId){name=String(name||'').trim();if(!name||name.length>100)throw new AppError(400,'INVALID_CATEGORY','اسم التصنيف مطلوب، بحد أقصى 100 حرف');const names=await this.listItemCategories(companyId);if(names.includes(name))throw new AppError(409,'CATEGORY_EXISTS','التصنيف موجود');names.push(name);await this.saveSalesSetting('categories:'+companyId,{companyId,names},actorUserId);return {name};}
+  async updateItemDescription(companyId,itemId,description,actorUserId) {
+    const item=this.items.get(itemId);if(!item||item.companyId!==companyId)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
+    item.description=String(description||'').slice(0,4000);this.#audit(companyId,actorUserId,'item.updated','item',itemId,{});this.#change(companyId,'item',itemId,'upsert',clone(item));return clone(item);
+  }
+  async deleteUnusedItem(companyId,itemId,actorUserId) {
+    const item=this.items.get(itemId);if(!item||item.companyId!==companyId)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
+    const excluded=new Set(['items','itemUnits','prices','stockBalances','salesSettings']);
+    for(const [key,value] of Object.entries(this)){if(excluded.has(key)||!(value instanceof Map))continue;if([...value.values()].some(row=>row.companyId===companyId&&JSON.stringify(row).includes(itemId)))throw new AppError(409,'ITEM_IN_USE','المادة مرتبطة بحركة أو مستند، لا يمكن حذفها');}
+    if([...this.stockBalances.values()].some(x=>x.companyId===companyId&&x.itemId===itemId&&Number(x.quantity)!==0))throw new AppError(409,'ITEM_IN_USE','للمادة رصيد، لا يمكن حذفها');
+    if([...this.salesApprovals.values()].some(x=>JSON.stringify(x).includes(itemId)))throw new AppError(409,'ITEM_IN_USE','المادة مرتبطة بطلب موافقة');
+    for(const map of [this.itemUnits,this.prices,this.stockBalances])for(const [key,row] of map)if(row.companyId===companyId&&row.itemId===itemId)map.delete(key);
+    this.salesSettings.delete('item:'+itemId);this.items.delete(itemId);this.#audit(companyId,actorUserId,'item.deleted','item',itemId,{});this.#change(companyId,'item',itemId,'delete',{id:itemId});return {deleted:true};
   }
 
   async addItemUnit(companyId, itemId, input, actorUserId) {
@@ -285,12 +385,66 @@ export class MemoryStore {
     const map = type === 'customer' ? this.customers : this.suppliers;
     this.#assertUnique(map, companyId, 'code', input.code, `${type.toUpperCase()}_CODE_EXISTS`);
     const party = { id: randomUUID(), companyId, code: input.code, name: input.name, phone: input.phone || null,
-      ...(type === 'customer' ? { province: input.province || '', district: input.district || '', address: input.address || '' } : {}), active: true };
+      ...(type === 'customer' ? { province: input.province || '', district: input.district || '', address: input.address || '', paymentPreference: ['cash','credit','mixed'].includes(input.paymentPreference) ? input.paymentPreference : 'cash', salesChannel: input.salesChannel === 'wholesale' ? 'wholesale' : 'retail' } : { country: input.country || '', companyName: input.companyName || '', specialty: input.specialty || '', relationshipStartYear: input.relationshipStartYear || '' }), active: true };
     if (type === 'customer') party.creditLimit = decimalString(decimal(input.creditLimit || '0', { nonNegative: true }));
     map.set(party.id, party);
     this.#audit(companyId, actorUserId, `${type}.created`, type, party.id, {});
     this.#change(companyId, type, party.id, 'upsert', party);
     return clone(party);
+  }
+
+  async updateCustomer(companyId, customerId, input, actorUserId) {
+    const customer = this.customers.get(customerId);
+    if (!customer || customer.companyId !== companyId) throw new AppError(404, 'CUSTOMER_NOT_FOUND', 'الزبون غير موجود');
+    if (input.code && input.code !== customer.code) this.#assertUnique(this.customers, companyId, 'code', input.code, 'CUSTOMER_CODE_EXISTS');
+    const next = { ...customer, ...input, id: customer.id, companyId, active: input.active === undefined ? customer.active : input.active,
+      creditLimit: decimalString(decimal(input.creditLimit ?? customer.creditLimit ?? '0', { nonNegative: true })) };
+    this.customers.set(customerId, next);
+    this.#audit(companyId, actorUserId, 'customer.updated', 'customer', customerId, {});
+    this.#change(companyId, 'customer', customerId, 'upsert', next);
+    return clone(next);
+  }
+
+  async deleteCustomer(companyId, customerId, actorUserId) {
+    const customer = this.customers.get(customerId);
+    if (!customer || customer.companyId !== companyId) throw new AppError(404, 'CUSTOMER_NOT_FOUND', 'الزبون غير موجود');
+    const linked = [...this.commerceDocuments.values()].some(d => d.companyId === companyId && (d.customerId === customerId || d.partyId === customerId))
+      || [...this.representativeCustomers.values()].some(r => r.companyId === companyId && (r.customerId === customerId || r.partyId === customerId));
+    if (linked) throw new AppError(409, 'CUSTOMER_HAS_HISTORY', 'الزبون مرتبط بسجلات؛ لا يمكن حذفه. استخدم تعطيل الزبون.');
+    this.customers.delete(customerId);
+    this.#audit(companyId, actorUserId, 'customer.deleted', 'customer', customerId, {});
+    this.#change(companyId, 'customer', customerId, 'delete', {id:customerId});
+    return {deleted:true};
+  }
+
+  async updateSupplier(companyId, supplierId, input, actorUserId) {
+    const supplier = this.suppliers.get(supplierId);
+    if (!supplier || supplier.companyId !== companyId) throw new AppError(404, 'SUPPLIER_NOT_FOUND', 'المورد غير موجود');
+    if (input.code && input.code !== supplier.code) this.#assertUnique(this.suppliers, companyId, 'code', input.code, 'SUPPLIER_CODE_EXISTS');
+    const next = { ...supplier,
+      code: input.code || supplier.code,
+      name: input.name || supplier.name,
+      phone: input.phone ?? supplier.phone,
+      country: input.country ?? supplier.country,
+      companyName: input.companyName ?? supplier.companyName,
+      specialty: input.specialty ?? supplier.specialty,
+      relationshipStartYear: input.relationshipStartYear ?? supplier.relationshipStartYear
+    };
+    this.suppliers.set(supplierId, next);
+    this.#audit(companyId, actorUserId, 'supplier.updated', 'supplier', supplierId, {});
+    this.#change(companyId, 'supplier', supplierId, 'upsert', next);
+    return clone(next);
+  }
+
+  async deleteSupplier(companyId, supplierId, actorUserId) {
+    const supplier = this.suppliers.get(supplierId);
+    if (!supplier || supplier.companyId !== companyId) throw new AppError(404, 'SUPPLIER_NOT_FOUND', 'المورد غير موجود');
+    const referenced = [...this.commerceDocuments.values()].some(row => row.companyId === companyId && row.supplierId === supplierId);
+    if (referenced) throw new AppError(409, 'SUPPLIER_HAS_DOCUMENTS', 'لا يمكن حذف مورد مرتبط بفواتير؛ ألغِ مستنداته محاسبيًا أولًا');
+    this.suppliers.delete(supplierId);
+    this.#audit(companyId, actorUserId, 'supplier.deleted', 'supplier', supplierId, {});
+    this.#change(companyId, 'supplier', supplierId, 'delete', { id: supplierId });
+    return { id: supplierId };
   }
 
   async createWarehouse(companyId, input, actorUserId) {
@@ -305,6 +459,7 @@ export class MemoryStore {
   async listMasterData(companyId) {
     const belongs = (row) => row.companyId === companyId;
     return {
+      categories: await this.listItemCategories(companyId),
       units: [...this.units.values()].filter(belongs).map(clone),
       items: [...this.items.values()].filter(belongs).map((item) => ({ ...clone(item), units: [...this.itemUnits.values()].filter((row) => row.companyId === companyId && row.itemId === item.id).map(clone) })),
       prices: [...this.prices.values()].filter(belongs).map(clone),
@@ -313,6 +468,165 @@ export class MemoryStore {
       warehouses: [...this.warehouses.values()].filter(belongs).map(clone),
       stock: [...this.stockBalances.values()].filter(belongs).map(clone)
     };
+  }
+
+  async listEnterpriseData(companyId) {
+    const belongs = row => row.companyId === companyId;
+    return { representatives: [...this.representatives.values()].filter(belongs).map(clone), journals: [...this.journalEntries.values()].filter(belongs).map(clone), chartAccounts: this.listChartAccounts(companyId), trialBalance: this.trialBalance(companyId),
+      transfers: [...this.stockTransfers.values()].filter(belongs).map(clone),
+      settlements: [...this.financialRecords.values()].filter(row => belongs(row) && row.kind === 'enterprise_settlement').map(clone),
+      users: [...this.users.values()].filter(belongs).map(row => this.#publicUser(row)) };
+  }
+
+  listChartAccounts(companyId) {
+    const defaults = [
+      ['1000-CASH','الصندوق','asset'],['1010-BANK','البنك','asset'],['1100-AR','ذمم العملاء','asset'],
+      ['1150-REP-CASH-CUSTODY','عهدة نقد المندوبين','asset'],['1200-INVENTORY','المخزون','asset'],
+      ['1300-EMPLOYEE-ADVANCES','سلف الموظفين','asset'],['1400-EMPLOYEE-RECEIVABLE','ذمم الموظفين','asset'],
+      ['2100-AP','ذمم الموردين','liability'],['2200-PAYROLL-DEDUCTIONS','استقطاعات الرواتب','liability'],
+      ['2300-PAYROLL-PAYABLE','رواتب مستحقة','liability'],['3000-EQUITY','حقوق الملكية','equity'],
+      ['4100-SALES','المبيعات','revenue'],['4200-SALES-RETURNS','مردودات المبيعات','contra_revenue'],
+      ['5100-COGS','كلفة البضاعة المباعة','expense'],['6100-PAYROLL-EXPENSE','مصروف الرواتب','expense'],
+      ['6150-PAYROLL-RECOVERY','استردادات الرواتب','revenue']
+    ];
+    const custom=[...this.chartAccounts.values()].filter(x=>x.companyId===companyId);
+    return defaults.map(([code,name,type])=>({companyId,code,name,type,system:true,active:true})).concat(custom).map(clone);
+  }
+
+  trialBalance(companyId) {
+    const rows=new Map(this.listChartAccounts(companyId).map(a=>[a.code,{accountCode:a.code,name:a.name,type:a.type,debit:ZERO,credit:ZERO}]));
+    for(const j of this.journalEntries.values())if(j.companyId===companyId&&j.status==='posted')for(const l of j.lines){const code=l.accountCode||l.account;if(!rows.has(code))rows.set(code,{accountCode:code,name:code,type:'unknown',debit:ZERO,credit:ZERO});const r=rows.get(code);r.debit+=decimal(l.debit||'0');r.credit+=decimal(l.credit||'0');}
+    return [...rows.values()].map(r=>({accountCode:r.accountCode,name:r.name,type:r.type,debit:decimalString(r.debit),credit:decimalString(r.credit),balance:decimalString(r.debit-r.credit)}));
+  }
+
+  async createChartAccount(companyId,input,actorUserId) {
+    const code=String(input.code||'').trim().toUpperCase(), name=String(input.name||'').trim();
+    const type=String(input.type||'').trim();
+    if(!code||!name||!['asset','liability','equity','revenue','expense','contra_revenue'].includes(type)) throw new AppError(400,'INVALID_ACCOUNT','بيانات الحساب غير صالحة');
+    if(this.listChartAccounts(companyId).some(x=>x.code===code)) throw new AppError(409,'ACCOUNT_CODE_EXISTS','رمز الحساب مستخدم');
+    const parentCode=String(input.parentCode||'').trim().toUpperCase()||null;if(parentCode&&!this.listChartAccounts(companyId).some(x=>x.code===parentCode))throw new AppError(400,'PARENT_ACCOUNT_NOT_FOUND','الحساب الأب غير موجود');
+    const row={id:randomUUID(),companyId,code,name,type,parentCode,system:false,active:true,createdAt:new Date().toISOString()};
+    this.chartAccounts.set(row.id,row); this.#audit(companyId,actorUserId,'account.created','chart_account',row.id,{code}); this.#change(companyId,'chart_account',row.id,'upsert',row); return clone(row);
+  }
+
+  async postManualJournal(context, input) {
+    const companyId = context.company.id;
+    const operationId = String(input.operationId || '').trim();
+    if (!operationId) throw new AppError(400, 'OPERATION_ID_REQUIRED', 'معرف العملية مطلوب');
+    const currency = String(input.currency || context.company.currency).toUpperCase();
+    const entryNumber = String(input.entryNumber || '').trim();
+    const occurredAt = String(input.occurredAt || '');
+    const description = String(input.description || '');
+    if (!entryNumber) throw new AppError(400, 'ENTRY_NUMBER_REQUIRED', 'رقم القيد مطلوب');
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(occurredAt) || Number.isNaN(Date.parse(occurredAt))) {
+      throw new AppError(400, 'INVALID_JOURNAL_DATE', 'تاريخ القيد غير صالح');
+    }
+    if (!Array.isArray(input.lines) || input.lines.length < 2) {
+      throw new AppError(400, 'JOURNAL_LINES_REQUIRED', 'القيد يحتاج سطرين على الأقل');
+    }
+    const lines = input.lines.map(line => ({
+      accountCode: String(line.accountCode || '').trim().toUpperCase(),
+      debit: decimalString(decimal(line.debit || '0', { nonNegative: true })),
+      credit: decimalString(decimal(line.credit || '0', { nonNegative: true })),
+      note: String(line.note || '')
+    }));
+    const existing = [...this.journalEntries.values()].find(row => row.companyId === companyId && row.operationId === operationId);
+    if (existing) {
+      const samePayload = existing.entryNumber === entryNumber && existing.currency === currency &&
+        existing.occurredAt === occurredAt && existing.description === description &&
+        JSON.stringify(existing.lines) === JSON.stringify(lines);
+      if (!samePayload) throw new AppError(409, 'OPERATION_ID_REUSED', 'معرف العملية مستخدم لبيانات أخرى');
+      return clone(existing);
+    }
+    if (currency !== context.company.currency) throw new AppError(400, 'DOCUMENT_CURRENCY_MISMATCH', 'القيد يجب أن يكون بعملة الشركة');
+    const accounts = new Set(this.listChartAccounts(companyId).filter(account => account.active).map(account => account.code));
+    for (const line of lines) {
+      if (!accounts.has(line.accountCode)) throw new AppError(400, 'ACCOUNT_NOT_FOUND', 'الحساب غير موجود');
+      const debit = decimal(line.debit), credit = decimal(line.credit);
+      if ((debit > ZERO) === (credit > ZERO)) throw new AppError(400, 'INVALID_JOURNAL_LINE', 'كل سطر يجب أن يكون مدينًا أو دائنًا فقط');
+    }
+    const debit = lines.reduce((sum, line) => sum + decimal(line.debit), ZERO);
+    const credit = lines.reduce((sum, line) => sum + decimal(line.credit), ZERO);
+    if (debit !== credit) throw new AppError(400, 'UNBALANCED_JOURNAL', 'القيد غير متوازن');
+    if ([...this.journalEntries.values()].some(row => row.companyId === companyId && row.entryNumber === entryNumber)) {
+      throw new AppError(409, 'ENTRY_NUMBER_EXISTS', 'رقم القيد مستخدم');
+    }
+    const row = {
+      id: randomUUID(), companyId, entryNumber, operationId, status: 'posted', currency,
+      description, occurredAt, createdBy: context.user.id, lines
+    };
+    this.journalEntries.set(row.id, Object.freeze(row));
+    this.#audit(companyId, context.user.id, 'journal.posted', 'journal_entry', row.id, {});
+    this.#change(companyId, 'journal_entry', row.id, 'upsert', row);
+    return clone(row);
+  }
+
+  async reverseJournal(context, id, input) {
+    const original = this.journalEntries.get(id);
+    if (!original || original.companyId !== context.company.id) throw new AppError(404, 'JOURNAL_NOT_FOUND', 'القيد غير موجود');
+    if (original.reversedByJournalId) {
+      const reversal = this.journalEntries.get(original.reversedByJournalId);
+      if (reversal?.operationId === input.operationId && reversal.entryNumber === input.entryNumber && reversal.occurredAt === input.occurredAt) {
+        return clone(reversal);
+      }
+      if (reversal?.operationId === input.operationId) throw new AppError(409, 'OPERATION_ID_REUSED', 'معرف العملية مستخدم لبيانات أخرى');
+      throw new AppError(409, 'JOURNAL_ALREADY_REVERSED', 'القيد معكوس سابقًا');
+    }
+    const reversal = await this.postManualJournal(context, {
+      operationId: input.operationId, entryNumber: input.entryNumber, currency: original.currency,
+      description: `عكس ${original.entryNumber || original.id}`, occurredAt: input.occurredAt,
+      lines: original.lines.map(line => ({ accountCode: line.accountCode || line.account, debit: line.credit, credit: line.debit, note: 'عكس القيد' }))
+    });
+    const updatedOriginal = Object.freeze({ ...original, reversedByJournalId: reversal.id });
+    this.journalEntries.set(id, updatedOriginal);
+    this.#audit(context.company.id, context.user.id, 'journal.reversed', 'journal_entry', id, { reversalId: reversal.id });
+    this.#change(context.company.id, 'journal_entry', id, 'upsert', updatedOriginal);
+    return reversal;
+  }
+
+  async transferEnterpriseStock(context, input) {
+    const existing = [...this.stockTransfers.values()].find(row => row.companyId === context.company.id && row.operationId === input.operationId);
+    if (existing) { if (existing.transferNumber !== input.transferNumber || existing.sourceWarehouseId !== input.sourceWarehouseId || existing.destinationWarehouseId !== input.destinationWarehouseId) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى'); return clone(existing); }
+    this.#assertUnique(this.stockTransfers,context.company.id,'transferNumber',input.transferNumber,'TRANSFER_NUMBER_EXISTS');
+    for (const id of [input.sourceWarehouseId, input.destinationWarehouseId]) {
+      const warehouse = this.warehouses.get(id);
+      if (!warehouse || warehouse.companyId !== context.company.id) throw new AppError(400, 'WAREHOUSE_NOT_FOUND', 'المخزن غير موجود');
+    }
+    for (const line of input.lines) {
+      const item = this.items.get(line.itemId);
+      if (!item || item.companyId !== context.company.id) throw new AppError(400, 'ITEM_NOT_FOUND', 'الصنف غير موجود');
+    }
+    const before = this.#representativeTransactionSnapshot();
+    try { return this.#transferRepresentativeStock(context, { operationId: input.operationId, occurredAt: input.occurredAt }, input.sourceWarehouseId, input.destinationWarehouseId, input.lines, input.transferNumber, null); }
+    catch (error) { this.#restoreRepresentativeTransaction(before); throw error; }
+  }
+
+  async settleEnterpriseDocument(context, input) {
+    const existing = [...this.financialRecords.values()].find(row => row.companyId === context.company.id && row.kind === 'enterprise_settlement' && row.operationId === input.operationId);
+    if (existing) { if (existing.documentId !== input.documentId || existing.amount !== decimalString(decimal(input.amount)) || existing.method !== input.method) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى'); return clone(existing); }
+    this.#assertUnique(this.financialRecords,context.company.id,'receiptNumber',input.receiptNumber,'RECEIPT_NUMBER_EXISTS');
+    const document = this.commerceDocuments.get(input.documentId);
+    if (!document || document.companyId !== context.company.id || !['sale', 'purchase'].includes(document.documentType)) throw new AppError(400, 'DOCUMENT_NOT_FOUND', 'مستند البيع أو الشراء غير موجود');
+    const settled = [...this.financialRecords.values()].filter(row => row.companyId === context.company.id && row.kind === 'enterprise_settlement' && row.documentId === document.id).reduce((sum,row) => sum + decimal(row.amount), ZERO);
+    const returned = [...this.commerceDocuments.values()].filter(row => row.companyId === context.company.id && row.originalDocumentId === document.id).reduce((sum,row) => sum + decimal(row.dueAmount), ZERO);
+    const receivedCurrency = String(input.receivedCurrency || document.currency).toUpperCase();
+    if (!['IQD','USD'].includes(receivedCurrency)) throw new AppError(400, 'INVALID_RECEIVED_CURRENCY', 'عملة القبض غير مدعومة');
+    const receivedAmount = decimal(input.receivedAmount || input.amount, { positive: true });
+    // The server owns the accounting rate. Clients may display a calculator but cannot
+    // override the manager-approved company rate when money is actually posted.
+    const companyRate = decimal(context.company.usdToIqdRate || '1300', { positive: true });
+    const exchangeRate = receivedCurrency === document.currency ? decimal('1') : companyRate;
+    if (!((document.currency === 'USD' && receivedCurrency === 'IQD') || (document.currency === 'IQD' && receivedCurrency === 'USD') || receivedCurrency === document.currency)) throw new AppError(400, 'CURRENCY_CONVERSION_NOT_SUPPORTED', 'التحويل مسموح فقط بين الدينار والدولار');
+    const amount = receivedCurrency === document.currency ? receivedAmount : document.currency === 'USD' ? divide(receivedAmount, exchangeRate) : multiply(receivedAmount, exchangeRate);
+    if (amount > decimal(document.dueAmount) - settled - returned) throw new AppError(409, 'SETTLEMENT_EXCEEDS_DUE', 'المبلغ يتجاوز الرصيد المتبقي');
+    const cash = input.method === 'cash' ? '1000-CASH' : '1010-BANK';
+    const lines = document.documentType === 'sale' ? [[cash,amount,ZERO],['1100-AR',ZERO,amount]] : [['2100-AP',amount,ZERO],[cash,ZERO,amount]];
+    const journal = this.#simpleJournal(context, input, input.receiptNumber, document.currency, lines);
+    const row = { id: randomUUID(), companyId: context.company.id, kind: 'enterprise_settlement', operationId: input.operationId, documentId: document.id, receiptNumber: input.receiptNumber, amount: decimalString(amount), currency: document.currency, receivedAmount: decimalString(receivedAmount), receivedCurrency, exchangeRate: decimalString(exchangeRate), method: input.method, bankName: input.bankName || '', transactionNumber: input.transactionNumber || '', journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
+    this.financialRecords.set(row.id, Object.freeze(row));
+    this.#audit(context.company.id,context.user.id,'enterprise.settlement','financial_record',row.id,{});
+    this.#change(context.company.id,'financial_record',row.id,'upsert',row);
+    return clone(row);
   }
 
   async listCustomerAccountSummaries(companyId) {
@@ -784,9 +1098,12 @@ export class MemoryStore {
   #commitCommerce(context, operation) {
     const companyId = context.company.id;
     const payload = operation.payload;
+    const assignedManager = payload.documentType==='sale'&&salesRep(context)?assignedSalesManager(this,context):null;
+    const salesApproval = !payload.representativeId ? checkSales(this,context,payload) : null;
     const warehouse = this.warehouses.get(payload.warehouseId);
     if (!warehouse || warehouse.companyId !== companyId) throw new AppError(400, 'WAREHOUSE_NOT_FOUND', 'المخزن غير موجود');
     if (![ 'purchase', 'sale', 'purchase_return', 'sale_return' ].includes(payload.documentType)) throw new AppError(400, 'INVALID_DOCUMENT_TYPE', 'نوع المستند غير صالح');
+    if (String(payload.currency||'').toUpperCase() !== String(context.company.currency||'').toUpperCase()) throw new AppError(400, 'DOCUMENT_CURRENCY_MISMATCH', 'عملة المستند يجب أن تطابق عملة حسابات الشركة');
     if ([...this.commerceDocuments.values()].some((row) => row.companyId === companyId && row.documentType === payload.documentType && row.documentNumber === payload.documentNumber)) {
       throw new AppError(409, 'DOCUMENT_NUMBER_EXISTS', 'رقم المستند مستخدم');
     }
@@ -795,8 +1112,10 @@ export class MemoryStore {
     const partyMap = isSale ? this.customers : this.suppliers;
     if (payload.partyId && (!partyMap.get(payload.partyId) || partyMap.get(payload.partyId).companyId !== companyId)) throw new AppError(400, 'PARTY_NOT_FOUND', 'العميل أو المورد غير موجود');
     const original = isReturn ? this.commerceDocuments.get(payload.originalDocumentId) : null;
+    if (isReturn && [...this.financialRecords.values()].some(row => row.companyId === companyId && row.kind === 'enterprise_settlement' && row.documentId === payload.originalDocumentId)) throw new AppError(409, 'SETTLED_RETURN_REVIEW_REQUIRED', 'الفاتورة لها سندات تسوية؛ يلزم معالجة التسوية قبل المرتجع');
     const expectedOriginalType = payload.documentType === 'sale_return' ? 'sale' : 'purchase';
     if (isReturn && (!original || original.companyId !== companyId || original.documentType !== expectedOriginalType)) throw new AppError(400, 'ORIGINAL_DOCUMENT_INVALID', 'المستند الأصلي غير صالح');
+    if(isReturn&&salesRep(context)&&original?.customerId&&(this.salesSettings.get('customer:'+original.customerId)?.channel||'retail')!==(this.salesSettings.get('user:'+context.user.id)?.channel||'retail'))throw new AppError(403,'CUSTOMER_SCOPE','المستند خارج نطاق زبائنك');
     if (isReturn && original.currency !== payload.currency) throw new AppError(400, 'RETURN_CURRENCY_MISMATCH', 'عملة المرتجع يجب أن تطابق المستند الأصلي');
     if (!Array.isArray(payload.lines) || !payload.lines.length) throw new AppError(400, 'DOCUMENT_LINES_REQUIRED', 'بنود المستند مطلوبة');
     if (new Set(payload.lines.map((line) => line.itemId)).size !== payload.lines.length) throw new AppError(400, 'DUPLICATE_DOCUMENT_ITEM', 'لا تكرر المادة في المستند؛ اجمع الكمية في بند واحد');
@@ -857,7 +1176,7 @@ export class MemoryStore {
       const costTotal = multiply(baseQuantity, unitCost);
       inventoryCost += costTotal;
       stockUpdates.set(stockKey, { ...current, quantity: decimalString(newQty), averageCost: decimalString(newCost), version: current.version + 1 });
-      lines.push({ id: randomUUID(), itemId: input.itemId, unitId: input.unitId, originalLineId: originalLine?.id || null, quantity: decimalString(quantity), conversionFactor: decimalString(factor), baseQuantity: decimalString(baseQuantity), unitPrice: decimalString(unitPrice), lineTotal: decimalString(lineTotal), unitCost: decimalString(unitCost) });
+      lines.push({ id: randomUUID(), itemId: input.itemId, unitId: input.unitId, originalLineId: originalLine?.id || null, quantity: decimalString(quantity), conversionFactor: decimalString(factor), baseQuantity: decimalString(baseQuantity), unitPrice: decimalString(unitPrice), lineTotal: decimalString(lineTotal), unitCost: decimalString(unitCost), specifications: clone(input.specifications || {}), note: String(input.note || '') });
     }
     const gross = subtotal;
     const discount = decimal(payload.discountAmount || '0', { nonNegative: true });
@@ -867,19 +1186,24 @@ export class MemoryStore {
     const paid = payments.reduce((sum, payment) => sum + decimal(payment.amount, { positive: true }), ZERO);
     if (paid > subtotal) throw new AppError(400, 'PAYMENTS_EXCEED_TOTAL', 'الدفعات تتجاوز قيمة المستند');
     if (isSale && subtotal > paid && !payload.partyId) throw new AppError(400, 'CUSTOMER_REQUIRED_FOR_CREDIT', 'العميل مطلوب للبيع الآجل أو المختلط');
+    if (!isSale && subtotal > paid && !payload.partyId) throw new AppError(400, 'SUPPLIER_REQUIRED_FOR_CREDIT', 'المورد مطلوب للشراء الآجل أو المختلط');
     const document = {
       id: randomUUID(), companyId, documentType: payload.documentType, documentNumber: payload.documentNumber,
       warehouseId: warehouse.id, customerId: isSale ? payload.partyId || null : null,
       supplierId: isSale ? null : payload.partyId || null, originalDocumentId: original?.id || null,
       currency: payload.currency, subtotal: decimalString(subtotal), paidAmount: decimalString(paid), dueAmount: decimalString(subtotal - paid),
       grossAmount: decimalString(gross), discountAmount: decimalString(discount), posShiftId: payload.posShiftId || null,
-      interfaceMode: payload.interfaceMode || null, orderContext: clone(payload.orderContext || {}),
-      representativeId: payload.representativeId || null,
+      interfaceMode: payload.interfaceMode || null, orderContext: clone(payload.orderContext || {}), note: String(payload.note || ''),
+      assignedSalesManagerId: assignedManager, representativeId: payload.representativeId || null, delivery: clone(payload.delivery || {}), salesChannel: salesRep(context) ? (this.salesSettings.get('user:'+context.user.id)?.channel || 'retail') : null, approvalId: salesApproval?.id || null,
       operationId: operation.operationId, occurredAt: operation.occurredAt, createdBy: context.user.id, status: 'posted', lines,
       payments: payments.map((payment) => ({ id: randomUUID(), method: payment.method, amount: decimalString(decimal(payment.amount)), reference: payment.reference || null }))
     };
     const journal = this.#commerceJournal(document, inventoryCost);
     for (const [key, balance] of stockUpdates) this.stockBalances.set(key, Object.freeze(balance));
+    if (salesApproval) {
+      this.salesApprovals.set(salesApproval.id,{...salesApproval,status:'used',documentId:document.id});
+      for (const line of document.lines) { const key='item:'+line.itemId,cfg=this.salesSettings.get(key);if(cfg?.reserved?.[warehouse.id]){const qty=decimal(stockUpdates.get(companyId+':'+warehouse.id+':'+line.itemId)?.quantity||'0');const remaining=decimal(cfg.reserved[warehouse.id]);this.salesSettings.set(key,{...cfg,reserved:{...cfg.reserved,[warehouse.id]:decimalString(qty<remaining?qty:remaining)}});} }
+    }
     this.commerceDocuments.set(document.id, Object.freeze(document));
     this.journalEntries.set(journal.id, Object.freeze(journal));
     if (isSale && document.customerId && decimal(document.dueAmount) > ZERO) this.#recordDebt(companyId, document.customerId, document.representativeId, document.id, operation, isReturn ? 'sale_return' : 'sale', isReturn ? -decimal(document.dueAmount) : decimal(document.dueAmount), document.currency);
