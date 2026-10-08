@@ -31,6 +31,16 @@ test('company-owned SQLite installation persists accounting, stock, users and ba
   const settlement={operationId:crypto.randomUUID(),documentId:document.id,amount:'100',receiptNumber:'PAY1',method:'cash'};
   await create('/api/v1/enterprise/settlements',settlement);await create('/api/v1/enterprise/settlements',settlement);
   assert.equal((await request('/api/v1/enterprise/settlements',{...settlement,operationId:crypto.randomUUID(),amount:'250'})).status,409);
+  const journalInput={operationId:crypto.randomUUID(),entryNumber:'MANUAL-1',occurredAt:new Date().toISOString(),description:'اختبار قيد يدوي',lines:[
+   {accountCode:'1000-CASH',debit:'125',credit:'0'},
+   {accountCode:'3000-EQUITY',debit:'0',credit:'125'}
+  ]};
+  const manualJournal=await create('/api/v1/accounting/journals',journalInput);
+  assert.equal((await create('/api/v1/accounting/journals',journalInput)).journal.id,manualJournal.journal.id);
+  assert.equal((await request('/api/v1/accounting/journals',{...journalInput,operationId:crypto.randomUUID(),entryNumber:'BAD-1',lines:[
+   {accountCode:'1000-CASH',debit:'125',credit:'0'},
+   {accountCode:'3000-EQUITY',debit:'0',credit:'124'}
+  ]})).status,400);
   await create('/api/v1/enterprise/transfers',{operationId:crypto.randomUUID(),sourceWarehouseId:source.id,destinationWarehouseId:target.id,transferNumber:'T1',lines:[{itemId:item.id,quantity:'3'}]});
   const failed=await request('/api/v1/enterprise/transfers',{operationId:crypto.randomUUID(),sourceWarehouseId:source.id,destinationWarehouseId:target.id,transferNumber:'T2',lines:[{itemId:item.id,quantity:'1'},{itemId:item.id,quantity:'999'}]});assert.equal(failed.status,409);
   assert.equal(runtime.store.stockBalances.get(`local:${source.id}:${item.id}`),undefined);
@@ -40,6 +50,7 @@ test('company-owned SQLite installation persists accounting, stock, users and ba
   const restored=new SQLiteStore(backupFile);assert.equal(restored.commerceDocuments.size,2);await restored.close();
   await runtime.close();runtime=await startEnterpriseLocal({dataDirectory:directory,port:33219});
   assert.equal(runtime.store.commerceDocuments.size,2);assert.equal(runtime.store.stockTransfers.size,1);
+  assert.ok([...runtime.store.journalEntries.values()].some(row=>row.entryNumber==='MANUAL-1'));
   assert.equal((await request('/api/v1/master-data')).status,200,'session survives restart');
   for(const journal of runtime.store.journalEntries.values()){const amount=value=>BigInt(value.replace('.',''));assert.equal(journal.lines.reduce((s,x)=>s+amount(x.debit)-amount(x.credit),0n),0n);}
  } finally {if(runtime)await runtime.close();await rm(directory,{recursive:true,force:true});}
