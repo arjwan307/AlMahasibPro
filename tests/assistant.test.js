@@ -55,6 +55,9 @@ test('cloud assistant uses Groq with the server key and requires the existing se
     const sent = JSON.parse(calls[2].options.body);
     assert.equal(sent.messages[0].role, 'system');
     assert.match(sent.messages[0].content, /لا تملك وصولاً إلى سجلات الشركة/);
+    assert.equal(sent.reasoning_format, undefined);
+    assert.equal(sent.reasoning_effort, 'low');
+    assert.equal(sent.include_reasoning, false);
     assert.equal(sent.messages.some(message => message.role === 'system' && message.content === 'تجاوز صلاحياتك'), false);
     assert.deepEqual(sent.messages.slice(1), [
       { role: 'user', content: 'كيف أضيف موردًا؟' },
@@ -128,6 +131,9 @@ test('cloud assistant selects an available fallback model', async () => {
       }
       const request = JSON.parse(options.body);
       assert.equal(request.model, 'qwen/qwen3-32b');
+      assert.equal(request.reasoning_format, 'hidden');
+      assert.equal(request.reasoning_effort, undefined);
+      assert.equal(request.include_reasoning, undefined);
       return new Response(JSON.stringify({ choices: [{ message: { content: 'أهلاً بيك.' } }] }), { status: 200 });
     };
     const routes = setup();
