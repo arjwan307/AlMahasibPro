@@ -35,7 +35,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   installPayrollRoutes(app,{store,authenticate,permit});
   installTreasuryRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency});
   installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
-  installAssistantRoutes(app,{authenticate});
+  installAssistantRoutes(app,{authenticate:authenticate(store)});
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
 
   app.post('/api/v1/companies/register', asyncRoute(async (req, res) => {
