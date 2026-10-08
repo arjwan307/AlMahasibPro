@@ -484,7 +484,7 @@ export class MemoryStore {
     const belongs = row => row.companyId === companyId;
     return { representatives: [...this.representatives.values()].filter(belongs).map(clone), journals: [...this.journalEntries.values()].filter(belongs).map(clone), chartAccounts: this.listChartAccounts(companyId), trialBalance: this.trialBalance(companyId),
       transfers: [...this.stockTransfers.values()].filter(belongs).map(clone),
-      settlements: [...this.financialRecords.values()].filter(row => belongs(row) && row.kind === 'enterprise_settlement').map(clone),
+      settlements: [...this.financialRecords.values()].filter(row => belongs(row) && ['enterprise_settlement','enterprise_credit_application'].includes(row.kind)).map(clone),
       users: [...this.users.values()].filter(belongs).map(row => this.#publicUser(row)) };
   }
 
@@ -493,7 +493,7 @@ export class MemoryStore {
       ['1000-CASH','الصندوق بالدينار','asset'],['1000-CASH-USD','الصندوق بالدولار','asset'],['1010-BANK','البنك بالدينار','asset'],['1010-BANK-USD','البنك بالدولار','asset'],['1100-AR','ذمم العملاء','asset'],
       ['1150-REP-CASH-CUSTODY','عهدة نقد المندوبين','asset'],['1200-INVENTORY','المخزون','asset'],
       ['1300-EMPLOYEE-ADVANCES','سلف الموظفين','asset'],['1400-EMPLOYEE-RECEIVABLE','ذمم الموظفين','asset'],
-      ['2100-AP','ذمم الموردين','liability'],['2200-PAYROLL-DEDUCTIONS','استقطاعات الرواتب','liability'],
+      ['2100-AP','ذمم الموردين','liability'],['2200-PAYROLL-DEDUCTIONS','استقطاعات الرواتب','liability'],['2205-CUSTOMER-CREDITS','أرصدة العملاء الدائنة','liability'],
       ['2300-PAYROLL-PAYABLE','رواتب مستحقة','liability'],['3000-EQUITY','حقوق الملكية','equity'],
       ['4100-SALES','المبيعات','revenue'],['4200-SALES-RETURNS','مردودات المبيعات','contra_revenue'],['4800-OTHER-INCOME','إيرادات أخرى','revenue'],['6150-CASH-SHORTAGE','عجز الصندوق','expense'],
       ['5100-COGS','كلفة البضاعة المباعة','expense'],['6100-PAYROLL-EXPENSE','مصروف الرواتب','expense'],
@@ -621,7 +621,7 @@ export class MemoryStore {
       const receivedCurrency = String(input.receivedCurrency || input.currency || document?.currency || '').toUpperCase();
       const receivedAmount = decimalString(decimal(input.receivedAmount || input.amount, { positive: true }));
       const postedAmount=receivedCurrency===document?.currency?decimal(receivedAmount):document?.currency==='USD'?divide(decimal(receivedAmount),decimal(existing.exchangeRate)):multiply(decimal(receivedAmount),decimal(existing.exchangeRate));
-      if (existing.documentId !== input.documentId || existing.amount !== decimalString(postedAmount) || existing.method !== input.method ||
+      if (existing.documentId !== input.documentId || (existing.totalDocumentAmount||existing.amount) !== decimalString(postedAmount) || existing.method !== input.method ||
           existing.receiptNumber !== input.receiptNumber || existing.receivedAmount !== receivedAmount || existing.receivedCurrency !== receivedCurrency ||
           existing.bankName !== (input.bankName || '') || existing.transactionNumber !== (input.transactionNumber || '')) {
         throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
@@ -631,7 +631,7 @@ export class MemoryStore {
     this.#assertUnique(this.financialRecords,context.company.id,'receiptNumber',input.receiptNumber,'RECEIPT_NUMBER_EXISTS');
     const document = this.commerceDocuments.get(input.documentId);
     if (!document || document.companyId !== context.company.id || !['sale', 'purchase'].includes(document.documentType)) throw new AppError(400, 'DOCUMENT_NOT_FOUND', 'مستند البيع أو الشراء غير موجود');
-    const settled = [...this.financialRecords.values()].filter(row => row.companyId === context.company.id && row.kind === 'enterprise_settlement' && row.documentId === document.id).reduce((sum,row) => sum + decimal(row.amount), ZERO);
+    const settled = [...this.financialRecords.values()].filter(row => row.companyId === context.company.id && ['enterprise_settlement','enterprise_credit_application'].includes(row.kind) && row.documentId === document.id).reduce((sum,row) => sum + decimal(row.amount), ZERO);
     const returned = [...this.commerceDocuments.values()].filter(row => row.companyId === context.company.id && row.originalDocumentId === document.id).reduce((sum,row) => sum + decimal(row.dueAmount), ZERO);
     const receivedCurrency = String(input.receivedCurrency || document.currency).toUpperCase();
     if (!['IQD','USD'].includes(receivedCurrency)) throw new AppError(400, 'INVALID_RECEIVED_CURRENCY', 'عملة القبض غير مدعومة');
@@ -642,15 +642,36 @@ export class MemoryStore {
     const exchangeRate = receivedCurrency === document.currency ? decimal('1') : companyRate;
     if (!((document.currency === 'USD' && receivedCurrency === 'IQD') || (document.currency === 'IQD' && receivedCurrency === 'USD') || receivedCurrency === document.currency)) throw new AppError(400, 'CURRENCY_CONVERSION_NOT_SUPPORTED', 'التحويل مسموح فقط بين الدينار والدولار');
     const amount = receivedCurrency === document.currency ? receivedAmount : document.currency === 'USD' ? divide(receivedAmount, exchangeRate) : multiply(receivedAmount, exchangeRate);
-    if (amount > decimal(document.dueAmount) - settled - returned) throw new AppError(409, 'SETTLEMENT_EXCEEDS_DUE', 'المبلغ يتجاوز الرصيد المتبقي');
+    const outstanding=decimal(document.dueAmount)-settled-returned;
+    if(outstanding<=ZERO)throw new AppError(409,'DOCUMENT_ALREADY_SETTLED','لا يوجد رصيد مستحق على الفاتورة');
+    if (amount > outstanding && document.documentType !== 'sale') throw new AppError(409, 'SETTLEMENT_EXCEEDS_DUE', 'المبلغ يتجاوز الرصيد المتبقي');
+    const applied=amount>outstanding?outstanding:amount,unapplied=amount-applied;
     const cash = input.method === 'cash' ? (document.currency === 'USD' ? '1000-CASH-USD' : '1000-CASH') : (document.currency === 'USD' ? '1010-BANK-USD' : '1010-BANK');
-    const lines = document.documentType === 'sale' ? [[cash,amount,ZERO],['1100-AR',ZERO,amount]] : [['2100-AP',amount,ZERO],[cash,ZERO,amount]];
+    const lines = document.documentType === 'sale' ? [[cash,amount,ZERO],['1100-AR',ZERO,applied],...(unapplied>ZERO?[['2205-CUSTOMER-CREDITS',ZERO,unapplied]]:[])] : [['2100-AP',amount,ZERO],[cash,ZERO,amount]];
     const journal = this.#simpleJournal(context, input, input.receiptNumber, document.currency, lines);
-    const row = { id: randomUUID(), companyId: context.company.id, kind: 'enterprise_settlement', operationId: input.operationId, documentId: document.id, receiptNumber: input.receiptNumber, amount: decimalString(amount), currency: document.currency, receivedAmount: decimalString(receivedAmount), receivedCurrency, exchangeRate: decimalString(exchangeRate), method: input.method, bankName: input.bankName || '', transactionNumber: input.transactionNumber || '', journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
+    const row = { id: randomUUID(), companyId: context.company.id, kind: 'enterprise_settlement', operationId: input.operationId, documentId: document.id, customerId:document.customerId||null, receiptNumber: input.receiptNumber, amount: decimalString(applied), totalDocumentAmount:decimalString(amount), unappliedAmount:decimalString(unapplied), currency: document.currency, receivedAmount: decimalString(receivedAmount), receivedCurrency, exchangeRate: decimalString(exchangeRate), method: input.method, bankName: input.bankName || '', transactionNumber: input.transactionNumber || '', journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
     this.financialRecords.set(row.id, Object.freeze(row));
     this.#audit(context.company.id,context.user.id,'enterprise.settlement','financial_record',row.id,{});
     this.#change(context.company.id,'financial_record',row.id,'upsert',row);
     return clone(row);
+  }
+
+  async applyCustomerCredit(context,input){
+    const existing=[...this.financialRecords.values()].find(row=>row.companyId===context.company.id&&row.kind==='enterprise_credit_application'&&row.operationId===input.operationId);
+    if(existing){const receiptNumber=String(input.receiptNumber||`CREDIT-${input.operationId.slice(0,8)}`);if(existing.documentId!==input.documentId||existing.amount!==decimalString(decimal(input.amount,{positive:true}))||existing.receiptNumber!==receiptNumber)throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');return clone(existing);}
+    const document=this.commerceDocuments.get(input.documentId);
+    if(!document||document.companyId!==context.company.id||document.documentType!=='sale'||!document.customerId)throw new AppError(400,'DOCUMENT_NOT_FOUND','فاتورة البيع أو العميل غير موجود');
+    const amount=decimal(input.amount,{positive:true}),currency=document.currency;
+    const issued=[...this.financialRecords.values()].filter(x=>x.companyId===context.company.id&&x.kind==='enterprise_settlement'&&x.customerId===document.customerId&&x.currency===currency).reduce((sum,x)=>sum+decimal(x.unappliedAmount||'0'),ZERO);
+    const used=[...this.financialRecords.values()].filter(x=>x.companyId===context.company.id&&x.kind==='enterprise_credit_application'&&x.customerId===document.customerId&&x.currency===currency).reduce((sum,x)=>sum+decimal(x.amount),ZERO);
+    if(amount>issued-used)throw new AppError(409,'CUSTOMER_CREDIT_EXCEEDED','رصيد العميل الدائن غير كافٍ');
+    const settled=[...this.financialRecords.values()].filter(x=>x.companyId===context.company.id&&['enterprise_settlement','enterprise_credit_application'].includes(x.kind)&&x.documentId===document.id).reduce((sum,x)=>sum+decimal(x.amount),ZERO);
+    const returned=[...this.commerceDocuments.values()].filter(x=>x.companyId===context.company.id&&x.originalDocumentId===document.id).reduce((sum,x)=>sum+decimal(x.dueAmount),ZERO);
+    if(amount>decimal(document.dueAmount)-settled-returned)throw new AppError(409,'CREDIT_EXCEEDS_DOCUMENT_DUE','رصيد العميل يتجاوز المتبقي من الفاتورة');
+    const receiptNumber=String(input.receiptNumber||`CREDIT-${input.operationId.slice(0,8)}`);
+    const journal=this.#simpleJournal(context,input,receiptNumber,currency,[['2205-CUSTOMER-CREDITS',amount,ZERO],['1100-AR',ZERO,amount]]);
+    const row={id:randomUUID(),companyId:context.company.id,kind:'enterprise_credit_application',operationId:input.operationId,documentId:document.id,customerId:document.customerId,receiptNumber,amount:decimalString(amount),currency,journalEntryId:journal.id,occurredAt:input.occurredAt,createdBy:context.user.id};
+    this.financialRecords.set(row.id,Object.freeze(row));this.#audit(context.company.id,context.user.id,'enterprise.customer_credit.applied','financial_record',row.id,{});this.#change(context.company.id,'financial_record',row.id,'upsert',row);return clone(row);
   }
 
   async createCashbox(context, input) {

@@ -668,6 +668,10 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       occurredAt: /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paymentDate||'')) ? new Date(req.body.paymentDate+'T12:00:00.000Z').toISOString() : new Date().toISOString()
     }) });
   }));
+  app.post('/api/v1/enterprise/customer-credits/apply', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{
+    requireFields(req.body,['operationId','documentId','amount']);
+    res.status(201).json({application:await store.applyCustomerCredit(req.auth,{operationId:uuid(req.body.operationId,'operationId'),documentId:uuid(req.body.documentId,'documentId'),amount:decimalInput(req.body.amount,{positive:true}),receiptNumber:String(req.body.receiptNumber||'').trim().slice(0,64)||undefined,occurredAt:/^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paymentDate||''))?new Date(req.body.paymentDate+'T12:00:00.000Z').toISOString():new Date().toISOString()})});
+  }));
   app.get('/api/v1/enterprise/backup', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
     if (typeof store.exportBackup !== 'function') throw new AppError(400,'LOCAL_BACKUP_ONLY','النسخ الاحتياطي هنا خاص بقاعدة الجهاز');
     res.setHeader('Content-Disposition','attachment; filename="AlMahasibPro-backup.sqlite"');

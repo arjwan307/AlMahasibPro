@@ -31,7 +31,23 @@ test('company-owned SQLite installation persists accounting, stock, users and ba
   const settlement={operationId:crypto.randomUUID(),documentId:document.id,amount:'100',receiptNumber:'PAY1',method:'cash'};
   await create('/api/v1/enterprise/settlements',settlement);await create('/api/v1/enterprise/settlements',settlement);
   assert.equal((await request('/api/v1/enterprise/settlements',{...settlement,amount:'101'})).status,409,'same settlement operation cannot change its amount');
-  assert.equal((await request('/api/v1/enterprise/settlements',{...settlement,operationId:crypto.randomUUID(),amount:'250'})).status,409);
+  const overpaymentInput={...settlement,operationId:crypto.randomUUID(),receiptNumber:'PAY2',amount:'250'};
+  const overpayment=await create('/api/v1/enterprise/settlements',overpaymentInput);
+  assert.equal((await create('/api/v1/enterprise/settlements',overpaymentInput)).settlement.id,overpayment.settlement.id,'overpayment retry is idempotent');
+  assert.equal(overpayment.settlement.amount,'200.000000');
+  assert.equal(overpayment.settlement.unappliedAmount,'50.000000');
+  assert.equal(overpayment.settlement.totalDocumentAmount,'250.000000');
+  const overJournal=[...runtime.store.journalEntries.values()].find(x=>x.entryNumber==='PAY2');
+  assert.equal(overJournal.lines.find(x=>x.accountCode==='2205-CUSTOMER-CREDITS').credit,'50.000000');
+  const trial=await runtime.store.trialBalance(overJournal.companyId);
+  assert.equal(trial.find(x=>x.accountCode==='2205-CUSTOMER-CREDITS'&&x.currency==='IQD').credit,'50.000000',JSON.stringify(trial.filter(x=>x.accountCode==='2205-CUSTOMER-CREDITS')));
+  await create('/api/v1/commerce/commit',{operationId:crypto.randomUUID(),deviceId:'desktop',clientSequence:3,occurredAt:new Date().toISOString(),document:{documentType:'sale',documentNumber:'S2',warehouseId:source.id,partyId:customer.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'1',unitPrice:'100'}],payments:[]}});
+  const secondSale=[...runtime.store.commerceDocuments.values()].find(row=>row.documentNumber==='S2');
+  const creditInput={operationId:crypto.randomUUID(),documentId:secondSale.id,amount:'50',receiptNumber:'CREDIT-1'};
+  const applied=await create('/api/v1/enterprise/customer-credits/apply',creditInput);
+  assert.equal(applied.application.amount,'50.000000');
+  assert.equal((await create('/api/v1/enterprise/customer-credits/apply',creditInput)).application.id,applied.application.id,'customer credit application retry is idempotent');
+  assert.equal((await request('/api/v1/enterprise/customer-credits/apply',{...creditInput,operationId:crypto.randomUUID(),receiptNumber:'CREDIT-2'})).status,409,'credit cannot be applied twice');
   const journalInput={operationId:crypto.randomUUID(),entryNumber:'MANUAL-1',occurredAt:new Date().toISOString(),description:'اختبار قيد يدوي',lines:[
    {accountCode:'1000-CASH',debit:'125',credit:'0'},
    {accountCode:'3000-EQUITY',debit:'0',credit:'125'}
@@ -45,12 +61,12 @@ test('company-owned SQLite installation persists accounting, stock, users and ba
   await create('/api/v1/enterprise/transfers',{operationId:crypto.randomUUID(),sourceWarehouseId:source.id,destinationWarehouseId:target.id,transferNumber:'T1',lines:[{itemId:item.id,quantity:'3'}]});
   const failed=await request('/api/v1/enterprise/transfers',{operationId:crypto.randomUUID(),sourceWarehouseId:source.id,destinationWarehouseId:target.id,transferNumber:'T2',lines:[{itemId:item.id,quantity:'1'},{itemId:item.id,quantity:'999'}]});assert.equal(failed.status,409);
   assert.equal(runtime.store.stockBalances.get(`local:${source.id}:${item.id}`),undefined);
-  const stock=[...runtime.store.stockBalances.values()].find(row=>row.warehouseId===source.id);assert.equal(stock.quantity,'5.000000');
+  const stock=[...runtime.store.stockBalances.values()].find(row=>row.warehouseId===source.id);assert.equal(stock.quantity,'4.000000');
   const snapshot=await runtime.store.exportBackup();assert.equal(snapshot.subarray(0,15).toString(),'SQLite format 3');
   const backupFile=join(directory,'backup.sqlite');await writeFile(backupFile,snapshot);
-  const restored=new SQLiteStore(backupFile);assert.equal(restored.commerceDocuments.size,2);await restored.close();
+  const restored=new SQLiteStore(backupFile);assert.equal(restored.commerceDocuments.size,3);await restored.close();
   await runtime.close();runtime=await startEnterpriseLocal({dataDirectory:directory,port:33219});
-  assert.equal(runtime.store.commerceDocuments.size,2);assert.equal(runtime.store.stockTransfers.size,1);
+  assert.equal(runtime.store.commerceDocuments.size,3);assert.equal(runtime.store.stockTransfers.size,1);
   assert.ok([...runtime.store.journalEntries.values()].some(row=>row.entryNumber==='MANUAL-1'));
   assert.equal((await request('/api/v1/master-data')).status,200,'session survives restart');
   for(const journal of runtime.store.journalEntries.values()){const amount=value=>BigInt(value.replace('.',''));assert.equal(journal.lines.reduce((s,x)=>s+amount(x.debit)-amount(x.credit),0n),0n);}
