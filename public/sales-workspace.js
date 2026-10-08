@@ -1,7 +1,7 @@
 (()=>{'use strict';
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=x=>Number(x||0).toLocaleString('ar-IQ',{maximumFractionDigits:6});
-const currencyText=x=>x==='IQD'?'د.ع':x==='USD'?'
+const currencyText=x=>x==='IQD'?'د.ع':x==='USD'?'USD':String(x||'IQD');
 const label=x=>x==='wholesale'?'الجملة':'المفرد';
 const opt=(rows,selected='',field='name')=>rows.map(x=>`<option value="${esc(x.id)}" ${x.id===selected?'selected':''}>${esc(x[field])}</option>`).join('');
 const input=(name,text,value='',type='text',extra='')=>`<label>${text}<input name="${name}" type="${type}" value="${esc(value)}" ${extra}></label>`;
