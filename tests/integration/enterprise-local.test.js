@@ -25,7 +25,7 @@ test('company-owned SQLite installation persists accounting, stock, users and ba
   const item=(await create('/api/v1/catalog/items',{sku:'ITEM-001',name:'كرسي',baseUnitId:unit.id})).item;
   const customer=(await create('/api/v1/customers',{code:'C001',name:'عميل',creditLimit:'100000'})).customer;
   const commit=async document=>create('/api/v1/commerce/commit',{operationId:crypto.randomUUID(),deviceId:'desktop',clientSequence:Date.now(),occurredAt:new Date().toISOString(),document});
-  await commit({documentType:'purchase',documentNumber:'P1',warehouseId:source.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'10',unitPrice:'100'}],payments:[]});
+  await commit({documentType:'purchase',documentNumber:'P1',warehouseId:source.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'10',unitPrice:'100'}],payments:[{method:'cash',amount:'1000'}]});
   await commit({documentType:'sale',documentNumber:'S1',warehouseId:source.id,partyId:customer.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'2',unitPrice:'150'}],payments:[]});
   const document=[...runtime.store.commerceDocuments.values()].find(row=>row.documentNumber==='S1');
   const settlement={operationId:crypto.randomUUID(),documentId:document.id,amount:'100',receiptNumber:'PAY1',method:'cash'};
