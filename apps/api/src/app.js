@@ -144,8 +144,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   }));
   app.get('/api/v1/presence/online-users', authenticate(store), permit('users.manage'), asyncRoute(async (req, res) => {
     const since = new Date(Date.now() - 90_000).toISOString();
-    const count = await store.countOnlineUsers(req.auth.company.id, since);
-    res.json({ count, windowSeconds: 90, observedAt: new Date().toISOString() });
+    const userIds = await store.listOnlineUserIds(req.auth.company.id, since);
+    res.json({ count: userIds.length, userIds, windowSeconds: 90, observedAt: new Date().toISOString() });
   }));
 
   app.get('/api/v1/bootstrap', authenticate(store), (req, res) => {
