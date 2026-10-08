@@ -33,7 +33,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   installSalesRoutes(app,{store,authenticate,permit,validateDocument:validateCommercePayload});
   installPayrollRoutes(app,{store,authenticate,permit});
   installTreasuryRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency});
-  installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency});
+  installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
 
   app.post('/api/v1/companies/register', asyncRoute(async (req, res) => {
@@ -691,6 +691,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   }));
   app.post('/api/v1/enterprise/settlements', authenticate(store), permit('accounting.post'), asyncRoute(async (req, res) => {
     requireFields(req.body,['operationId','documentId','amount','receiptNumber','method']);
+    const targetDocument=store.commerceDocuments.get(uuid(req.body.documentId,'documentId'));
+    if(targetDocument)assertWarehouseScope(req.auth,store.warehouses.get(targetDocument.warehouseId));
     if (!['cash','bank','bank_transfer','check'].includes(req.body.method)) throw new AppError(400,'INVALID_METHOD','طريقة الدفع غير صالحة');
     const receivedCurrency = req.body.receivedCurrency || req.body.currency;
     res.status(201).json({ settlement: await store.settleEnterpriseDocument(req.auth, {
@@ -704,6 +706,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   }));
   app.post('/api/v1/enterprise/customer-credits/apply', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{
     requireFields(req.body,['operationId','documentId','amount']);
+    const targetDocument=store.commerceDocuments.get(uuid(req.body.documentId,'documentId'));
+    if(targetDocument)assertWarehouseScope(req.auth,store.warehouses.get(targetDocument.warehouseId));
     res.status(201).json({application:await store.applyCustomerCredit(req.auth,{operationId:uuid(req.body.operationId,'operationId'),documentId:uuid(req.body.documentId,'documentId'),amount:decimalInput(req.body.amount,{positive:true}),receiptNumber:String(req.body.receiptNumber||'').trim().slice(0,64)||undefined,occurredAt:/^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paymentDate||''))?new Date(req.body.paymentDate+'T12:00:00.000Z').toISOString():new Date().toISOString()})});
   }));
   app.get('/api/v1/enterprise/backup', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
