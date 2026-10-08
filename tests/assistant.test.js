@@ -101,7 +101,7 @@ test('cloud assistant reports unconfigured and does not contact a provider witho
     const routes = setup();
     const status = capture();
     await routes['GET /api/v1/assistant/status'].handler({}, status);
-    assert.deepEqual(status.body, { available: false, configured: false, model: 'openai/gpt-oss-20b' });
+    assert.deepEqual(status.body, { available: false, configured: false, model: 'qwen/qwen3-32b' });
     const chat = capture();
     await routes['POST /api/v1/assistant/chat'].handler({ body: { messages: [{ role: 'user', content: 'مرحبا' }] } }, chat);
     assert.equal(chat.statusCode, 503);
