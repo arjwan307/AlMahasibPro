@@ -21,5 +21,10 @@ jobs:
           node --check public/sales-workspace.js
           node --check apps/api/src/app.js
           node --check apps/api/src/store/memory-store.js
+      - name: Prevent fictional demo catalogs in runtime
+        run: |
+          test ! -e apps/api/src/demo-wholesale-customers.js
+          test ! -e apps/api/src/furniture-catalog.js
+          ! grep -E 'importDemoWholesaleCustomers|importFurnitureCatalog' apps/api/src/store/memory-store.js apps/api/src/cloud-server.js
       - name: Full automated test suite
         run: npm test
