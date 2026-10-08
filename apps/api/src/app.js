@@ -11,6 +11,7 @@ import { hashPassword, hashToken, newSessionToken, payloadHash, verifyPassword }
 import { installPayrollRoutes } from './modules/payroll/routes.js';
 import { installTreasuryRoutes } from './modules/treasury/routes.js';
 import { installImportRoutes } from './modules/imports/routes.js';
+import { installAssistantRoutes } from './modules/assistant/routes.js';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, '../../../public');
@@ -34,6 +35,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   installPayrollRoutes(app,{store,authenticate,permit});
   installTreasuryRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency});
   installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
+  installAssistantRoutes(app,{authenticate});
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
 
   app.post('/api/v1/companies/register', asyncRoute(async (req, res) => {
