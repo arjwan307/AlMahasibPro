@@ -11,7 +11,7 @@ test('user administration enforces permissions, revokes access and persists edit
   runtime=await startEnterpriseLocal({dataDirectory:directory,port:33221});
   async function request(path,body,method='POST',cookie=''){
    const response=await fetch(runtime.url+path,{headers:{'Content-Type':'application/json',Cookie:cookie},...(body?{method,body:JSON.stringify(body)}:{})});
-   return {status:response.status,data:await response.json(),cookie:response.headers.get('set-cookie')?.split(';')[0]};
+   return {status:response.status,data:response.status===204?null:await response.json(),cookie:response.headers.get('set-cookie')?.split(';')[0]};
   }
   await request('/api/local/setup',{legalName:'شركة اختبار',ownerName:'مدير',username:'owner',password:'Strong-Password-123'});
   const login=await request('/api/v1/auth/login',{companyCode:'local',username:'owner',password:'Strong-Password-123'});const ownerCookie=login.cookie;
@@ -31,6 +31,10 @@ test('user administration enforces permissions, revokes access and persists edit
   const body={username:'حسن كاظم',displayName:'مندوب',password:'Strong-Seller-123',roleCode:'representative',permissions:['catalog.read','sync.use']};
   const created=await request('/api/v1/users',body,'POST',ownerCookie);assert.equal(created.status,201);const id=created.data.user.id;
   const sellerLogin=await request('/api/v1/auth/login',{companyCode:'local',username:'حسن كاظم',password:body.password,roleCode:'representative'});const sellerCookie=sellerLogin.cookie;
+  const ownerSecondLogin=await request('/api/v1/auth/login',{companyCode:'local',username:'owner',password:'Strong-Password-123'});
+  for(const cookie of [ownerCookie,ownerSecondLogin.cookie,supplyLogin.cookie,sellerCookie])assert.equal((await request('/api/v1/presence/heartbeat',{},'POST',cookie)).status,204);
+  const online=(await request('/api/v1/presence/online-users',null,'GET',ownerCookie));assert.equal(online.status,200);assert.equal(online.data.count,3);assert.equal(online.data.windowSeconds,90);
+  assert.equal((await request('/api/v1/presence/online-users',null,'GET',supplyLogin.cookie)).status,403);
   assert.equal((await request('/api/v1/users',null,'GET',sellerCookie)).status,403);
   assert.equal((await request('/api/v1/users/'+id,{...body,status:'active'},'PUT',sellerCookie)).status,403);
   assert.equal((await request('/api/v1/bootstrap',null,'GET',sellerCookie)).data.permissions.includes('sales.create'),false);
@@ -38,6 +42,7 @@ test('user administration enforces permissions, revokes access and persists edit
   assert.equal((await request('/api/v1/users/'+id,{...body,status:'active',permissions:['company.approve']},'PUT',ownerCookie)).status,400);
   assert.equal((await request('/api/v1/users/'+crypto.randomUUID(),{...body,status:'active'},'PUT',ownerCookie)).status,404);
   const updated=await request('/api/v1/users/'+id,{...body,displayName:'الاسم الجديد',password:'Changed-Seller-123',status:'disabled'},'PUT',ownerCookie);assert.equal(updated.status,200);
+  assert.equal((await request('/api/v1/presence/online-users',null,'GET',ownerCookie)).data.count,2);
   assert.equal((await request('/api/v1/bootstrap',null,'GET',sellerCookie)).status,401);
   assert.equal((await request('/api/v1/auth/login',{companyCode:'local',username:'حسن كاظم',password:'Changed-Seller-123'})).status,403);
   await runtime.close();runtime=await startEnterpriseLocal({dataDirectory:directory,port:33221});
