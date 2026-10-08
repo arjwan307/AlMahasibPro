@@ -430,6 +430,24 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({documents});
   }));
 
+  app.post('/api/v1/inventory/stocktakes',authenticate(store),permit('inventory.manage'),asyncRoute(async(req,res)=>{
+    requireFields(req.body,['operationId','stocktakeNumber','warehouseId']);if(!Array.isArray(req.body.lines)||!req.body.lines.length||req.body.lines.length>1000)throw new AppError(400,'INVALID_STOCKTAKE_LINES','أدخل بنود الجرد');
+    const warehouseId=uuid(req.body.warehouseId,'warehouseId');assertWarehouseScope(req.auth,store.warehouses.get(warehouseId));
+    const stocktake=await store.postStocktake(req.auth,{operationId:uuid(req.body.operationId,'operationId'),stocktakeNumber:entityCode(req.body.stocktakeNumber),warehouseId,countedAt:req.body.countedAt&&Number.isFinite(Date.parse(req.body.countedAt))?new Date(req.body.countedAt).toISOString():null,lines:req.body.lines.map(line=>({itemId:uuid(line.itemId,'itemId'),countedQuantity:decimalInput(line.countedQuantity,{nonNegative:true})}))});res.status(201).json({stocktake});
+  }));
+  app.post('/api/v1/inventory/damaged-stock',authenticate(store),permit('inventory.manage'),asyncRoute(async(req,res)=>{
+    requireFields(req.body,['operationId','writeoffNumber','warehouseId','itemId','quantity','reason']);const warehouseId=uuid(req.body.warehouseId,'warehouseId');assertWarehouseScope(req.auth,store.warehouses.get(warehouseId));const reason=String(req.body.reason).trim().slice(0,500);if(!reason)throw new AppError(400,'REASON_REQUIRED','سبب إثبات التالف مطلوب');
+    const writeoff=await store.writeOffDamagedStock(req.auth,{operationId:uuid(req.body.operationId,'operationId'),writeoffNumber:entityCode(req.body.writeoffNumber),warehouseId,itemId:uuid(req.body.itemId,'itemId'),quantity:decimalInput(req.body.quantity,{positive:true}),reason,occurredAt:req.body.occurredAt&&Number.isFinite(Date.parse(req.body.occurredAt))?new Date(req.body.occurredAt).toISOString():null});res.status(201).json({writeoff});
+  }));
+  app.post('/api/v1/sales/:documentId/loads',authenticate(store),permit('inventory.manage'),asyncRoute(async(req,res)=>{
+    requireFields(req.body,['operationId','loadNumber']);if(!Array.isArray(req.body.lines)||!req.body.lines.length||req.body.lines.length>500)throw new AppError(400,'INVALID_LOAD_LINES','أدخل بنود التحميل');const documentId=uuid(req.params.documentId,'documentId'),document=store.commerceDocuments.get(documentId);if(!document||document.companyId!==req.auth.company.id)throw new AppError(404,'SALE_NOT_FOUND','فاتورة البيع غير موجودة');assertWarehouseScope(req.auth,store.warehouses.get(document.warehouseId));
+    const load=await store.recordDeliveryLoad(req.auth,{operationId:uuid(req.body.operationId,'operationId'),loadNumber:entityCode(req.body.loadNumber),documentId,loadedAt:req.body.loadedAt&&Number.isFinite(Date.parse(req.body.loadedAt))?new Date(req.body.loadedAt).toISOString():null,lines:req.body.lines.map(line=>({originalLineId:uuid(line.originalLineId,'originalLineId'),quantity:decimalInput(line.quantity,{positive:true})}))});res.status(201).json({load});
+  }));
+  app.get('/api/v1/inventory/operations',authenticate(store),permitAny(['inventory.read','inventory.manage']),asyncRoute(async(req,res)=>{
+    const companyId=req.auth.company.id,allowed=warehouse=>warehouseScopeAllows(req.auth,warehouse),visible=row=>allowed(store.warehouses.get(row.warehouseId));
+    res.json({stocktakes:[...store.stocktakes.values()].filter(x=>x.companyId===companyId&&visible(x)).map(({fingerprint,...x})=>x),writeoffs:[...store.stockWriteoffs.values()].filter(x=>x.companyId===companyId&&visible(x)).map(({fingerprint,...x})=>x),loads:[...store.deliveryLoads.values()].filter(x=>x.companyId===companyId&&visible(x)).map(({fingerprint,...x})=>x)});
+  }));
+
   app.post('/api/v1/pos/devices', authenticate(store), permit('pos.device.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['id', 'warehouseId', 'code', 'name', 'interfaceMode']);
     if (!['restaurant', 'market', 'enterprise'].includes(req.body.interfaceMode)) throw new AppError(400, 'INVALID_POS_INTERFACE', 'واجهة الكاشير غير صالحة');
