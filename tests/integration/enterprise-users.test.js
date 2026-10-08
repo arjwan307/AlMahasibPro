@@ -24,7 +24,7 @@ test('user administration enforces permissions, revokes access and persists edit
   const customCode=roleCreated.data.role.code;
   assert.equal((await request('/api/v1/roles',roleBody,'POST',ownerCookie)).status,409);
   assert.equal((await request('/api/v1/roles',{name:'غير مسموح',permissions:['company.approve']},'POST',ownerCookie)).status,400);
-  assert.equal((await request('/api/v1/users',{username:'supply',displayName:'مسؤول',password:'Strong-Supply-123',roleCode:customCode},'POST',ownerCookie)).status,201);
+  const supplyCreated=await request('/api/v1/users',{username:'supply',displayName:'مسؤول',password:'Strong-Supply-123',roleCode:customCode},'POST',ownerCookie);assert.equal(supplyCreated.status,201);
   const supplyLogin=await request('/api/v1/auth/login',{companyCode:'local',username:'supply',password:'Strong-Supply-123'});
   assert.deepEqual((await request('/api/v1/bootstrap',null,'GET',supplyLogin.cookie)).data.permissions,roleBody.permissions);
   assert.equal((await request('/api/v1/roles',{name:'محظور',permissions:[]},'POST',supplyLogin.cookie)).status,403);
@@ -33,7 +33,7 @@ test('user administration enforces permissions, revokes access and persists edit
   const sellerLogin=await request('/api/v1/auth/login',{companyCode:'local',username:'حسن كاظم',password:body.password,roleCode:'representative'});const sellerCookie=sellerLogin.cookie;
   const ownerSecondLogin=await request('/api/v1/auth/login',{companyCode:'local',username:'owner',password:'Strong-Password-123'});
   for(const cookie of [ownerCookie,ownerSecondLogin.cookie,supplyLogin.cookie,sellerCookie])assert.equal((await request('/api/v1/presence/heartbeat',{},'POST',cookie)).status,204);
-  const online=(await request('/api/v1/presence/online-users',null,'GET',ownerCookie));assert.equal(online.status,200);assert.equal(online.data.count,3);assert.equal(online.data.userIds.length,3);assert.ok(online.data.userIds.includes(owner.id));assert.ok(online.data.userIds.includes(supplyLogin.data.user.id));assert.ok(online.data.userIds.includes(sellerLogin.data.user.id));assert.equal(online.data.windowSeconds,90);
+  const online=(await request('/api/v1/presence/online-users',null,'GET',ownerCookie));assert.equal(online.status,200);assert.equal(online.data.count,3);assert.equal(online.data.userIds.length,3);assert.ok(online.data.userIds.includes(owner.id));assert.ok(online.data.userIds.includes(supplyCreated.data.user.id));assert.ok(online.data.userIds.includes(id));assert.equal(online.data.windowSeconds,90);
   assert.equal((await request('/api/v1/presence/online-users',null,'GET',supplyLogin.cookie)).status,403);
   assert.equal((await request('/api/v1/users',null,'GET',sellerCookie)).status,403);
   assert.equal((await request('/api/v1/users/'+id,{...body,status:'active'},'PUT',sellerCookie)).status,403);
