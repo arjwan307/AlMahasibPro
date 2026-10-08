@@ -167,18 +167,22 @@ export class PostgresStore {
     });
   }
 
-  async countOnlineUsers(companyId, since) {
+  async listOnlineUserIds(companyId, since) {
     return this.#transaction({ companyId }, async (client) => {
       const result = await client.query(
-        `SELECT COUNT(DISTINCT s.user_id)::int AS count
+        `SELECT DISTINCT s.user_id
          FROM sessions s
          JOIN users u ON u.id = s.user_id AND u.company_id = s.company_id
          JOIN companies c ON c.id = s.company_id
          WHERE s.company_id = $1 AND c.status = 'active' AND u.status = 'active'
            AND s.revoked_at IS NULL AND s.expires_at > now() AND s.last_seen_at >= $2::timestamptz`, [companyId, since]
       );
-      return Number(result.rows[0]?.count || 0);
+      return result.rows.map(row => row.user_id);
     });
+  }
+
+  async countOnlineUsers(companyId, since) {
+    return (await this.listOnlineUserIds(companyId, since)).length;
   }
 
   async revokeSession(tokenHash) {
