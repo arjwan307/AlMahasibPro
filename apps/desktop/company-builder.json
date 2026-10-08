@@ -1,0 +1,34 @@
+{
+  "extends": null,
+  "win": {
+    "target": [
+      "nsis"
+    ],
+    "signAndEditExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "deleteAppDataOnUninstall": false,
+    "script": "apps/desktop/company-installer.nsi"
+  },
+  "files": [
+    "apps/local/enterprise-server.js",
+    "apps/api/**",
+    "package.json",
+    "apps/desktop/main.cjs",
+    "public/enterprise.*",
+    "public/representative*",
+    "public/offline-sync.js"
+  ],
+  "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
+  "appId": "com.almahasibpro.enterprise",
+  "productName": "AlMahasibPro-Companies",
+  "directories": {
+    "output": "releases/companies"
+  },
+  "extraMetadata": {
+    "main": "apps/desktop/main.cjs"
+  }
+}

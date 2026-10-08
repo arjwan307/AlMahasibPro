@@ -57,6 +57,13 @@
             <input id="manualPrice" type="number" step="0.000001" placeholder="سعر يدوي عند غياب السعر">
             <div class="mode-context"><label id="contextLabel"></label><input id="contextValue" placeholder=""></div>
         </div>
+        <section id="enterpriseItems" hidden>
+          <h2>أصناف الشركة — Item</h2>
+          <label for="enterpriseSearch">البحث بالكود أو اسم الصنف</label>
+          <input id="enterpriseSearch" type="search" placeholder="كود Item / اسم الصنف">
+          <p id="enterpriseItemStatus" role="status"></p>
+          <div style="overflow:auto;max-height:320px"><table><thead><tr><th>كود Item</th><th>الصنف</th><th>الوحدة</th><th>سعر البيع</th><th>اختيار</th></tr></thead><tbody id="enterpriseItemRows"></tbody></table></div>
+        </section>
         <div id="restaurantCatalog" class="restaurant-catalog"></div>
         <div id="marketCatalog" class="restaurant-catalog" style="display:none"></div>
 <div id="marketSaleTools" style="display:none" class="card"><div id="marketShiftInfo" style="font-weight:700;margin-bottom:10px"></div>
@@ -113,4 +120,3 @@
 })();
 </script></body>
 </html>
-

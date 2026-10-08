@@ -36,3 +36,4 @@ JOIN permissions p ON p.code = ANY(CASE r.code
 END)
 WHERE r.code IN ('company_admin','wholesale_representative','retail_representative','wholesale_manager','general_manager')
 ON CONFLICT DO NOTHING;
+

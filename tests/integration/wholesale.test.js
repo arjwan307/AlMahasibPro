@@ -37,13 +37,16 @@ before(async () => {
   customer = (await create('/api/v1/customers', {
     code: 'C-001', name: 'عميل الاختبار', phone: '07700000000', province: 'نينوى', district: 'الموصل', creditLimit: '1000'
   })).customer;
-  await request('/api/v1/commerce/commit', {
+  const openingPurchase = await request('/api/v1/commerce/commit', {
     method: 'POST', token: adminToken,
     body: commerceBody({
       documentType: 'purchase', documentNumber: 'PUR-001', warehouseId: warehouse.id, partyId: null, currency: 'IQD',
-      lines: [{ itemId: item.id, unitId: unit.id, quantity: '10', unitPrice: '1' }], payments: []
+      lines: [{ itemId: item.id, unitId: unit.id, quantity: '10', unitPrice: '1' }],
+      payments: [{ method: 'cash', amount: '10' }]
     })
   });
+  assert.equal(openingPurchase.status, 201, JSON.stringify(openingPurchase.data));
+  assert.equal(stock(), '10.000000');
 });
 
 after(async () => {
@@ -121,3 +124,4 @@ test('invoice design is company scoped and saved through the draft event stream'
   assert.equal(fetched.data.settings.template, 'modern');
   assert.equal(fetched.data.settings.commercialName, 'تجربة');
 });
+

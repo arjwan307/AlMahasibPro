@@ -4,15 +4,67 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test tests/**/*.test.js",
+    "test": "node --test tests/*.test.js tests/*.test.cjs tests/integration/*.test.js tests/integration/*.test.cjs",
     "db:migrate": "node database/migrate.js",
-    "seed:platform-admin": "node database/seed-platform-admin.js"
+    "seed:platform-admin": "node database/seed-platform-admin.js",
+    "start:enterprise": "node apps/local/enterprise-server.js",
+    "desktop": "electron apps/desktop/main.cjs",
+    "build:windows": "npm run build:windows:company",
+    "start:cloud": "node apps/api/src/cloud-server.js",
+    "build:windows:company": "electron-builder --config apps/desktop/company-builder.json --win nsis",
+    "build:windows:retail": "electron-builder --config apps/retail/retail-builder.json --win nsis",
+    "desktop:retail": "electron apps/retail/main.cjs"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "mongodb": "^6.20.0"
+    "mongodb": "^6.20.0",
+    "pg": "^8.23.1"
   },
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.almahasibpro.enterprise",
+    "productName": "AlMahasibPro",
+    "directories": {
+      "output": "releases/windows"
+    },
+    "files": [
+      "apps/desktop/**",
+      "apps/local/enterprise-server.js",
+      "apps/api/**",
+      "public/**",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "apps/desktop/main.cjs"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "script": "apps/desktop/installer.nsi",
+      "installerLanguages": [
+        "en_US",
+        "ar"
+      ]
+    },
+    "artifactName": "AlMahasibPro-Setup-${version}-${arch}.${ext}"
+  },
+  "description": "Company-owned offline accounting and inventory desktop for AlMahasibPro",
+  "author": "AlMahasibPro",
+  "engines": {
+    "node": ">=24.0.0"
+  }
 }

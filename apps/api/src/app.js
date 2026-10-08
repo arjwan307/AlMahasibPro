@@ -1,4 +1,6 @@
+import { installSalesRoutes, salesRep, salesScoped } from './sales-workspace.js';
 import express from 'express';
+import { PERMISSIONS } from './permissions.js';
 import cors from 'cors';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -6,14 +8,18 @@ import { fileURLToPath } from 'node:url';
 import { AppError, asyncRoute, normalizeCode, normalizeUsername, requireFields } from './lib/http.js';
 import { decimal, decimalString } from './lib/decimal.js';
 import { hashPassword, hashToken, newSessionToken, payloadHash, verifyPassword } from './lib/security.js';
+import { installPayrollRoutes } from './modules/payroll/routes.js';
+import { installTreasuryRoutes } from './modules/treasury/routes.js';
+import { installImportRoutes } from './modules/imports/routes.js';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, '../../../public');
 const loginAttempts = new Map();
 
-export function createApp({ store, sessionDays = 14, secureCookies = false, allowedOrigins = [] }) {
+export function createApp({ store, sessionDays = 14, secureCookies = false, allowedOrigins = [], cookieName = 'almahasib_session', cookiePath = '/' }) {
   const app = express();
   app.disable('x-powered-by');
+  app.use((req, res, next) => { req.sessionCookieName = cookieName; next(); });
   app.use(cors({
     origin(origin, callback) {
       if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
@@ -24,16 +30,20 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   app.use(express.json({ limit: '5mb' }));
   app.use(express.static(publicDirectory, { extensions: ['html'], etag: true }));
 
+  installSalesRoutes(app,{store,authenticate,permit,validateDocument:validateCommercePayload});
+  installPayrollRoutes(app,{store,authenticate,permit});
+  installTreasuryRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency});
+  installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
 
   app.post('/api/v1/companies/register', asyncRoute(async (req, res) => {
     requireFields(req.body, ['legalName', 'ownerName', 'phone', 'username', 'password']);
     const passwordHash = await passwordHashOrValidation(req.body.password);
     const company = await store.registerCompany({
-      code: `REQ-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`,
+      code: `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`,
       legalName: req.body.legalName.trim(),
       timezone: req.body.timezone || 'Asia/Baghdad',
-      currency: String(req.body.currency || 'IQD').toUpperCase(),
+      currency: ['IQD','USD'].includes(String(req.body.currency||'IQD').toUpperCase()) ? String(req.body.currency||'IQD').toUpperCase() : 'IQD',
       phone: String(req.body.phone).trim().slice(0,32),
       address: String(req.body.address || '').trim().slice(0,240),
       owner: {
@@ -45,13 +55,18 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(201).json({ company, message: 'تم استلام طلب الشركة وينتظر اعتماد إدارة المنصة' });
   }));
 
+  app.get('/api/v1/auth/roles', asyncRoute(async (req, res) => {
+    const code = normalizeCode(req.query.companyCode);
+    res.json({ roles: store.listLoginRoles ? await store.listLoginRoles(code) : [] });
+  }));
+
   app.post('/api/v1/auth/login', asyncRoute(async (req, res) => {
     requireFields(req.body, ['username', 'password']);
     const platform = req.body.platform === true;
     if (!platform && !String(req.body.companyCode || '').trim()) {
       throw new AppError(400, 'COMPANY_CODE_REQUIRED', 'رمز الشركة مطلوب');
     }
-    const attemptKey = `${req.ip}:${String(req.body.companyCode || 'platform')}:${String(req.body.username).toLowerCase()}`;
+    const attemptKey = `${cookieName}:${req.ip}:${String(req.body.companyCode || 'platform')}:${String(req.body.username).toLowerCase()}`;
     checkLoginRate(attemptKey);
     const login = await store.findLogin({
       companyCode: platform ? null : normalizeCode(req.body.companyCode),
@@ -68,6 +83,12 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     if (login.company?.status !== 'active' && !platform) {
       throw new AppError(403, 'COMPANY_INACTIVE', 'الشركة غير مفعلة');
     }
+    if (login.user.status !== 'active') throw new AppError(403, 'USER_INACTIVE', 'حساب المستخدم موقوف');
+    if (!platform && req.body.roleCode) {
+      if (!store.listUsers) throw new AppError(501, 'STORE_UNSUPPORTED', 'اختيار الدور غير متاح لهذا الخادم');
+      const user = (await store.listUsers(login.company.id)).find(row => row.id === login.user.id);
+      if (user?.roleCode !== req.body.roleCode) throw new AppError(403, 'LOGIN_ROLE_MISMATCH', 'الدور المختار لا يطابق دور حسابك؛ اختر الدور الذي حدده المدير');
+    }
     loginAttempts.delete(attemptKey);
     const token = newSessionToken();
     const expiresAt = new Date(Date.now() + sessionDays * 86400000).toISOString();
@@ -75,20 +96,52 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       tokenHash: hashToken(token), userId: login.user.id,
       deviceId: String(req.body.deviceId || 'web-browser').slice(0, 128), expiresAt
     });
-    setSessionCookie(res, token, sessionDays, secureCookies);
+    setSessionCookie(res, token, sessionDays, secureCookies, cookieName, cookiePath);
     const context = await store.getSessionContext(hashToken(token));
     res.json({ token, expiresAt, account: publicContext(context) });
   }));
 
   app.post('/api/v1/auth/logout', authenticate(store), asyncRoute(async (req, res) => {
     await store.revokeSession(req.auth.tokenHash, req.auth.user.id);
-    res.setHeader('Set-Cookie', 'almahasib_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0');
+    res.setHeader('Set-Cookie', `${cookieName}=; Path=${cookiePath}; HttpOnly; SameSite=Strict; Max-Age=0${secureCookies ? '; Secure' : ''}`);
     res.status(204).end();
+  }));
+
+  app.patch('/api/v1/company/accounting-settings', authenticate(store), permit('company.manage'), asyncRoute(async (req,res)=>{
+    const baseCurrency=currency(req.body.baseCurrency||req.auth.company.currency||'IQD');
+    if(!['IQD','USD'].includes(baseCurrency)) throw new AppError(400,'INVALID_CURRENCY','اختر الدينار العراقي أو الدولار الأمريكي');
+    const company=await store.updateCompanyAccountingSettings(req.auth.company.id,{baseCurrency,usdToIqdRate:decimalInput(req.body.usdToIqdRate,{positive:true})},req.auth.user.id);
+    res.json({company});
+  }));
+
+  app.get('/api/v1/company/branches', authenticate(store), permitAny(['company.manage', 'inventory.read']), (req, res) => {
+    res.json({ branches: req.auth.company.branches || [] });
+  });
+  app.post('/api/v1/company/branches', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['code', 'name']);
+    const name = String(req.body.name).trim();
+    if (!name || name.length > 120) throw new AppError(400, 'INVALID_BRANCH_NAME', 'اسم الفرع مطلوب ولا يتجاوز ١٢٠ حرفًا');
+    const branch = await store.createBranch(req.auth.company.id, { code: entityCode(req.body.code), name }, req.auth.user.id);
+    res.status(201).json({ branch });
+  }));
+  app.patch('/api/v1/company/branches/:branchId', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
+    const input = {};
+    if (req.body.code !== undefined) input.code = entityCode(req.body.code);
+    if (req.body.name !== undefined) {
+      input.name = String(req.body.name).trim();
+      if (!input.name || input.name.length > 120) throw new AppError(400, 'INVALID_BRANCH_NAME', 'اسم الفرع مطلوب ولا يتجاوز ١٢٠ حرفًا');
+    }
+    if (req.body.active !== undefined) {
+      if (typeof req.body.active !== 'boolean') throw new AppError(400, 'INVALID_BRANCH_STATUS', 'حالة الفرع غير صالحة');
+      input.active = req.body.active;
+    }
+    res.json({ branch: await store.updateBranch(req.auth.company.id, uuid(req.params.branchId, 'branchId'), input, req.auth.user.id) });
   }));
 
   app.get('/api/v1/bootstrap', authenticate(store), (req, res) => {
     res.json({
       ...publicContext(req.auth),
+      salesProfile:store.salesSettings?.get('user:'+req.auth.user.id)||null,
       sync: { pushUrl: '/api/v1/sync/push', pullUrl: '/api/v1/sync/pull', statusUrl: '/api/v1/sync/status' },
       offlineSessionExpiresAt: req.auth.session.expiresAt,
       serverTime: new Date().toISOString()
@@ -133,18 +186,58 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({ roles: await store.listRoles(req.auth.company.id) });
   }));
 
+  app.post('/api/v1/roles', authenticate(store), permit('roles.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['name']);
+    const name = String(req.body.name).trim();
+    if (!name || name.length > 120) throw new AppError(400, 'INVALID_ROLE_NAME', 'اسم الدور مطلوب ولا يتجاوز ١٢٠ حرفًا');
+    const permissions = req.body.permissions;
+    if (!Array.isArray(permissions) || permissions.some(value => !PERMISSIONS.includes(value) || value === 'company.approve')) throw new AppError(400, 'INVALID_PERMISSIONS', 'الصلاحيات غير صالحة');
+    if (!store.createRole) throw new AppError(501, 'STORE_UNSUPPORTED', 'إضافة الأدوار غير متاحة لهذا الخادم');
+    res.status(201).json({ role: await store.createRole(req.auth.company.id, { name, permissions }, req.auth.user.id) });
+  }));
+
   app.post('/api/v1/users', authenticate(store), permit('users.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['username', 'displayName', 'password', 'roleCode']);
     const user = await store.createUser(req.auth.company.id, {
       username: normalizeUsername(req.body.username), displayName: req.body.displayName.trim(),
       passwordHash: await passwordHashOrValidation(req.body.password), roleCode: req.body.roleCode,
-      scopes: validateScopes(req.body.scopes, req.auth.company)
+      salesProfile: req.body.salesProfile, status:req.body.status, permissions: req.body.permissions, scopes: validateScopes(req.body.scopes, req.auth.company)
     }, req.auth.user.id);
     res.status(201).json({ user });
   }));
 
+  app.get('/api/v1/users', authenticate(store), permit('users.manage'), asyncRoute(async (req, res) => {
+    if (!store.listUsers) throw new AppError(501, 'STORE_UNSUPPORTED', 'إدارة الحسابات التفصيلية غير متاحة لهذا الخادم بعد');
+    res.json({ users: await store.listUsers(req.auth.company.id), roles: await store.listRoles(req.auth.company.id), permissions: PERMISSIONS.filter(value => value !== 'company.approve') });
+  }));
+
+  app.put('/api/v1/users/:userId', authenticate(store), permit('users.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['username', 'displayName', 'roleCode', 'status']);
+    if (!store.updateUser) throw new AppError(501, 'STORE_UNSUPPORTED', 'تعديل الحسابات غير متاح لهذا الخادم بعد');
+    res.json({ user: await store.updateUser(req.auth.company.id, req.params.userId, {
+      username: normalizeUsername(req.body.username), displayName: String(req.body.displayName).trim().slice(0, 120),
+      roleCode: req.body.roleCode, status: req.body.status, permissions: req.body.permissions, salesProfile: req.body.salesProfile,
+      passwordHash: req.body.password ? await passwordHashOrValidation(req.body.password) : undefined
+    }, req.auth.user.id) });
+  }));
+
+  app.get('/api/v1/accounting/chart', authenticate(store), permit('accounting.read'), asyncRoute(async (req,res)=>{ res.json({accounts:store.listChartAccounts(req.auth.company.id)}); }));
+  app.post('/api/v1/accounting/chart', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{ res.status(201).json({account:await store.createChartAccount(req.auth.company.id,req.body||{},req.auth.user.id)}); }));
+  app.post('/api/v1/accounting/journals', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{
+    requireFields(req.body,['operationId','entryNumber','occurredAt']);
+    if(!Array.isArray(req.body.lines)||req.body.lines.length<2||req.body.lines.length>500) throw new AppError(400,'JOURNAL_LINES_REQUIRED','القيد يحتاج من سطرين إلى ٥٠٠ سطر');
+    res.status(201).json({journal:await store.postManualJournal(req.auth,{...req.body,currency:req.body.currency||req.auth.company.currency})});
+  }));
+  app.post('/api/v1/accounting/journals/:journalId/reverse', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{
+    requireFields(req.body,['operationId','entryNumber','occurredAt']);
+    res.status(201).json({journal:await store.reverseJournal(req.auth,req.params.journalId,req.body)});
+  }));
+
   app.get('/api/v1/master-data', authenticate(store), permitAny(['catalog.read', 'customers.read', 'suppliers.read', 'inventory.read']), asyncRoute(async (req, res) => {
-    res.json(await store.listMasterData(req.auth.company.id));
+    const m=await store.listMasterData(req.auth.company.id);
+    filterWarehouseScope(req.auth, m);
+    if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';m.customers=m.customers.filter(x=>(store.salesSettings.get('customer:'+x.id)?.channel||'retail')===channel);m.suppliers=[];m.prices=m.prices.filter(x=>['sale','sale_'+channel].includes(x.priceType));m.stock=m.stock.map(({averageCost,...x})=>x);}
+    res.json(m);
   }));
 
   app.post('/api/v1/catalog/units', authenticate(store), permit('catalog.manage'), asyncRoute(async (req, res) => {
@@ -157,12 +250,26 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(201).json({ unit });
   }));
 
+  app.post('/api/v1/catalog/categories', authenticate(store), permit('catalog.manage'), asyncRoute(async(req,res)=>{res.status(201).json({category:await store.createItemCategory(req.auth.company.id,req.body.name,req.auth.user.id)});}));
   app.post('/api/v1/catalog/items', authenticate(store), permit('catalog.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['sku', 'name', 'baseUnitId']);
+    if(req.body.category&&!((await store.listItemCategories(req.auth.company.id)).includes(req.body.category)))throw new AppError(400,'INVALID_CATEGORY','اختر تصنيفًا موجودًا أو أضفه أولًا');
     const item = await store.createItem(req.auth.company.id, {
-      sku: entityCode(req.body.sku), name: req.body.name.trim(), baseUnitId: uuid(req.body.baseUnitId, 'baseUnitId')
+      sku: entityCode(req.body.sku), name: req.body.name.trim(), category: req.body.category||'', description: typeof req.body.description==='string'?req.body.description:'', baseUnitId: uuid(req.body.baseUnitId, 'baseUnitId')
     }, req.auth.user.id);
     res.status(201).json({ item });
+  }));
+
+  app.get('/api/v1/catalog/items/:itemId/details', authenticate(store), permit('catalog.read'), asyncRoute(async(req,res)=>{
+    const item=store.items.get(uuid(req.params.itemId,'itemId'));if(!item||item.companyId!==req.auth.company.id)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
+    const {photos,...details}=store.salesSettings?.get('item:'+item.id)||{};res.json({item:{...details,...item}});
+  }));
+  app.patch('/api/v1/catalog/items/:itemId', authenticate(store), permit('catalog.manage'), asyncRoute(async(req,res)=>{
+    if(typeof req.body.description!=='string'||req.body.description.length>4000)throw new AppError(400,'INVALID_DESCRIPTION','الوصف نص بحد أقصى 4000 حرف');
+    res.json({item:await store.updateItemDescription(req.auth.company.id,uuid(req.params.itemId,'itemId'),req.body.description,req.auth.user.id)});
+  }));
+  app.delete('/api/v1/catalog/items/:itemId', authenticate(store), permit('catalog.manage'), asyncRoute(async(req,res)=>{
+    res.json(await store.deleteUnusedItem(req.auth.company.id,uuid(req.params.itemId,'itemId'),req.auth.user.id));
   }));
 
   app.post('/api/v1/catalog/items/:itemId/units', authenticate(store), permit('catalog.manage'), asyncRoute(async (req, res) => {
@@ -173,9 +280,9 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(201).json({ itemUnit });
   }));
 
-  app.post('/api/v1/catalog/prices', authenticate(store), permit('catalog.manage'), asyncRoute(async (req, res) => {
+  app.post('/api/v1/catalog/prices', authenticate(store), (req,res,next)=>req.auth.permissions.includes('catalog.manage')||req.auth.permissions.includes('purchasing.approve')?next():next(new AppError(403,'FORBIDDEN','تحتاج صلاحية إدارة الأصناف أو اعتماد المشتريات')), asyncRoute(async (req, res) => {
     requireFields(req.body, ['itemId', 'unitId', 'priceType', 'currency', 'amount']);
-    if (!['sale', 'purchase'].includes(req.body.priceType)) throw new AppError(400, 'INVALID_PRICE_TYPE', 'نوع السعر غير صالح');
+    if (!['sale', 'sale_retail', 'sale_wholesale', 'purchase'].includes(req.body.priceType)) throw new AppError(400, 'INVALID_PRICE_TYPE', 'نوع السعر غير صالح');
     const price = await store.setPrice(req.auth.company.id, {
       itemId: uuid(req.body.itemId, 'itemId'), unitId: uuid(req.body.unitId, 'unitId'), priceType: req.body.priceType,
       currency: currency(req.body.currency), amount: decimalInput(req.body.amount, { nonNegative: true })
@@ -200,25 +307,72 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       creditLimit: decimalInput(req.body.creditLimit || '0', { nonNegative: true }),
       province: String(req.body.province || '').trim().slice(0, 80),
       district: String(req.body.district || '').trim().slice(0, 100),
-      address: String(req.body.address || '').trim().slice(0, 240)
+      address: String(req.body.address || '').trim().slice(0, 240),
+      paymentPreference: ['cash', 'credit', 'mixed'].includes(req.body.paymentPreference) ? req.body.paymentPreference : 'cash',
+      salesChannel: req.body.salesChannel === 'wholesale' ? 'wholesale' : 'retail'
     }, req.auth.user.id);
     res.status(201).json({ customer });
+  }));
+
+  app.patch('/api/v1/customers/:id', authenticate(store), permit('customers.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['code', 'name']);
+    const input = {
+      code: entityCode(req.body.code), name: String(req.body.name).trim(),
+      phone: String(req.body.phone || '').trim().slice(0, 40),
+      province: String(req.body.province || '').trim().slice(0, 80),
+      district: String(req.body.district || '').trim().slice(0, 100),
+      address: String(req.body.address || '').trim().slice(0, 240),
+      creditLimit: decimalInput(req.body.creditLimit || '0', { nonNegative: true }),
+      paymentPreference: ['cash', 'credit', 'mixed'].includes(req.body.paymentPreference) ? req.body.paymentPreference : 'cash',
+      salesChannel: req.body.salesChannel === 'wholesale' ? 'wholesale' : 'retail'
+    };
+    if (typeof req.body.active === 'boolean') input.active = req.body.active;
+    const customer = await store.updateCustomer(req.auth.company.id, req.params.id, input, req.auth.user.id);
+    res.json({customer});
+  }));
+
+  app.delete('/api/v1/customers/:id', authenticate(store), permit('customers.manage'), asyncRoute(async (req, res) => {
+    res.json(await store.deleteCustomer(req.auth.company.id, req.params.id, req.auth.user.id));
   }));
 
   app.post('/api/v1/suppliers', authenticate(store), permit('suppliers.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['code', 'name']);
     const supplier = await store.createParty(req.auth.company.id, 'supplier', {
-      code: entityCode(req.body.code), name: req.body.name.trim(), phone: req.body.phone
+      code: entityCode(req.body.code), name: req.body.name.trim(), phone: req.body.phone,
+      country: String(req.body.country || '').trim().slice(0,120),
+      companyName: String(req.body.companyName || '').trim().slice(0,200),
+      specialty: String(req.body.specialty || '').trim().slice(0,200),
+      relationshipStartYear: String(req.body.relationshipStartYear || '').trim().slice(0,4)
     }, req.auth.user.id);
     res.status(201).json({ supplier });
+  }));
+
+  app.patch('/api/v1/suppliers/:id', authenticate(store), permit('suppliers.manage'), asyncRoute(async (req, res) => {
+    const supplier = await store.updateSupplier(req.auth.company.id, uuid(req.params.id, 'supplierId'), {
+      code: req.body.code ? entityCode(req.body.code) : undefined,
+      name: req.body.name ? String(req.body.name).trim().slice(0, 200) : undefined,
+      phone: req.body.phone === undefined ? undefined : String(req.body.phone || '').trim().slice(0, 50),
+      country: req.body.country === undefined ? undefined : String(req.body.country || '').trim().slice(0, 120),
+      companyName: req.body.companyName === undefined ? undefined : String(req.body.companyName || '').trim().slice(0, 200),
+      specialty: req.body.specialty === undefined ? undefined : String(req.body.specialty || '').trim().slice(0, 200),
+      relationshipStartYear: req.body.relationshipStartYear === undefined ? undefined : String(req.body.relationshipStartYear || '').trim().slice(0, 4)
+    }, req.auth.user.id);
+    res.json({ supplier });
+  }));
+
+  app.delete('/api/v1/suppliers/:id', authenticate(store), permit('suppliers.manage'), asyncRoute(async (req, res) => {
+    res.json({ deleted: await store.deleteSupplier(req.auth.company.id, uuid(req.params.id, 'supplierId'), req.auth.user.id) });
   }));
 
   app.post('/api/v1/warehouses', authenticate(store), permit('inventory.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['code', 'name']);
     if (req.body.kind && !['standard', 'vehicle', 'pos'].includes(req.body.kind)) throw new AppError(400, 'INVALID_WAREHOUSE_KIND', 'نوع المخزن غير صالح');
+    const branchId = req.body.branchId ? uuid(req.body.branchId, 'branchId') : null;
+    const branchScopes = (req.auth.scopes || []).filter((x) => x.type === 'branch');
+    if (branchScopes.length && !branchScopes.some((scope) => scope.id === branchId)) throw new AppError(403, 'BRANCH_SCOPE_DENIED', 'الفرع خارج نطاق حسابك');
     const warehouse = await store.createWarehouse(req.auth.company.id, {
       code: entityCode(req.body.code), name: req.body.name.trim(), kind: req.body.kind,
-      branchId: req.body.branchId ? uuid(req.body.branchId, 'branchId') : null
+      branchId
     }, req.auth.user.id);
     res.status(201).json({ warehouse });
   }));
@@ -242,11 +396,14 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   }));
 
   app.get('/api/v1/representatives/bootstrap', authenticate(store), permit('representatives.read'), asyncRoute(async (req, res) => {
-    res.json(await store.getRepresentativeBootstrap(req.auth, req.query.representativeId ? uuid(req.query.representativeId, 'representativeId') : null));
+    const data=await store.getRepresentativeBootstrap(req.auth,req.query.representativeId?uuid(req.query.representativeId,'representativeId'):null);
+    if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';data.customers=data.customers.filter(x=>(store.salesSettings.get('customer:'+x.id)?.channel||'retail')===channel);const ids=new Set(data.customers.map(x=>x.id));data.orders=(data.orders||[]).filter(x=>ids.has(x.customerId));if(data.catalog?.prices)data.catalog.prices=data.catalog.prices.filter(x=>['sale','sale_'+channel].includes(x.priceType));data.routes=(data.routes||[]).map(x=>({...x,stops:(x.stops||[]).filter(y=>ids.has(y.customerId))}));}
+    res.json(data);
   }));
 
   app.post('/api/v1/representatives/operations', authenticate(store), asyncRoute(async (req, res) => {
     const operation = validateOperation({ operationId: req.body.operationId, deviceId: req.body.deviceId, clientSequence: req.body.clientSequence, occurredAt: req.body.occurredAt, schemaVersion: 1, dependencies: req.body.dependencies || [], type: req.body.type, payload: validateRepresentativePayload(req.body.type, req.body.payload) });
+    if(salesRep(req.auth)&&store.salesSettings?.has('user:'+req.auth.user.id))throw new AppError(403,'USE_SALES_WORKSPACE','استخدم صفحة المبيعات الحالية');
     requireRepresentativePermission(req.auth, operation.type);
     const [result] = await store.pushOperations(req.auth, [operation]);
     res.status(result.status === 'acknowledged' ? 201 : 409).json({ result });
@@ -260,12 +417,35 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       type: 'commerce.commit', payload: validateCommercePayload(req.body.document)
     });
     requireCommercePermission(req.auth, operation.payload.documentType);
+    assertWarehouseScope(req.auth, store.warehouses.get(operation.payload.warehouseId));
+    for (const line of operation.payload.lines) if (line.warehouseId) assertWarehouseScope(req.auth, store.warehouses.get(line.warehouseId));
     const [result] = await store.pushOperations(req.auth, [operation]);
     res.status(result.status === 'acknowledged' ? 201 : 409).json({ result });
   }));
 
   app.get('/api/v1/commerce/documents', authenticate(store), permitAny(['sales.read', 'purchasing.read']), asyncRoute(async (req, res) => {
-    res.json({ documents: await store.listCommerceDocuments(req.auth.company.id) });
+    let documents=await store.listCommerceDocuments(req.auth.company.id);
+    documents=documents.filter(document=>warehouseScopeAllows(req.auth,store.warehouses.get(document.warehouseId)));
+    if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';documents=documents.filter(x=>x.documentType.startsWith('sale')&&x.customerId&&(store.salesSettings.get('customer:'+x.customerId)?.channel||'retail')===channel).map(x=>({...x,lines:x.lines.map(({unitCost,...line})=>line)}));}
+    res.json({documents});
+  }));
+
+  app.post('/api/v1/inventory/stocktakes',authenticate(store),permit('inventory.manage'),asyncRoute(async(req,res)=>{
+    requireFields(req.body,['operationId','stocktakeNumber','warehouseId']);if(!Array.isArray(req.body.lines)||!req.body.lines.length||req.body.lines.length>1000)throw new AppError(400,'INVALID_STOCKTAKE_LINES','أدخل بنود الجرد');
+    const warehouseId=uuid(req.body.warehouseId,'warehouseId');assertWarehouseScope(req.auth,store.warehouses.get(warehouseId));
+    const stocktake=await store.postStocktake(req.auth,{operationId:uuid(req.body.operationId,'operationId'),stocktakeNumber:entityCode(req.body.stocktakeNumber),warehouseId,countedAt:req.body.countedAt&&Number.isFinite(Date.parse(req.body.countedAt))?new Date(req.body.countedAt).toISOString():null,lines:req.body.lines.map(line=>({itemId:uuid(line.itemId,'itemId'),countedQuantity:decimalInput(line.countedQuantity,{nonNegative:true}),...(line.unitCost==null||line.unitCost===''?{}:{unitCost:decimalInput(line.unitCost,{nonNegative:true})})}))});res.status(201).json({stocktake});
+  }));
+  app.post('/api/v1/inventory/damaged-stock',authenticate(store),permit('inventory.manage'),asyncRoute(async(req,res)=>{
+    requireFields(req.body,['operationId','writeoffNumber','warehouseId','itemId','quantity','reason']);const warehouseId=uuid(req.body.warehouseId,'warehouseId');assertWarehouseScope(req.auth,store.warehouses.get(warehouseId));const reason=String(req.body.reason).trim().slice(0,500);if(!reason)throw new AppError(400,'REASON_REQUIRED','سبب إثبات التالف مطلوب');
+    const writeoff=await store.writeOffDamagedStock(req.auth,{operationId:uuid(req.body.operationId,'operationId'),writeoffNumber:entityCode(req.body.writeoffNumber),warehouseId,itemId:uuid(req.body.itemId,'itemId'),quantity:decimalInput(req.body.quantity,{positive:true}),reason,occurredAt:req.body.occurredAt&&Number.isFinite(Date.parse(req.body.occurredAt))?new Date(req.body.occurredAt).toISOString():null});res.status(201).json({writeoff});
+  }));
+  app.post('/api/v1/sales/:documentId/loads',authenticate(store),permit('inventory.manage'),asyncRoute(async(req,res)=>{
+    requireFields(req.body,['operationId','loadNumber']);if(!Array.isArray(req.body.lines)||!req.body.lines.length||req.body.lines.length>500)throw new AppError(400,'INVALID_LOAD_LINES','أدخل بنود التحميل');const documentId=uuid(req.params.documentId,'documentId'),document=store.commerceDocuments.get(documentId);if(!document||document.companyId!==req.auth.company.id)throw new AppError(404,'SALE_NOT_FOUND','فاتورة البيع غير موجودة');assertWarehouseScope(req.auth,store.warehouses.get(document.warehouseId));
+    const load=await store.recordDeliveryLoad(req.auth,{operationId:uuid(req.body.operationId,'operationId'),loadNumber:entityCode(req.body.loadNumber),documentId,loadedAt:req.body.loadedAt&&Number.isFinite(Date.parse(req.body.loadedAt))?new Date(req.body.loadedAt).toISOString():null,lines:req.body.lines.map(line=>({originalLineId:uuid(line.originalLineId,'originalLineId'),quantity:decimalInput(line.quantity,{positive:true})}))});res.status(201).json({load});
+  }));
+  app.get('/api/v1/inventory/operations',authenticate(store),permitAny(['inventory.read','inventory.manage']),asyncRoute(async(req,res)=>{
+    const companyId=req.auth.company.id,allowed=warehouse=>warehouseScopeAllows(req.auth,warehouse),visible=row=>allowed(store.warehouses.get(row.warehouseId));
+    res.json({stocktakes:[...store.stocktakes.values()].filter(x=>x.companyId===companyId&&visible(x)).map(({fingerprint,...x})=>x),writeoffs:[...store.stockWriteoffs.values()].filter(x=>x.companyId===companyId&&visible(x)).map(({fingerprint,...x})=>x),loads:[...store.deliveryLoads.values()].filter(x=>x.companyId===companyId&&visible(x)).map(({fingerprint,...x})=>x)});
   }));
 
   app.post('/api/v1/pos/devices', authenticate(store), permit('pos.device.manage'), asyncRoute(async (req, res) => {
@@ -316,9 +496,9 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       if (operation.type === 'financial.record' && !req.auth.permissions.includes('accounting.post')) {
         throw new AppError(403, 'PERMISSION_DENIED', 'لا توجد صلاحية لتسجيل العملية المالية');
       }
-      if (operation.type === 'commerce.commit') requireCommercePermission(req.auth, operation.payload.documentType);
+      if (operation.type === 'commerce.commit') { operation.payload=validateCommercePayload(operation.payload);operation.payloadHash=payloadHash(operation.payload);requireCommercePermission(req.auth, operation.payload.documentType); }
       if (operation.type.startsWith('pos.')) requirePosPermission(req.auth, operation.type);
-      if (operation.type.startsWith('representative.')) { operation.payload = validateRepresentativePayload(operation.type, operation.payload); requireRepresentativePermission(req.auth, operation.type); }
+      if (operation.type.startsWith('representative.')) { if(salesRep(req.auth)&&store.salesSettings?.has('user:'+req.auth.user.id))throw new AppError(403,'USE_SALES_WORKSPACE','استخدم صفحة المبيعات الحالية');operation.payload = validateRepresentativePayload(operation.type, operation.payload); requireRepresentativePermission(req.auth, operation.type); }
     }
     const results = await store.pushOperations(req.auth, operations);
     for(const operation of operations){if(operation.type==='market.transaction.shift_close'&&results.some(r=>r.operationId===operation.operationId&&r.status==='acknowledged'))await revokeScannerShift(req.auth.company.id,operation.payload.shiftId);}
@@ -327,7 +507,9 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
 
   app.get('/api/v1/sync/pull', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
     const cursor = Math.max(0, Number.parseInt(req.query.cursor || '0', 10) || 0);
-    res.json(await store.pullChanges(req.auth.company.id, cursor, 100));
+    const page=await store.pullChanges(req.auth.company.id,cursor,100);
+    if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';page.changes=page.changes.filter(x=>x.entityType==='unit'||x.entityType==='item'||x.entityType==='item_unit'||(x.entityType==='price'&&['sale','sale_'+channel].includes(x.payload?.priceType))||(x.entityType==='customer'&&(store.salesSettings.get('customer:'+x.entityId)?.channel||'retail')===channel));}
+    res.json(page);
   }));
 
   app.get('/api/v1/sync/status', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
@@ -508,6 +690,49 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({ ok: true, result: results[0] });
   }));
 
+  app.get('/api/v1/enterprise/reports', authenticate(store), permit('accounting.read'), asyncRoute(async (req, res) => {
+    const data = await store.listEnterpriseData(req.auth.company.id);
+    data.transfers=(data.transfers||[]).filter(transfer=>warehouseScopeAllows(req.auth,store.warehouses.get(transfer.sourceWarehouseId))&&warehouseScopeAllows(req.auth,store.warehouses.get(transfer.destinationWarehouseId)));
+    if (!req.auth.permissions.includes('users.manage')) delete data.users;
+    res.json(data);
+  }));
+  app.post('/api/v1/enterprise/transfers', authenticate(store), permit('inventory.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['operationId','sourceWarehouseId','destinationWarehouseId','transferNumber']);
+    assertWarehouseScope(req.auth, store.warehouses.get(uuid(req.body.sourceWarehouseId, 'sourceWarehouseId')));
+    assertWarehouseScope(req.auth, store.warehouses.get(uuid(req.body.destinationWarehouseId, 'destinationWarehouseId')));
+    if (!Array.isArray(req.body.lines) || !req.body.lines.length || req.body.lines.length > 500) throw new AppError(400,'LINES_REQUIRED','بنود التحويل مطلوبة');
+    res.status(201).json({ transfer: await store.transferEnterpriseStock(req.auth, {
+      operationId: uuid(req.body.operationId,'operationId'), occurredAt: new Date().toISOString(), transferNumber: String(req.body.transferNumber).slice(0,64),
+      sourceWarehouseId: uuid(req.body.sourceWarehouseId,'sourceWarehouseId'), destinationWarehouseId: uuid(req.body.destinationWarehouseId,'destinationWarehouseId'),
+      lines: req.body.lines.map(line => ({ itemId: uuid(line.itemId,'itemId'), quantity: decimalInput(line.quantity,{positive:true}) }))
+    }) });
+  }));
+  app.post('/api/v1/enterprise/settlements', authenticate(store), permit('accounting.post'), asyncRoute(async (req, res) => {
+    requireFields(req.body,['operationId','documentId','amount','receiptNumber','method']);
+    const targetDocument=store.commerceDocuments.get(uuid(req.body.documentId,'documentId'));
+    if(targetDocument)assertWarehouseScope(req.auth,store.warehouses.get(targetDocument.warehouseId));
+    if (!['cash','bank','bank_transfer','check'].includes(req.body.method)) throw new AppError(400,'INVALID_METHOD','طريقة الدفع غير صالحة');
+    const receivedCurrency = req.body.receivedCurrency || req.body.currency;
+    res.status(201).json({ settlement: await store.settleEnterpriseDocument(req.auth, {
+      operationId: uuid(req.body.operationId,'operationId'), documentId: uuid(req.body.documentId,'documentId'), amount: decimalInput(req.body.amount,{positive:true}),
+      receiptNumber: String(req.body.receiptNumber).slice(0,64), method: req.body.method,
+      bankName: String(req.body.bankName || '').trim().slice(0,160), transactionNumber: String(req.body.transactionNumber || '').trim().slice(0,120),
+      receivedAmount: decimalInput(req.body.receivedAmount || req.body.amount,{positive:true}), receivedCurrency: receivedCurrency ? currency(receivedCurrency) : undefined,
+      exchangeRate: decimalInput(req.body.exchangeRate || '1',{positive:true}),
+      occurredAt: /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paymentDate||'')) ? new Date(req.body.paymentDate+'T12:00:00.000Z').toISOString() : new Date().toISOString()
+    }) });
+  }));
+  app.post('/api/v1/enterprise/customer-credits/apply', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{
+    requireFields(req.body,['operationId','documentId','amount']);
+    const targetDocument=store.commerceDocuments.get(uuid(req.body.documentId,'documentId'));
+    if(targetDocument)assertWarehouseScope(req.auth,store.warehouses.get(targetDocument.warehouseId));
+    res.status(201).json({application:await store.applyCustomerCredit(req.auth,{operationId:uuid(req.body.operationId,'operationId'),documentId:uuid(req.body.documentId,'documentId'),amount:decimalInput(req.body.amount,{positive:true}),receiptNumber:String(req.body.receiptNumber||'').trim().slice(0,64)||undefined,occurredAt:/^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paymentDate||''))?new Date(req.body.paymentDate+'T12:00:00.000Z').toISOString():new Date().toISOString()})});
+  }));
+  app.get('/api/v1/enterprise/backup', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
+    if (typeof store.exportBackup !== 'function') throw new AppError(400,'LOCAL_BACKUP_ONLY','النسخ الاحتياطي هنا خاص بقاعدة الجهاز');
+    res.setHeader('Content-Disposition','attachment; filename="AlMahasibPro-backup.sqlite"');
+    res.type('application/octet-stream').send(await store.exportBackup());
+  }));
 
   async function wholesaleRecords(companyId) {
     const latest = new Map(); let cursor = 0, guard = 0;
@@ -725,11 +950,12 @@ function authenticate(store) {
   return asyncRoute(async (req, res, next) => {
     const authorization = req.get('authorization');
     const bearer = authorization?.startsWith('Bearer ') ? authorization.slice(7) : null;
-    const token = bearer || parseCookies(req.get('cookie')).almahasib_session;
+    const token = bearer || parseCookies(req.get('cookie'))[req.sessionCookieName || 'almahasib_session'];
     if (!token) throw new AppError(401, 'AUTH_REQUIRED', 'تسجيل الدخول مطلوب');
     const tokenHash = hashToken(token);
     const context = await store.getSessionContext(tokenHash);
     if (!context) throw new AppError(401, 'SESSION_INVALID', 'الجلسة منتهية أو ملغاة');
+    if (req.productScope && (context.company?.product || 'company') !== req.productScope) throw new AppError(401, 'PRODUCT_SESSION_SCOPE', 'جلسة الدخول لا تخص هذا المنتج');
     req.auth = { ...context, tokenHash };
     next();
   });
@@ -776,6 +1002,29 @@ function validateOperation(operation) {
   };
 }
 
+function warehouseScopeAllows(context, warehouse) {
+  if (!warehouse || warehouse.companyId !== context.company.id) return false;
+  const scopes = context.scopes || [];
+  const warehouseScopes = scopes.filter(scope => scope.type === 'warehouse');
+  const branchScopes = scopes.filter(scope => scope.type === 'branch');
+  return (!warehouseScopes.length || warehouseScopes.some(scope => scope.id === warehouse.id)) &&
+    (!branchScopes.length || branchScopes.some(scope => scope.id === warehouse.branchId));
+}
+
+function assertWarehouseScope(context, warehouse) {
+  if (!warehouse || warehouse.companyId !== context.company.id) throw new AppError(404, 'WAREHOUSE_NOT_FOUND', 'المخزن غير موجود');
+  if (!warehouseScopeAllows(context, warehouse)) throw new AppError(403, 'WAREHOUSE_SCOPE_DENIED', 'المخزن خارج نطاق حسابك');
+}
+
+function filterWarehouseScope(context, masterData) {
+  const scoped = (context.scopes || []).some(scope => scope.type === 'warehouse' || scope.type === 'branch');
+  if (!scoped) return masterData;
+  masterData.warehouses = masterData.warehouses.filter(warehouse => warehouseScopeAllows(context, warehouse));
+  const allowed = new Set(masterData.warehouses.map(warehouse => warehouse.id));
+  masterData.stock = masterData.stock.filter(row => allowed.has(row.warehouseId));
+  return masterData;
+}
+
 function validateScopes(scopes, company) {
   if (scopes == null) return undefined;
   if (!Array.isArray(scopes) || scopes.some((scope) => !scope || !['company', 'branch', 'warehouse', 'pos', 'customers'].includes(scope.type))) {
@@ -783,6 +1032,9 @@ function validateScopes(scopes, company) {
   }
   if (scopes.some((scope) => scope.type === 'company' && scope.id !== company.id)) {
     throw new AppError(400, 'CROSS_COMPANY_SCOPE', 'لا يمكن منح نطاق لشركة أخرى');
+  }
+  if (scopes.some((scope) => scope.type === 'branch' && !(company.branches || []).some((branch) => branch.id === scope.id && branch.active !== false))) {
+    throw new AppError(400, 'INVALID_BRANCH_SCOPE', 'نطاق الفرع غير موجود أو متوقف');
   }
   return scopes;
 }
@@ -799,11 +1051,18 @@ function validateCommercePayload(payload) {
     warehouseId: uuid(payload.warehouseId, 'warehouseId'), partyId: payload.partyId ? uuid(payload.partyId, 'partyId') : null,
     originalDocumentId: isReturn ? uuid(payload.originalDocumentId, 'originalDocumentId') : null,
     currency: currency(payload.currency),
+    note: String(payload.note||'').trim().slice(0,2000),
+    discountAmount: decimalInput(payload.discountAmount || '0', { nonNegative: true }),
+    approvalId: payload.approvalId ? uuid(payload.approvalId,'approvalId') : null,
+    delivery: validateDelivery(payload.delivery),
     lines: payload.lines.map((line) => ({
       itemId: uuid(line.itemId, 'itemId'), unitId: uuid(line.unitId, 'unitId'),
+      note: String(line.note||'').trim().slice(0,1000),
+      specifications: Object.fromEntries(Object.entries(line.specifications||{}).filter(([key])=>['itemNumber','tradeName','originCountry','factory','dimensions','colors'].includes(key)).map(([key,value])=>[key,String(value||'').trim().slice(0,300)])),
+      warehouseId: line.warehouseId ? uuid(line.warehouseId, 'line.warehouseId') : null,
       originalLineId: isReturn ? uuid(line.originalLineId, 'originalLineId') : null,
       quantity: decimalInput(line.quantity, { positive: true }),
-      ...(isReturn ? {} : { unitPrice: decimalInput(line.unitPrice, { nonNegative: true }) })
+      ...(isReturn ? {} : { unitPrice: decimalInput(line.unitPrice, { nonNegative: true }),enteredUnitPrice:decimalInput(line.enteredUnitPrice??line.unitPrice,{nonNegative:true}),systemUnitPrice:decimalInput(line.systemUnitPrice??line.enteredUnitPrice??line.unitPrice,{nonNegative:true}),discountQuantity:decimalInput(line.discountQuantity||'0',{nonNegative:true}),discountPercent:decimalInput(line.discountPercent||'0',{nonNegative:true}) })
     })),
     payments: (payload.payments || []).map((payment) => {
       if (!['cash', 'bank', 'card'].includes(payment.method)) throw new AppError(400, 'INVALID_PAYMENT_METHOD', 'وسيلة الدفع غير صالحة');
@@ -847,6 +1106,7 @@ function requireCommercePermission(context, documentType) {
     purchase: 'purchasing.approve', purchase_return: 'purchasing.return',
     sale: 'sales.approve', sale_return: 'sales.return'
   }[documentType];
+  if(documentType==='sale' && salesRep(context) && context.permissions.includes('sales.create'))return;
   if (!permission || !context.permissions.includes(permission)) throw new AppError(403, 'PERMISSION_DENIED', 'لا توجد صلاحية لاعتماد هذا المستند');
 }
 
@@ -942,8 +1202,8 @@ function parseCookies(header = '') {
   return Object.fromEntries(header.split(';').map((part) => part.trim().split('=').map(decodeURIComponent)).filter(([key]) => key));
 }
 
-function setSessionCookie(res, token, days, secure) {
-  const attributes = [`almahasib_session=${encodeURIComponent(token)}`, 'Path=/', 'HttpOnly', 'SameSite=Strict', `Max-Age=${days * 86400}`];
+function setSessionCookie(res, token, days, secure, name, cookiePath) {
+  const attributes = [`${name}=${encodeURIComponent(token)}`, `Path=${cookiePath}`, 'HttpOnly', 'SameSite=Strict', `Max-Age=${days * 86400}`];
   if (secure) attributes.push('Secure');
   res.setHeader('Set-Cookie', attributes.join('; '));
 }
@@ -973,3 +1233,5 @@ async function passwordHashOrValidation(password) {
 }
 
 
+
+function validateDelivery(value={}) { const mode=value?.mode||'none';if(!['both','services','transport','none','immediate'].includes(mode))throw new AppError(400,'INVALID_DELIVERY','نوع النقل والخدمات غير صالح');const out={mode};if(['both','transport'].includes(mode)&&!value.deliveryAt)throw new AppError(400,'DELIVERY_DATE_REQUIRED','موعد التوصيل مطلوب');if(['both','services'].includes(mode)&&!value.serviceAt)throw new AppError(400,'SERVICE_DATE_REQUIRED','موعد الخدمات مطلوب');for(const key of ['deliveryAt','serviceAt']){if(value?.[key]){if(typeof value[key]!=='string'||!Number.isFinite(Date.parse(value[key])))throw new AppError(400,'INVALID_DELIVERY_DATE','موعد غير صالح');out[key]=new Date(value[key]).toISOString();}}return out;}

@@ -1,0 +1,31 @@
+name: ERP Accounting Quality Gate
+on:
+  push:
+    branches:
+      - feature/enterprise-windows-local
+      - integration/almahasibpro-complete
+  workflow_dispatch:
+jobs:
+  accounting-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: JavaScript syntax validation
+        run: |
+          node --check public/enterprise.js
+          node --check public/sales-workspace.js
+          node --check apps/api/src/app.js
+          node --check apps/api/src/store/memory-store.js
+      - name: Prevent fictional demo catalogs in runtime
+        run: |
+          test ! -e apps/api/src/demo-wholesale-customers.js
+          test ! -e apps/api/src/furniture-catalog.js
+          ! grep -E 'importDemoWholesaleCustomers|importFurnitureCatalog' apps/api/src/store/memory-store.js apps/api/src/cloud-server.js
+      - name: Full automated test suite
+        run: npm test

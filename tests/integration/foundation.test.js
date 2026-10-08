@@ -40,7 +40,7 @@ async function register(code) {
   const response = await api('/api/v1/companies/register', {
     method: 'POST',
     body: JSON.stringify({
-      code, legalName: `شركة ${code}`, ownerName: `مدير ${code}`,
+      phone: '07700000000', legalName: `شركة ${code}`, ownerName: `مدير ${code}`,
       username: 'admin', password: 'Company-Strong-123', timezone: 'Asia/Baghdad', currency: 'IQD'
     })
   });
@@ -51,7 +51,7 @@ async function register(code) {
 async function login(companyCode, username = 'admin', password = 'Company-Strong-123') {
   return api('/api/v1/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ companyCode, username, password, deviceId: `test-${companyCode}` })
+    body: JSON.stringify({ companyCode: companies[companyCode]?.code || companyCode, username, password, deviceId: `test-${companyCode}` })
   });
 }
 
@@ -72,7 +72,7 @@ test('platform administrator approves companies', async () => {
   platformToken = loginResponse.data.token;
   const pending = await api('/api/v1/platform/companies/pending', { token: platformToken });
   assert.equal(pending.status, 200);
-  assert.deepEqual(new Set(pending.data.companies.map((company) => company.code)), new Set(['tenant_a', 'tenant_b']));
+  assert.deepEqual(new Set(pending.data.companies.map((company) => company.code)), new Set([companies.tenant_a.code, companies.tenant_b.code]));
   for (const code of ['tenant_a', 'tenant_b']) {
     const approved = await api(`/api/v1/platform/companies/${companies[code].id}/approve`, { method: 'POST', token: platformToken });
     assert.equal(approved.status, 200);
@@ -88,8 +88,8 @@ test('sessions are server-side and tenant context cannot be selected by the clie
   assert.match(alpha.headers.get('set-cookie'), /HttpOnly/);
   const alphaBootstrap = await api('/api/v1/bootstrap', { token: alpha.data.token });
   const betaBootstrap = await api('/api/v1/bootstrap', { token: beta.data.token });
-  assert.equal(alphaBootstrap.data.company.code, 'tenant_a');
-  assert.equal(betaBootstrap.data.company.code, 'tenant_b');
+  assert.equal(alphaBootstrap.data.company.code, companies.tenant_a.code);
+  assert.equal(betaBootstrap.data.company.code, companies.tenant_b.code);
   assert.notEqual(alphaBootstrap.data.company.id, betaBootstrap.data.company.id);
   assert.ok(alphaBootstrap.data.permissions.includes('users.manage'));
 });
