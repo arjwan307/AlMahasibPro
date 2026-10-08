@@ -59,14 +59,30 @@ test('company-owned SQLite installation persists accounting, stock, users and ba
    {accountCode:'3000-EQUITY',debit:'0',credit:'124'}
   ]})).status,400);
   await create('/api/v1/enterprise/transfers',{operationId:crypto.randomUUID(),sourceWarehouseId:source.id,destinationWarehouseId:target.id,transferNumber:'T1',lines:[{itemId:item.id,quantity:'3'}]});
+  const countInput={operationId:crypto.randomUUID(),stocktakeNumber:'COUNT-1',warehouseId:target.id,lines:[{itemId:item.id,countedQuantity:'4'}]};
+  const stocktake=await create('/api/v1/inventory/stocktakes',countInput);
+  assert.equal((await create('/api/v1/inventory/stocktakes',countInput)).stocktake.id,stocktake.stocktake.id,'stocktake retry is idempotent');
+  assert.equal(stocktake.stocktake.journalEntryId!=null,true,'stocktake variance posts a journal');
+  const damageInput={operationId:crypto.randomUUID(),writeoffNumber:'DAMAGE-1',warehouseId:target.id,itemId:item.id,quantity:'1',reason:'تلف أثناء المناولة'};
+  const damaged=await create('/api/v1/inventory/damaged-stock',damageInput);
+  assert.equal((await create('/api/v1/inventory/damaged-stock',damageInput)).writeoff.id,damaged.writeoff.id,'damage retry is idempotent');
+  assert.equal([...runtime.store.stockBalances.values()].find(row=>row.warehouseId===target.id).quantity,'3.000000');
+  const saleLine=document.lines[0],loadOne={operationId:crypto.randomUUID(),loadNumber:'LOAD-1',lines:[{originalLineId:saleLine.id,quantity:'1'}]};
+  const firstLoad=await create(`/api/v1/sales/${document.id}/loads`,loadOne);
+  assert.equal((await create(`/api/v1/sales/${document.id}/loads`,loadOne)).load.id,firstLoad.load.id,'load retry is idempotent');
+  const secondLoad=await create(`/api/v1/sales/${document.id}/loads`,{operationId:crypto.randomUUID(),loadNumber:'LOAD-2',lines:[{originalLineId:saleLine.id,quantity:'1'}]});
+  assert.equal(secondLoad.load.status,'posted');
+  assert.equal(runtime.store.commerceDocuments.get(document.id).deliveryStatus,'delivered');
+  assert.equal((await request(`/api/v1/sales/${document.id}/loads`,{operationId:crypto.randomUUID(),loadNumber:'LOAD-3',lines:[{originalLineId:saleLine.id,quantity:'1'}]})).status,409,'cannot load more than the invoiced quantity');
+  const saleJournalCount=[...runtime.store.journalEntries.values()].filter(x=>x.documentId===document.id).length;assert.equal(saleJournalCount,1,'loading does not repeat the invoice financial posting');
   const failed=await request('/api/v1/enterprise/transfers',{operationId:crypto.randomUUID(),sourceWarehouseId:source.id,destinationWarehouseId:target.id,transferNumber:'T2',lines:[{itemId:item.id,quantity:'1'},{itemId:item.id,quantity:'999'}]});assert.equal(failed.status,409);
   assert.equal(runtime.store.stockBalances.get(`local:${source.id}:${item.id}`),undefined);
   const stock=[...runtime.store.stockBalances.values()].find(row=>row.warehouseId===source.id);assert.equal(stock.quantity,'4.000000');
   const snapshot=await runtime.store.exportBackup();assert.equal(snapshot.subarray(0,15).toString(),'SQLite format 3');
   const backupFile=join(directory,'backup.sqlite');await writeFile(backupFile,snapshot);
-  const restored=new SQLiteStore(backupFile);assert.equal(restored.commerceDocuments.size,3);await restored.close();
+  const restored=new SQLiteStore(backupFile);assert.equal(restored.commerceDocuments.size,3);assert.equal(restored.stocktakes.size,1);assert.equal(restored.stockWriteoffs.size,1);assert.equal(restored.deliveryLoads.size,2);await restored.close();
   await runtime.close();runtime=await startEnterpriseLocal({dataDirectory:directory,port:33219});
-  assert.equal(runtime.store.commerceDocuments.size,3);assert.equal(runtime.store.stockTransfers.size,1);
+  assert.equal(runtime.store.commerceDocuments.size,3);assert.equal(runtime.store.stockTransfers.size,1);assert.equal(runtime.store.stocktakes.size,1);assert.equal(runtime.store.stockWriteoffs.size,1);assert.equal(runtime.store.deliveryLoads.size,2);
   assert.ok([...runtime.store.journalEntries.values()].some(row=>row.entryNumber==='MANUAL-1'));
   assert.equal((await request('/api/v1/master-data')).status,200,'session survives restart');
   for(const journal of runtime.store.journalEntries.values()){const amount=value=>BigInt(value.replace('.',''));assert.equal(journal.lines.reduce((s,x)=>s+amount(x.debit)-amount(x.credit),0n),0n);}
