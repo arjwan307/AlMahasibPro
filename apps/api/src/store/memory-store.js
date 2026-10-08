@@ -311,18 +311,22 @@ export class MemoryStore {
     return true;
   }
 
-  async countOnlineUsers(companyId, since) {
+  async listOnlineUserIds(companyId, since) {
     const cutoff = Date.parse(since);
     const now = Date.now();
     const company = this.companies.get(companyId);
-    if (!company || company.status !== 'active' || !Number.isFinite(cutoff)) return 0;
+    if (!company || company.status !== 'active' || !Number.isFinite(cutoff)) return [];
     const online = new Set();
     for (const session of this.sessions.values()) {
       if (session.revokedAt || Date.parse(session.expiresAt) <= now || !session.lastSeenAt || Date.parse(session.lastSeenAt) < cutoff) continue;
       const user = this.users.get(session.userId);
       if (user?.companyId === companyId && user.status === 'active') online.add(user.id);
     }
-    return online.size;
+    return [...online];
+  }
+
+  async countOnlineUsers(companyId, since) {
+    return (await this.listOnlineUserIds(companyId, since)).length;
   }
 
   async getSessionContext(tokenHash) {
