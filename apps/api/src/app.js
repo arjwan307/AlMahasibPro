@@ -282,6 +282,27 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(201).json({ customer });
   }));
 
+  app.patch('/api/v1/customers/:id', authenticate(store), permit('customers.manage'), asyncRoute(async (req, res) => {
+    requireFields(req.body, ['code', 'name']);
+    const input = {
+      code: entityCode(req.body.code), name: String(req.body.name).trim(),
+      phone: String(req.body.phone || '').trim().slice(0, 40),
+      province: String(req.body.province || '').trim().slice(0, 80),
+      district: String(req.body.district || '').trim().slice(0, 100),
+      address: String(req.body.address || '').trim().slice(0, 240),
+      creditLimit: decimalInput(req.body.creditLimit || '0', { nonNegative: true }),
+      paymentPreference: ['cash', 'credit', 'mixed'].includes(req.body.paymentPreference) ? req.body.paymentPreference : 'cash',
+      salesChannel: req.body.salesChannel === 'wholesale' ? 'wholesale' : 'retail'
+    };
+    if (typeof req.body.active === 'boolean') input.active = req.body.active;
+    const customer = await store.updateCustomer(req.auth.company.id, req.params.id, input, req.auth.user.id);
+    res.json({customer});
+  }));
+
+  app.delete('/api/v1/customers/:id', authenticate(store), permit('customers.manage'), asyncRoute(async (req, res) => {
+    res.json(await store.deleteCustomer(req.auth.company.id, req.params.id, req.auth.user.id));
+  }));
+
   app.post('/api/v1/suppliers', authenticate(store), permit('suppliers.manage'), asyncRoute(async (req, res) => {
     requireFields(req.body, ['code', 'name']);
     const supplier = await store.createParty(req.auth.company.id, 'supplier', {
