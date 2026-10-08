@@ -33,7 +33,7 @@ test('user administration enforces permissions, revokes access and persists edit
   const sellerLogin=await request('/api/v1/auth/login',{companyCode:'local',username:'حسن كاظم',password:body.password,roleCode:'representative'});const sellerCookie=sellerLogin.cookie;
   const ownerSecondLogin=await request('/api/v1/auth/login',{companyCode:'local',username:'owner',password:'Strong-Password-123'});
   for(const cookie of [ownerCookie,ownerSecondLogin.cookie,supplyLogin.cookie,sellerCookie])assert.equal((await request('/api/v1/presence/heartbeat',{},'POST',cookie)).status,204);
-  const online=(await request('/api/v1/presence/online-users',null,'GET',ownerCookie));assert.equal(online.status,200);assert.equal(online.data.count,3);assert.equal(online.data.windowSeconds,90);
+  const online=(await request('/api/v1/presence/online-users',null,'GET',ownerCookie));assert.equal(online.status,200);assert.equal(online.data.count,3);assert.equal(online.data.userIds.length,3);assert.ok(online.data.userIds.includes(owner.id));assert.ok(online.data.userIds.includes(supplyLogin.data.user.id));assert.ok(online.data.userIds.includes(sellerLogin.data.user.id));assert.equal(online.data.windowSeconds,90);
   assert.equal((await request('/api/v1/presence/online-users',null,'GET',supplyLogin.cookie)).status,403);
   assert.equal((await request('/api/v1/users',null,'GET',sellerCookie)).status,403);
   assert.equal((await request('/api/v1/users/'+id,{...body,status:'active'},'PUT',sellerCookie)).status,403);
