@@ -278,8 +278,11 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     const {photos,...details}=store.salesSettings?.get('item:'+item.id)||{};res.json({item:{...details,...item}});
   }));
   app.patch('/api/v1/catalog/items/:itemId', authenticate(store), permit('catalog.manage'), asyncRoute(async(req,res)=>{
-    if(typeof req.body.description!=='string'||req.body.description.length>4000)throw new AppError(400,'INVALID_DESCRIPTION','الوصف نص بحد أقصى 4000 حرف');
-    res.json({item:await store.updateItemDescription(req.auth.company.id,uuid(req.params.itemId,'itemId'),req.body.description,req.auth.user.id)});
+    const itemId=uuid(req.params.itemId,'itemId'),companyId=req.auth.company.id,actor=req.auth.user.id;let item=null;
+    if(Object.hasOwn(req.body,'category'))item=await store.updateItemCategory(companyId,itemId,req.body.category,actor);
+    if(Object.hasOwn(req.body,'description')){if(typeof req.body.description!=='string'||req.body.description.length>4000)throw new AppError(400,'INVALID_DESCRIPTION','الوصف نص بحد أقصى 4000 حرف');item=await store.updateItemDescription(companyId,itemId,req.body.description,actor);}
+    if(!item)throw new AppError(400,'EMPTY_ITEM_UPDATE','أرسل وصفًا أو تصنيفًا للتعديل');
+    res.json({item});
   }));
   app.delete('/api/v1/catalog/items/:itemId', authenticate(store), permit('catalog.manage'), asyncRoute(async(req,res)=>{
     res.json(await store.deleteUnusedItem(req.auth.company.id,uuid(req.params.itemId,'itemId'),req.auth.user.id));
