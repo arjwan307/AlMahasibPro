@@ -50,8 +50,12 @@ export function salesReasons(s,c,d){try{checkSales(s,c,{...d,approvalId:null});r
 export function installSalesRoutes(app,{store:s,authenticate,permit,validateDocument}){
  const auth=authenticate(s), known=(map,c,id)=>{const row=map.get(id);if(!row||row.companyId!==c.company.id)throw new AppError(404,'NOT_FOUND','السجل غير موجود');return row;};
  const supported=(req,res,next)=>{if(!s.salesSettings) return next(new AppError(501,'SQLITE_REQUIRED','هذه الواجهة تحتاج قاعدة SQLite'));next();};
+ const expireRejected=async()=>{const now=Date.now();for(const row of s.salesApprovals.values()){const base=Date.parse(row.reviewedAt||row.createdAt);if(row.status==='rejected'&&Number.isFinite(base)&&now-base>=48*60*60*1000)await s.deleteSalesApproval(row.id,row.companyId,null,'expired');}};
+ const expiryTimer=setInterval(()=>{void expireRejected().catch(()=>{});},60*60*1000);expiryTimer.unref?.();
+ void expireRejected().catch(()=>{});
+
  app.get('/api/v1/sales/bootstrap',auth,permit('sales.create'),supported,asyncRoute(async(req,res)=>{
-  const c=req.auth,p=profile(s,c),rep=salesRep(c),scoped=salesScoped(s,c),m=await s.listMasterData(c.company.id),data=await s.listEnterpriseData(c.company.id);
+  await expireRejected();const c=req.auth,p=profile(s,c),rep=salesRep(c),scoped=salesScoped(s,c),m=await s.listMasterData(c.company.id),data=await s.listEnterpriseData(c.company.id);
   const customers=m.customers.filter(x=>!scoped||(setting(s,'customer',x.id).channel||'retail')===p.channel).map(x=>({...x,...setting(s,'customer',x.id)}));
   const ids=new Set(customers.map(x=>x.id));
   const documents=(await s.listCommerceDocuments(c.company.id)).filter(x=>!scoped||(x.documentType.startsWith('sale')&&ids.has(x.customerId)&&(!p.salesManager||!x.assignedSalesManagerId||x.assignedSalesManagerId===c.user.id)));
@@ -94,6 +98,12 @@ export function installSalesRoutes(app,{store:s,authenticate,permit,validateDocu
  }));
  app.post('/api/v1/sales/approvals/:id/decision',auth,(req,res,next)=>{if(req.auth.permissions.includes('company.manage')||(profile(s,req.auth).salesManager&&req.auth.permissions.includes('sales.approve')))return next();next(new AppError(403,'FORBIDDEN','تحتاج صلاحية مدير المبيعات'));},supported,asyncRoute(async(req,res)=>{
   const old=known(s.salesApprovals,req.auth,req.params.id);const p=profile(s,req.auth);if(p.salesManager&&(old.profile.channel!==p.channel||(old.managerUserId&&old.managerUserId!==req.auth.user.id)))throw new AppError(403,'MANAGER_SCOPE','الطلب موجّه لمدير مبيعات آخر');if(old.status!=='pending')fail('ALREADY_DECIDED','تمت مراجعة الطلب');if(!['approved','rejected'].includes(req.body.status))throw new AppError(400,'INVALID_DECISION','قرار غير صالح');const row={...old,status:req.body.status,reviewedBy:req.auth.user.id,reviewedAt:new Date().toISOString()};await s.saveSalesApproval(row);res.json({approval:row});
+ }));
+ app.delete('/api/v1/sales/approvals/:id',auth,permit('sales.create'),supported,asyncRoute(async(req,res)=>{
+  const c=req.auth;if(!salesRep(c))throw new AppError(403,'FORBIDDEN','حذف الطلب المرفوض متاح للمندوب صاحب الطلب فقط');
+  const old=known(s.salesApprovals,c,req.params.id);if(old.userId!==c.user.id)throw new AppError(403,'FORBIDDEN','لا يمكنك حذف طلب مستخدم آخر');
+  if(old.status!=='rejected')fail('REQUEST_NOT_REJECTED','يمكن حذف الطلبات المرفوضة فقط');
+  await s.deleteSalesApproval(old.id,c.company.id,c.user.id,'manual');res.json({deleted:true,id:old.id});
  }));
  app.post('/api/v1/sales/customer-review',auth,permit('sales.create'),supported,asyncRoute(async(req,res)=>{
   const customer=known(s.customers,req.auth,req.body.customerId);if(salesRep(req.auth)&&(setting(s,'customer',customer.id).channel||'retail')!==profile(s,req.auth).channel)throw new AppError(403,'CUSTOMER_SCOPE','الزبون خارج صلاحيتك');const row={id:randomUUID(),companyId:req.auth.company.id,userId:req.auth.user.id,userName:req.auth.user.displayName,customerId:customer.id,customerName:customer.name,createdAt:new Date().toISOString()};await s.saveSalesReview(row);res.status(201).json({review:row});
