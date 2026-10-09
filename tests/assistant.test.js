@@ -626,3 +626,56 @@ test('assistant reads current stock locally inside inventory permission and ware
     assert.equal(reads,1);
   } finally {globalThis.fetch=originalFetch;if(old===undefined)delete process.env.GROQ_API_KEY;else process.env.GROQ_API_KEY=old;}
 });
+
+
+test('assistant prepares a local sales invoice draft preview only with user permissions', async () => {
+  const oldKey = process.env.GROQ_API_KEY;
+  const originalFetch = globalThis.fetch;
+  try {
+    delete process.env.GROQ_API_KEY;
+    globalThis.fetch = async () => { throw new Error('invoice draft preview must stay local'); };
+    let reads = 0;
+    const store = {
+      salesSettings: new Map(),
+      listMasterData: async () => {
+        reads++;
+        return {
+          items: [{ id: 'item-sugar', sku: 'S-1', name: 'سكر', active: true, baseUnitId: 'unit-kg',
+            units: [{ unitId: 'unit-kg', isBase: true }] }],
+          units: [{ id: 'unit-kg', name: 'كغم' }],
+          prices: [{ id: 'price-1', itemId: 'item-sugar', unitId: 'unit-kg', priceType: 'sale_retail',
+            amount: '1500.000000', currency: 'IQD', active: true, validFrom: '2026-10-01' }],
+          stock: [{ itemId: 'item-sugar', warehouseId: 'wh-1', quantity: '12.000000' }]
+        };
+      }
+    };
+    const routes = setup(undefined, store);
+    const auth = { company: { id: 'co', currency: 'IQD' }, user: { id: 'u1' },
+      permissions: ['assistant.use', 'sales.create', 'catalog.read', 'inventory.read'], scopes: [] };
+    const response = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({ auth, body: { messages: [
+      { role: 'user', content: 'أنشئ فاتورة مفرد: 3 سكر' }
+    ] } }, response);
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.localOnly, true);
+    assert.match(response.body.answer, /لم أحفظ أو أعتمد أو أرحّل/);
+    assert.equal(response.body.report.rows[0][1], 'سكر');
+    assert.equal(response.body.report.rows[0][3], '3');
+    assert.deepEqual(response.body.report.actions[0], {
+      itemId: 'item-sugar', unitId: 'unit-kg', quantity: '3', invoiceType: 'retail',
+      label: 'أضف 3 إلى مسودة الفاتورة'
+    });
+    assert.equal(reads, 1);
+
+    const denied = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({ auth: {
+      ...auth, permissions: ['assistant.use', 'catalog.read', 'inventory.read']
+    }, body: { messages: [{ role: 'user', content: 'أنشئ فاتورة مفرد: 3 سكر' }] } }, denied);
+    assert.equal(denied.statusCode, 403);
+    assert.equal(denied.body.error.code, 'PERMISSION_DENIED');
+    assert.equal(reads, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
+  }
+});
