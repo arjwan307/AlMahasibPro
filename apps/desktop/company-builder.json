@@ -14,13 +14,11 @@
     "script": "apps/desktop/company-installer.nsi"
   },
   "files": [
-    "apps/local/enterprise-server.js",
+    "apps/local/**",
     "apps/api/**",
-    "package.json",
-    "apps/desktop/main.cjs",
-    "public/enterprise.*",
-    "public/representative*",
-    "public/offline-sync.js"
+    "apps/desktop/**",
+    "public/**",
+    "package.json"
   ],
   "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
   "appId": "com.almahasibpro.enterprise",
