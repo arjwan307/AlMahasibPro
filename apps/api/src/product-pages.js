@@ -2,6 +2,7 @@
 const companyFiles = new Set(['sales-workspace.js','sales-workspace.css','enterprise.html','enterprise.js','enterprise.css','representative.html','representative-ui.js','offline-sync.js','customers.html','customers-ui.js','wholesale-sales.html','wholesale-invoice.html','wholesale-invoice.js','wholesale-invoice.css','assistant.js','assistant.css','developer.html','register.html','password-visibility.js']);
 const retailFiles = new Set(['retail.html','retail-login.html','retail-login.js','retail-scope.js','enterprise.css','pos.html','pos-ui.js','offline-sync.js','restaurant-pos.js','restaurant-warehouse.js','market-cashier.html','market-admin.html','market-offline.js','market-cashier-ledger.js','scanner-qrcode.js','market-scanner.html','market-trial-catalog.json','market-service-worker.js','register.html','password-visibility.js']);
 export function productPages(product = 'company') {
+ if(product==='company'){companyFiles.add('company-output.js');companyFiles.add('company-output.css');}
  const files = product === 'retail' ? retailFiles : companyFiles;
  const login = product === 'retail' ? '/retail-login.html' : '/enterprise.html';
  const home = product === 'retail' ? '/retail.html' : login;
