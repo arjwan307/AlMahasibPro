@@ -37,6 +37,47 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
   installAssistantRoutes(app,{authenticate:authenticate(store),store});
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
+  let fxMarketCache = null;
+  let fxMarketCacheAt = 0;
+  app.get('/api/v1/market/fx', authenticate(store), asyncRoute(async (req, res) => {
+    const cacheFresh = fxMarketCache && Date.now() - fxMarketCacheAt < 5 * 60 * 1000;
+    if (!cacheFresh) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 7000);
+      try {
+        const upstream = await fetch('https://iraqsm.com/data/fx.json', {
+          headers: { Accept: 'application/json' },
+          signal: controller.signal
+        });
+        if (!upstream.ok) throw new Error('upstream HTTP ' + upstream.status);
+        const payload = await upstream.json();
+        const quote = payload?.data?.parallel || payload?.parallel;
+        const buy = Number(quote?.buy);
+        const sell = Number(quote?.sell);
+        if (!Number.isFinite(buy) || buy <= 0 || !Number.isFinite(sell) || sell <= 0) throw new Error('invalid quote');
+        fxMarketCache = {
+          buy,
+          sell,
+          official: Number(payload?.data?.official?.cbi || payload?.official?.cbi) || null,
+          publishedAt: quote?.publishedAt || payload?.asOf || null,
+          sourceStale: Boolean(quote?.stale),
+          retrievedAt: new Date().toISOString(),
+          source: 'IQWealth',
+          sourceUrl: 'https://iraqsm.com/fx',
+          unit: 'IQD per 1 USD',
+          market: 'Baghdad parallel market'
+        };
+        fxMarketCacheAt = Date.now();
+      } catch (error) {
+        if (!fxMarketCache) throw new AppError(502, 'FX_SOURCE_UNAVAILABLE', 'تعذر جلب أسعار السوق الآن؛ أعد المحاولة لاحقًا');
+        fxMarketCache = { ...fxMarketCache, sourceStale: true, fetchWarning: true };
+        fxMarketCacheAt = Date.now();
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    res.set('Cache-Control', 'private, max-age=60').json(fxMarketCache);
+  }));
 
   app.post('/api/v1/companies/register', asyncRoute(async (req, res) => {
     requireFields(req.body, ['legalName', 'ownerName', 'phone', 'username', 'password']);
@@ -279,9 +320,10 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   }));
   app.patch('/api/v1/catalog/items/:itemId', authenticate(store), permit('catalog.manage'), asyncRoute(async(req,res)=>{
     const itemId=uuid(req.params.itemId,'itemId'),companyId=req.auth.company.id,actor=req.auth.user.id;let item=null;
+    if(Object.hasOwn(req.body,'sku'))item=await store.updateItemCode(companyId,itemId,entityCode(req.body.sku),actor);
     if(Object.hasOwn(req.body,'category'))item=await store.updateItemCategory(companyId,itemId,req.body.category,actor);
     if(Object.hasOwn(req.body,'description')){if(typeof req.body.description!=='string'||req.body.description.length>4000)throw new AppError(400,'INVALID_DESCRIPTION','الوصف نص بحد أقصى 4000 حرف');item=await store.updateItemDescription(companyId,itemId,req.body.description,actor);}
-    if(!item)throw new AppError(400,'EMPTY_ITEM_UPDATE','أرسل وصفًا أو تصنيفًا للتعديل');
+    if(!item)throw new AppError(400,'EMPTY_ITEM_UPDATE','أرسل كودًا أو وصفًا أو تصنيفًا للتعديل');
     res.json({item});
   }));
   app.delete('/api/v1/catalog/items/:itemId', authenticate(store), permit('catalog.manage'), asyncRoute(async(req,res)=>{
