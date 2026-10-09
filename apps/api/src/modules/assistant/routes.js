@@ -3,7 +3,7 @@ import { decimal, decimalString } from '../../lib/decimal.js';
 const SYSTEM_PROMPT = [
   'أنت مساعد المحاسب برو. أجب بالعربية الواضحة وباللهجة العراقية الطبيعية عند ملاءمتها، بأسلوب ودود ومتوازن ومختصر.',
   'لا تدّع أنك موظف بشري. تستطيع تنفيذ أوامر القراءة والبحث والتدقيق وإعداد الكشوف المتاحة محلياً عندما تسمح صلاحيات المستخدم، واعرض نتيجة التنفيذ. لا تدّع تنفيذ قراءة لم تنفذها. إذا سُئلت عن حقيقتك، وضّح أنك مساعد ذكاء اصطناعي.',
-  'أجب عن قدراتك بصدق: تشرح استخدام البرنامج والمحاسبة، وتبحث محلياً عن الأصناف وأسعارها حسب صلاحيات المبيعات، وتبني لمسؤول دليل الأصناف جدول مقترحات تصنيف وتسعير جماعي اعتماداً على كلفة مسجلة وهامش يحدده المستخدم، وتعد تقارير الأصناف المتحركة والراكدة والتالف وحركة المخزون وأعلى الزبائن حركة وكشوف الزبائن حسب الفترة وكشف الزبائن بلا حركة لستة أشهر، وتبحث عن الحركات والقيود وتطابق رصيد الجرد مع رصيد النظام والقيود بالمستندات والتسديدات، وتفحص اتزان القيود وحساباتها آلياً، وتجهز معاينة محلية لمسودة قيد للمستخدم ذي الصلاحية دون ترحيل. تعرض تفاصيل وإجمالي الإيرادات والمصروفات حسب الفترة والعملة، ودليل الحسابات وميزان المراجعة وحركة الأستاذ العام ومحاولات الوصول المرفوضة بحسب الصلاحية. هذه فحوص آلية محددة وليست حكمًا نهائيًا على صحة المستند أو المعاملة. أداة الخادم وحدها تقرأ سجلات الشركة من أدوات الخادم بعد فحص الصلاحية.',
+  'أجب عن قدراتك بصدق: تشرح استخدام البرنامج والمحاسبة، وتبحث محلياً عن الأصناف وأسعارها حسب صلاحيات المبيعات، وتبني لمسؤول دليل الأصناف جدول مقترحات تصنيف وتسعير جماعي اعتماداً على كلفة مسجلة وهامش يحدده المستخدم، وتطابق أصناف وكميات معاينة استلام مخزني للمستخدم المخوّل دون تسجيل حركة، وتعد تقارير الأصناف المتحركة والراكدة والتالف وحركة المخزون وأعلى الزبائن حركة وكشوف الزبائن حسب الفترة وكشف الزبائن بلا حركة لستة أشهر، وتبحث عن الحركات والقيود وتطابق رصيد الجرد مع رصيد النظام والقيود بالمستندات والتسديدات، وتفحص اتزان القيود وحساباتها آلياً، وتجهز معاينة محلية لمسودة قيد للمستخدم ذي الصلاحية دون ترحيل. تعرض تفاصيل وإجمالي الإيرادات والمصروفات حسب الفترة والعملة، ودليل الحسابات وميزان المراجعة وحركة الأستاذ العام ومحاولات الوصول المرفوضة بحسب الصلاحية. هذه فحوص آلية محددة وليست حكمًا نهائيًا على صحة المستند أو المعاملة. أداة الخادم وحدها تقرأ سجلات الشركة من أدوات الخادم بعد فحص الصلاحية.',
   'لا تقل إنك لا تستطيع مراجعة القيود إطلاقاً؛ فالفحص الآلي المحلي متاح عند طلبه. اشرح أنه فحص آلي أولي للقيود المنشورة يفحص الاتزان والتواريخ وأكواد الحسابات والتكرار فقط، ولا يحكم على صحة المستندات أو الغرض التجاري.',
   'لا تُرفق بيانات الحسابات أو القيود أو الأرصدة أو الفواتير أو الأسعار بمزود الذكاء. مقترحات التسعير والتصنيف ومسودات القيود تُحسب محلياً للمعاينة فقط؛ لا تغيّر سعراً ولا تحفظ تصنيفاً قبل اعتماد المدير. لا تعتمد أو ترحّل قيداً، ولا ترسل رسائل أو إشعارات خارج التطبيق. تعرض أداة الخادم جداول قابلة للتنزيل وتعرض الملاحظات داخل المحادثة فقط. يمكن شرح سير اعتماد المدير، لكن لا تدّع أن تغيير الأسعار أو ترحيل القيود أو الإشعارات الخارجية متصلة.',
   'لا تدّع أنك أضفت أو عدّلت أو اعتمدت أو رحّلت أو أرسلت شيئاً. لا تخترع أسماء أو أرصدة أو أسعاراً أو أرقام قيود. أوامر القراءة والكشوف تنفذ محلياً فقط بعد التحقق من صلاحية المستخدم، ولا تكتب أي بيانات خلفياً.',
@@ -81,6 +81,7 @@ function error(res, status, code, message) {
 function accountingReadIntent(message) {
   const text = String(message || '');
   const catalogIntentText = text.replace(/(.)\1+/g, '$1');
+  if (/(?:جهز|جهّز|حضر|حضّر|أنشئ|انشئ|اعد|أعد).{0,25}(?:مسودة\s+)?(?:إدخال|ادخال|استلام)\s+(?:مخزني|مخزنية)/i.test(catalogIntentText)) return 'stock-receipt-draft';
   if (/(?:جهز|جهّز|أعد|اعد|اكتب|اقترح|أنشئ|انشئ).{0,20}(?:مسودة\s+)?قيد(?:\s+يومية)?/i.test(catalogIntentText)) return 'journal-draft';
   if (/(?:أنشئ|انشئ|جهز|جهّز|حضر|حضّر|اعد|أعد).{0,25}(?:مسودة\s+)?فاتورة(?:\s+(?:مفرد|جملة|بيع|مبيعات|retail|wholesale))?|فاتورة\s+(?:مفرد|جملة)\s+(?:لـ|ل|عن|بـ)?/i.test(catalogIntentText)) return 'sales-invoice-draft';
   if (/(?:سعّر|سعر|تسعير|اقترح\s+(?:لي\s+)?(?:أسعار|اسعار)|تحديد\s+الأسعار|صنّف|صنف|تصنيف).{0,50}(?:جميع|كل|المواد|الأصناف|الاصناف)|(?:جميع|كل)\s+(?:المواد|الأصناف|الاصناف).{0,50}(?:سعّر|سعر|تصنيف|صنّف|صنف)/i.test(catalogIntentText)) return 'bulk-catalog-plan';
@@ -586,6 +587,49 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
     const scope=onlyExpenses?'المصروفات':onlyIncome?'الإيرادات':'الإيرادات والمصروفات';
     const totalText=[...byCurrency].sort(([a],[b])=>a.localeCompare(b)).map(([currency,total])=>`${currency}: إيرادات ${decimalString(total.revenue)}، مردودات ${decimalString(total.returns)}، صافي الإيراد ${decimalString(total.revenue-total.returns)}، مصروفات ${decimalString(total.expenses)}`).join('؛ ');
     return localResult(`كشف ${scope} من القيود المرحلة ضمن ${period.label}. ${totalText||'لا توجد حركات مصنفة في الفترة.'} فصلت النتائج حسب العملة؛ ولا تشمل حسابات غير مصنفة كإيراد أو مصروف.`,table('تفصيل الإيرادات والمصروفات',['نوع الحساب','رمز الحساب','الحساب','العملة','مدين خلال الفترة','دائن خلال الفترة','صافي الحركة'],[...detailRows,...totalRows]));
+  }
+  if (intent === 'stock-receipt-draft') {
+    if (!has('catalog.read') || !has('purchasing.create')) return { status: 403, code: 'PERMISSION_DENIED', message: 'معاينة استلام المخزون تحتاج صلاحية قراءة الأصناف وإنشاء المشتريات' };
+    if (typeof store?.listMasterData !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'دليل الأصناف غير متاح لإعداد معاينة الاستلام' };
+    const data = await store.listMasterData(companyId);
+    const text = String(assistantQuery || '').replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+    const normalize = value => String(value || '').toLocaleLowerCase('ar').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ًٌٍَُِّْ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const candidates = (data.items || []).filter(item => item.active !== false)
+      .map(item => ({ item, name: String(item.name || '').trim() }))
+      .filter(row => row.name.length > 1)
+      .sort((a,b) => b.name.length - a.name.length);
+    const matches = [];
+    for (const row of candidates) {
+      const needle = normalize(row.name);
+      const haystack = normalize(text);
+      let from = 0;
+      while (needle && (from = haystack.indexOf(needle, from)) >= 0) {
+        const end = from + needle.length;
+        if (!matches.some(match => from < match.end && end > match.start)) matches.push({ ...row, start: from, end });
+        from = end;
+      }
+    }
+    matches.sort((a,b) => a.start - b.start);
+    const units = new Map((data.units || []).map(unit => [unit.id, unit.name || unit.code || unit.id]));
+    const rows = matches.map(match => {
+      const before = text.slice(Math.max(0, match.start - 32), match.start);
+      const after = text.slice(match.end, Math.min(text.length, match.end + 32));
+      const beforeMatch = [...before.matchAll(/(?:^|[\s،,;:×x])([0-9]+(?:[.,][0-9]+)?)\s*(?:(?:عدد|كمية|وحدة|حبة|قطعة|كغم|كغ|كيلو|كرتون|علبة)\s*)?$/giu)].at(-1);
+      const afterMatch = after.match(/^\s*(?:(?:عدد|كمية|×|x|=|:)\s*)?([0-9]+(?:[.,][0-9]+)?)/iu);
+      const raw = afterMatch?.[1] || beforeMatch?.[1] || '';
+      const quantity = Number(raw.replace(',', '.'));
+      const item = match.item;
+      const unit = (item.units || []).find(row => row.isBase) || (item.units || []).find(row => row.unitId === item.baseUnitId) || (item.units || [])[0];
+      const unitId = unit?.unitId || item.baseUnitId || '';
+      const itemUnitName = units.get(unitId) || '—';
+      const stockQuantity = has('inventory.read') ? (data.stock || []).filter(row => row.itemId === item.id).reduce((sum,row) => sum + Number(row.quantity || 0), 0) : null;
+      return [item.sku || '—', item.name || item.id, Number.isFinite(quantity) && quantity > 0 ? String(quantity) : '—', itemUnitName,
+        stockQuantity === null ? 'غير متاح حسب الصلاحية' : String(stockQuantity), Number.isFinite(quantity) && quantity > 0 ? 'صنف مطابق؛ راجع الوحدة' : 'أدخل كمية صالحة'];
+    });
+    if (!rows.length) return localResult('لم أطابق صنفًا من دليل الشركة. أرسل الاسم كما يظهر في الأصناف مع الكمية، مثل: جهّز معاينة استلام مخزني: 10 سكر؛ 5 رز. لم أضف أي حركة للمخزون.', table('معاينة استلام مخزني',['المعلومة المطلوبة'],[['أسماء الأصناف والكميات']]));
+    const ready = rows.filter(row => row[2] !== '—').length;
+    const answer = 'طابقت ' + rows.length + ' صنفًا من دليل الشركة؛ ' + ready + ' منها لها كمية مقروءة. هذه معاينة فقط ولم أسجل استلامًا أو أغيّر المخزون. أكمِل اختيار المورد والمخزن وتكلفة الشراء والوحدة في شاشة المشتريات قبل الحفظ.';
+    return localResult(answer, table('معاينة استلام مخزني',['الكود','الصنف','الكمية المطلوبة','الوحدة الأساسية','الرصيد الحالي','الفحص'],rows));
   }
   if (intent === 'sales-invoice-draft') {
     const wholesale = /جملة|wholesale/i.test(assistantQuery);
