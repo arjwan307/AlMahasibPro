@@ -22,6 +22,8 @@ export class MemoryStore {
     this.roles = new Map();
     this.sessions = new Map();
     this.customerNotifications = new Map();
+    this.desktopCommands = new Map();
+    this.desktopIdMappings = new Map();
     this.operations = new Map();
     this.changes = [];
     this.audit = [];
@@ -80,6 +82,10 @@ export class MemoryStore {
     if(existing){if(existing.fingerprint!==fingerprint)throw new AppError(409,'OPERATION_ID_REUSED','معرف الرسالة مستخدم لبيانات أخرى');return clone(existing);}
     const row={...input,id:key,companyId,customerName:customer?.name||input.recipientName,status:'draft',fingerprint,createdAt:new Date().toISOString(),createdBy:actor};
     this.customerNotifications.set(key,row);this.#audit(companyId,actor,'notification.prepared','notification',key,{type:input.type});return clone(row);
+  }
+  async saveNotificationState(companyId,id,state,actor){
+    const row=this.customerNotifications.get(id);if(!row||row.companyId!==companyId)throw new AppError(404,'NOTIFICATION_NOT_FOUND','الرسالة غير موجودة');
+    const updated={...row,...state};this.customerNotifications.set(id,updated);this.#audit(companyId,actor,'notification.queued','notification',id,{});return clone(updated);
   }
   async markCustomerNotificationOpened(companyId,id,actor){
     const row=this.customerNotifications.get(id);if(!row||row.companyId!==companyId)throw new AppError(404,'NOTIFICATION_NOT_FOUND','الرسالة غير موجودة');
