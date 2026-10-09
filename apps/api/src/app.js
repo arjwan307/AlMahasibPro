@@ -12,6 +12,7 @@ import { installPayrollRoutes } from './modules/payroll/routes.js';
 import { installTreasuryRoutes } from './modules/treasury/routes.js';
 import { installImportRoutes } from './modules/imports/routes.js';
 import { installAssistantRoutes } from './modules/assistant/routes.js';
+import { imageData, invoiceDesign, invoiceAttachment } from './lib/company-media.js';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, '../../../public');
@@ -37,6 +38,30 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
   installAssistantRoutes(app,{authenticate:authenticate(store),store});
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
+  app.get('/api/v1/company/invoice-design', authenticate(store), (req,res)=>res.json({ design:store.salesSettings.get('invoice-design:'+req.auth.company.id)||{} }));
+  app.put('/api/v1/company/invoice-design', authenticate(store), permit('company.manage'), asyncRoute(async(req,res)=>{
+    const design=invoiceDesign(req.body);
+    await store.saveSalesSetting('invoice-design:'+req.auth.company.id,{...design,companyId:req.auth.company.id},req.auth.user.id);
+    res.json({design});
+  }));
+  app.put('/api/v1/catalog/items/:itemId/image', authenticate(store), permit('catalog.manage'), asyncRoute(async(req,res)=>{
+    res.json({item:await store.updateItemImage(req.auth.company.id,uuid(req.params.itemId,'itemId'),imageData(req.body.image),req.auth.user.id)});
+  }));
+  app.get('/api/v1/company/invoice-reference',authenticate(store),permit('company.manage'),(req,res)=>res.json({attachment:store.salesSettings.get('invoice-reference:'+req.auth.company.id)?.attachment||null}));
+  app.put('/api/v1/company/invoice-reference',authenticate(store),permit('company.manage'),asyncRoute(async(req,res)=>{
+    const attachment=invoiceAttachment(req.body);await store.saveSalesSetting('invoice-reference:'+req.auth.company.id,{companyId:req.auth.company.id,attachment},req.auth.user.id);res.json({saved:true});
+  }));
+  const attachmentDocument=req=>{
+    const doc=store.commerceDocuments.get(uuid(req.params.documentId,'documentId'));
+    if(!doc||doc.companyId!==req.auth.company.id||doc.documentType!=='purchase')throw new AppError(404,'DOCUMENT_NOT_FOUND','فاتورة المشتريات غير موجودة');
+    if(!warehouseScopeAllows(req.auth,store.warehouses.get(doc.warehouseId)))throw new AppError(403,'WAREHOUSE_SCOPE_DENIED','المخزن خارج نطاق حسابك');
+    if(doc.branchId&&(req.auth.scopes||[]).some(x=>x.type==='branch')&&!(req.auth.scopes||[]).some(x=>x.type==='branch'&&x.id===doc.branchId))throw new AppError(403,'SCOPE_FORBIDDEN','الفرع غير مسموح');
+    return doc;
+  };
+  app.get('/api/v1/commerce/documents/:documentId/attachment',authenticate(store),permit('purchasing.read'),(req,res,next)=>{try{const doc=attachmentDocument(req);res.json({attachment:store.salesSettings.get('invoice-attachment:'+doc.id)?.attachment||null});}catch(e){next(e);}});
+  app.put('/api/v1/commerce/documents/:documentId/attachment',authenticate(store),permit('purchasing.create'),asyncRoute(async(req,res)=>{
+    const doc=attachmentDocument(req),attachment=invoiceAttachment(req.body);await store.saveSalesSetting('invoice-attachment:'+doc.id,{companyId:req.auth.company.id,documentId:doc.id,attachment},req.auth.user.id);res.json({saved:true});
+  }));
   let fxMarketCache = null;
   let fxMarketCacheAt = 0;
   app.get('/api/v1/market/fx', authenticate(store), asyncRoute(async (req, res) => {
