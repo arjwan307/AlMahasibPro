@@ -485,6 +485,12 @@ export class MemoryStore {
     const next=String(category||'').trim(),names=await this.listItemCategories(companyId);if(!next||!names.includes(next))throw new AppError(400,'INVALID_CATEGORY','اختر تصنيفًا موجودًا');
     const previous=item.category||'';item.category=next;this.#audit(companyId,actorUserId,'item.category.updated','item',itemId,{from:previous,to:next});this.#change(companyId,'item',itemId,'upsert',clone(item));return clone(item);
   }
+  async updateItemCode(companyId,itemId,sku,actorUserId) {
+    const item=this.items.get(itemId);if(!item||item.companyId!==companyId)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
+    const next=String(sku||'').trim();if(!next||next.length>64)throw new AppError(400,'INVALID_CODE','كود الصنف غير صالح');
+    if([...this.items.values()].some(row=>row.companyId===companyId&&row.id!==itemId&&row.sku===next))throw new AppError(409,'ITEM_SKU_EXISTS','كود الصنف مستخدم');
+    const previous=item.sku;item.sku=next;this.#audit(companyId,actorUserId,'item.code.updated','item',itemId,{from:previous,to:next});this.#change(companyId,'item',itemId,'upsert',clone(item));return clone(item);
+  }
   async deleteUnusedItem(companyId,itemId,actorUserId) {
     const item=this.items.get(itemId);if(!item||item.companyId!==companyId)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
     const excluded=new Set(['items','itemUnits','prices','stockBalances','salesSettings']);
