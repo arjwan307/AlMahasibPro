@@ -10,6 +10,9 @@ on:
       - 'public/**'
       - 'tests/**'
   workflow_dispatch:
+concurrency:
+  group: company-desktop-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
