@@ -62,5 +62,11 @@ test('desktop replays offline edits with ID mapping, atomic receipts, conflict r
   assert.equal((await request('/api/local/cloud/status')).data.conflicts,1);assert.ok(local.store.desktopCommands.size>=3);
   const reset=await request('/api/local/cloud/reset',{confirm:true});assert.equal(reset.status,200);assert.ok(reset.data.backupName.startsWith('before-cloud-review-'));assert.equal(local.store.desktopCommands.size,0);assert.equal(local.store.sessions.size,0);assert.ok([...local.store.units.values()].some(x=>x.name==='سحابي'));assert.ok(![...local.store.units.values()].some(x=>x.name==='محلي'));
   const fs=await import('node:fs/promises');const backed=new SQLiteStore(join(dir,'local',reset.data.backupName));assert.ok([...backed.desktopCommands.values()].some(x=>x.status==='conflict'));await backed.close();
+  const other=await cloud.registerCompany({code:'restored-other',legalName:'شركة مستعادة',currency:'IQD',owner:{username:'other',displayName:'مدير آخر',passwordHash:await hashPassword(password)}});await cloud.approveCompany(other.id,other.ownerUserId);
+  await local.store.importCloudSnapshot(await cloud.exportCompanyBackup(other.id),other.id,{initial:true});await local.close();local=null;
+  local=await startEnterpriseLocal({dataDirectory:join(dir,'local'),port:33385,allowTestCloud:true,protect:x=>x,unprotect:x=>x});
+  r=await request('/api/v1/auth/login',{companyCode:other.code,username:'other',password});token=r.data.token;
+  assert.equal((await request('/api/local/cloud/status')).data.connected,false,'restore from another company clears the old cloud connection');assert.equal((await request('/api/local/cloud/synchronize',{})).data.state,'failed');assert.ok(local.store.companies.has(other.id));
+
  }finally{await local?.close();if(server)await new Promise(resolve=>server.close(resolve));await cloud?.close();await rm(dir,{recursive:true,force:true});}
 });
