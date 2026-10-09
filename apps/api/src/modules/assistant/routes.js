@@ -178,6 +178,8 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
   const localResult = (answer, report) => ({ answer, model: 'محرك المحاسبة', localOnly: true, report });
   if (intent === 'catalog-file-preview') {
     if (!has('catalog.read') || !has('inventory.manage')) return { status: 403, code: 'PERMISSION_DENIED', message: 'تهيئة ملف أصناف للمخزون تحتاج صلاحية قراءة الأصناف وإدارة المخزون' };
+    const filename = String(assistantFile?.name || '').toLowerCase();
+    if (!/\.(?:csv|tsv|txt)$/.test(filename)) return { status: 400, code: 'ASSISTANT_FILE_TYPE_UNSUPPORTED', message: 'المعاينة المحلية تدعم ملفات CSV وTSV وTXT فقط حاليًا' };
     const content = String(assistantFile?.content || '');
     if (!content || content.length > 200000) return { status: 400, code: 'ASSISTANT_FILE_INVALID', message: 'الملف فارغ أو أكبر من الحد المسموح (٢٠٠ كيلوبايت)' };
     if (typeof store?.listMasterData !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'دليل الأصناف غير متاح لتهيئة الملف' };
@@ -185,12 +187,12 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
     const choices = [',', ';', '\t'].map(value => [value, (firstLine.match(new RegExp(value === '\t' ? '\\t' : value === ',' ? ',' : ';', 'g')) || []).length]).sort((a,b) => b[1] - a[1]);
     const delimiter = choices[0][1] ? choices[0][0] : ',';
     const parsed = parseDelimitedRows(content, delimiter);
-    if (parsed.length < 2 || parsed.length > 2000) return { status: 400, code: 'ASSISTANT_FILE_INVALID', message: 'يجب أن يحتوي CSV على عناوين أعمدة وصف واحد على الأقل، وبحد أقصى ٢٠٠٠ صف' };
+    if (parsed.length < 2 || parsed.length > 2001) return { status: 400, code: 'ASSISTANT_FILE_INVALID', message: 'يجب أن يحتوي CSV على عناوين أعمدة وصف واحد على الأقل، وبحد أقصى ٢٠٠٠ صف' };
     const normalize = value => String(value || '').toLocaleLowerCase('ar').replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/[ًٌٍَُِّْ]/g,'').replace(/[^\p{L}\p{N}]+/gu,'').trim();
     const headers = parsed[0].map(normalize);
     const codeIndex = headers.findIndex(value => ['code','sku','itemcode','barcode','رمز','كود','رمزالصنف','رقمالصنف'].includes(value));
-    const nameIndex = headers.findIndex(value => ['name','item','product','الصنف','اسم','اسمالصنف','المادة'].includes(value));
-    const qtyIndex = headers.findIndex(value => ['quantity','qty','count','الكمية','كمية','العدد','عدد','الرصيدالفعلي'].includes(value));
+    const nameIndex = headers.findIndex(value => ['name','item','itemname','product','الصنف','اسم','اسمالصنف','المادة','الماده','اسمالمادة','اسمالماده'].includes(value));
+    const qtyIndex = headers.findIndex(value => ['quantity','qty','count','physicalcount','الكمية','كمية','العدد','عدد','الرصيدالفعلي','رصيدالجرد'].includes(value));
     if ((codeIndex < 0 && nameIndex < 0) || qtyIndex < 0) return { status: 400, code: 'ASSISTANT_FILE_COLUMNS_REQUIRED', message: 'لم أتعرف على الأعمدة. استخدم أعمدة code أو name مع quantity (أو: رمز الصنف، اسم الصنف، الكمية)' };
     const data = await store.listMasterData(companyId);
     const items = (data.items || []).filter(item => item.active !== false);
