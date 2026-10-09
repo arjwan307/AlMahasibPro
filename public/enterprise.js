@@ -180,7 +180,7 @@ function bind(){bindErpAccounting();
   else if(button.dataset.leaveDecision){const choice=button.dataset.leaveDecision;await api(`/api/v1/hr/leaves/${id}/decision`,{approved:choice!=='reject',paid:choice==='paid'});}
   else if(button.dataset.overtimeDecision)await api(`/api/v1/hr/overtime/${id}/decision`,{approved:button.dataset.overtimeDecision==='approve'});
   else if(button.dataset.shipmentArrive)await api(`/api/v1/import/shipments/${button.dataset.shipmentArrive}/arrival`,{operationId:crypto.randomUUID(),arrivedAt:new Date().toISOString()});
-  else if(button.dataset.branchToggle){const result=await api(`/api/v1/company/branches/${id}`,{active:button.dataset.active==='true'},'PATCH');state.account.company.branches=(state.account.company.branches||[]).map(branch=>branch.id===id?result.branch:branch);}
+  else if(button.dataset.branchToggle){const result=await api(`/api/v1/company/branches/${button.dataset.branchToggle}`,{active:button.dataset.active==='true'},'PATCH');state.account.company.branches=(state.account.company.branches||[]).map(branch=>branch.id===button.dataset.branchToggle?result.branch:branch);}
   else return;await refresh();notify('تم اعتماد العملية');
  }catch(error){notify(error.message);}};
  $('companyAccountingSettings')?.addEventListener('submit',event=>{event.preventDefault();busy(event.target,async()=>{const result=await api('/api/v1/company/accounting-settings',Object.fromEntries(new FormData(event.target)),'PATCH');state.account.company=result.company;render();notify('تم حفظ عملة الشركة وسعر الصرف');});});
