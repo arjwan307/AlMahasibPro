@@ -69,6 +69,7 @@ export class MemoryStore {
   async close() {}
   async saveSalesSetting(key,value,actor) { this.salesSettings.set(key,clone(value));this.#audit(value.companyId,actor,'sales.setting.updated','sales_setting',key,{});return clone(value); }
   async saveSalesApproval(row) { this.salesApprovals.set(row.id,clone(row));this.#audit(row.companyId,row.reviewedBy||row.userId,'sales.approval.'+row.status,'sales_approval',row.id,{});return clone(row); }
+  async deleteSalesApproval(id,companyId,actorUserId,reason='manual') { const row=this.salesApprovals.get(id);if(!row||row.companyId!==companyId)return false;this.salesApprovals.delete(id);this.#audit(companyId,actorUserId,reason==='expired'?'sales.approval.expired':'sales.approval.deleted','sales_approval',id,{reason});return true; }
   async saveSalesReview(row) { this.salesReviews.set(row.id,clone(row));return clone(row); }
 
   async postStocktake(context, input) {
