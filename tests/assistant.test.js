@@ -610,15 +610,18 @@ test('assistant reads current stock locally inside inventory permission and ware
     globalThis.fetch=async()=>{throw new Error('stock data must remain local')};
     let reads=0;
     const store={
+      salesSettings:new Map(),
       warehouses:new Map([['wh-1',{id:'wh-1',companyId:'co',name:'المخزن الرئيسي'}],['wh-2',{id:'wh-2',companyId:'co',name:'مخزن الفرع'}]]),
-      listMasterData:async()=>{reads++;return {items:[{id:'item-1',sku:'S-1',name:'سكر',baseUnitId:'unit-1'}],units:[{id:'unit-1',name:'كغم'}],warehouses:[{id:'wh-1',name:'المخزن الرئيسي'},{id:'wh-2',name:'مخزن الفرع'}],stock:[{itemId:'item-1',warehouseId:'wh-1',quantity:'25.500000'},{itemId:'item-1',warehouseId:'wh-2',quantity:'99.000000'}]};}
+      listMasterData:async()=>{reads++;return {items:[{id:'item-1',sku:'S-1',name:'سكر',baseUnitId:'unit-1'}],units:[{id:'unit-1',name:'كغم'}],warehouses:[{id:'wh-1',name:'المخزن الرئيسي'},{id:'wh-2',name:'مخزن الفرع'}],stock:[{itemId:'item-1',warehouseId:'wh-1',quantity:'25.500000'},{itemId:'item-1',warehouseId:'wh-2',quantity:'99.000000'}],prices:[{itemId:'item-1',unitId:'unit-1',priceType:'sale_wholesale',amount:'1500.000000',currency:'IQD',active:true,validFrom:'2026-10-01'},{itemId:'item-1',unitId:'unit-1',priceType:'sale_retail',amount:'1800.000000',currency:'IQD',active:true,validFrom:'2026-10-01'},{itemId:'item-1',unitId:'unit-1',priceType:'purchase',amount:'900.000000',currency:'IQD',active:true,validFrom:'2026-10-01'}]};}
     };
-    const routes=setup(undefined,store),ask=async permissions=>{const response=capture();await routes['POST /api/v1/assistant/chat'].handler({auth:{company:{id:'co'},user:{id:'u1'},permissions,scopes:[{type:'warehouse',id:'wh-1'}]},body:{messages:[{role:'user',content:'هل تستطيع قراءة المخزون؟'}]}},response);return response;};
+    const routes=setup(undefined,store),ask=async permissions=>{const response=capture();await routes['POST /api/v1/assistant/chat'].handler({auth:{company:{id:'co'},user:{id:'u1'},roles:[{code:'wholesale_representative'}],permissions,scopes:[{type:'warehouse',id:'wh-1'}]},body:{messages:[{role:'user',content:'اعرض المخزون وأسعار البيع'}]}},response);return response;};
     const allowed=await ask(['assistant.use','inventory.read']);
     assert.equal(allowed.statusCode,200);
     assert.equal(allowed.body.localOnly,true);
     assert.equal(allowed.body.report.rows.length,1);
-    assert.deepEqual(allowed.body.report.rows[0],['المخزن الرئيسي','S-1','سكر','كغم','25.500000']);
+    assert.deepEqual(allowed.body.report.rows[0],['المخزن الرئيسي','S-1','سكر','كغم','25.500000','1500.000000','IQD']);
+    assert.ok(!allowed.body.report.rows[0].includes('1800.000000'));
+    assert.ok(!allowed.body.report.rows[0].includes('900.000000'));
     assert.equal(reads,1);
     const denied=await ask(['assistant.use']);
     assert.equal(denied.statusCode,403);
