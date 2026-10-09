@@ -81,7 +81,7 @@ test('payroll approval, cashbox closing, and import landed costs post once to SQ
     assert.equal((await request(`/api/v1/hr/payroll/cycles/${cycle.id}/pay`,{operationId:payId,paymentNumber:'PAY-CHANGED'})).status,409);
     await create(`/api/v1/hr/payroll/cycles/${cycle.id}/adjustments`,{operationId:crypto.randomUUID(),employeeId:employee.id,adjustmentNumber:'ADJ-1',adjustmentType:'recovery',amount:'25000',currency:'IQD',reason:'تسوية اختبار'});
 
-    const box=(await create('/api/v1/treasury/cashboxes',{code:'MAIN-IQD',name:'الصندوق الرئيسي',currency:'IQD'})).cashbox;
+    const box=(await create('/api/v1/treasury/cashboxes',{code:'MAIN-IQD',name:'الصندوق الرئيسي',currency:'IQD',branchId:mainBranch.id})).cashbox;
     const opened=(await create(`/api/v1/treasury/cashboxes/${box.id}/open`,{operationId:crypto.randomUUID(),sessionNumber:'SHIFT-1',openingBalance:'100'})).session;
     const priorMovement=await request(`/api/v1/treasury/cashboxes/${box.id}/movements`,{operationId:crypto.randomUUID(),movementNumber:'CASH-PRIOR',direction:'in',amount:'1',counterAccountCode:'3000-EQUITY',occurredAt:new Date(Date.parse(opened.openedAt)-1000).toISOString()});
     assert.equal(priorMovement.status,400,'cashbox movements cannot predate the session');
