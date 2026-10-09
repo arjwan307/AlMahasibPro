@@ -593,15 +593,14 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
     if (typeof store?.listMasterData !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'دليل الأصناف غير متاح لإعداد معاينة الاستلام' };
     const data = await store.listMasterData(companyId);
     const text = String(assistantQuery || '').replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
-    const normalize = value => String(value || '').toLocaleLowerCase('ar').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ًٌٍَُِّْ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
     const candidates = (data.items || []).filter(item => item.active !== false)
       .map(item => ({ item, name: String(item.name || '').trim() }))
       .filter(row => row.name.length > 1)
       .sort((a,b) => b.name.length - a.name.length);
     const matches = [];
     for (const row of candidates) {
-      const needle = normalize(row.name);
-      const haystack = normalize(text);
+      const needle = row.name.toLocaleLowerCase('ar');
+      const haystack = text.toLocaleLowerCase('ar');
       let from = 0;
       while (needle && (from = haystack.indexOf(needle, from)) >= 0) {
         const end = from + needle.length;
@@ -622,7 +621,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
       const unit = (item.units || []).find(row => row.isBase) || (item.units || []).find(row => row.unitId === item.baseUnitId) || (item.units || [])[0];
       const unitId = unit?.unitId || item.baseUnitId || '';
       const itemUnitName = units.get(unitId) || '—';
-      const stockQuantity = has('inventory.read') ? (data.stock || []).filter(row => row.itemId === item.id).reduce((sum,row) => sum + Number(row.quantity || 0), 0) : null;
+      const stockQuantity = has('inventory.read') ? (data.stock || []).filter(row => row.itemId === item.id && canSeeWarehouse(row.warehouseId)).reduce((sum,row) => sum + Number(row.quantity || 0), 0) : null;
       return [item.sku || '—', item.name || item.id, Number.isFinite(quantity) && quantity > 0 ? String(quantity) : '—', itemUnitName,
         stockQuantity === null ? 'غير متاح حسب الصلاحية' : String(stockQuantity), Number.isFinite(quantity) && quantity > 0 ? 'صنف مطابق؛ راجع الوحدة' : 'أدخل كمية صالحة'];
     });
@@ -818,7 +817,6 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
     if (!has('accounting.read') || !has('accounting.post')) return { status: 403, code: 'PERMISSION_DENIED', message: 'إعداد مسودة قيد يحتاج صلاحية قراءة الحسابات وصلاحية accounting.post؛ لم أكتب أو أرحّل أي قيد' };
     if (typeof store?.listChartAccounts !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'دليل الحسابات غير متاح لإعداد مسودة القيد' };
     const chart = (await store.listChartAccounts(companyId)).filter(account => account.active !== false);
-    const normalize = value => String(value || '').toLocaleLowerCase('ar').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ًٌٍَُِّْ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
     const normalized = String(assistantQuery || '').replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit))).replace(/٫/g, '.').replace(/٬/g, '').replace(/^.*?(?=(?:مدين|دائن)\s)/s, '');
     const segments = normalized.replace(/[,،](?=\s*(?:مدين|دائن)\s)/g, ';').split(/[;؛|]+/).map(value => value.trim()).filter(Boolean);
     const lines = [];
