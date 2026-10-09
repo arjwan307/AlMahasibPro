@@ -59,8 +59,7 @@ async function restoreBackup() {
   await fs.copyFile(selected.filePaths[0], temporary);
   const { SQLiteStore } = await import('../api/src/store/sqlite-store.js');
   const restored = new SQLiteStore(temporary);
-  restored.sessions.clear();
-  await restored.listMasterData([...restored.companies.keys()][0]);
+  await restored.transaction(()=>restored.sessions.clear());
   await restored.close();
   await fs.rename(temporary, destination);
   app.relaunch(); app.exit(0);
