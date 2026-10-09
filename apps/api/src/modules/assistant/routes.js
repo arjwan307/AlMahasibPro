@@ -163,8 +163,9 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
   const companyId = auth?.company?.id;
   const table = (title, columns, rows) => ({ title, columns, rows });
   const has = permission => auth.permissions?.includes(permission);
-  const salesRep = auth.roles?.some(role => role.code === 'representative') && !has('company.manage');
+  const salesRep = auth.roles?.some(role => ['representative','wholesale_representative','retail_representative'].includes(role.code)) && !has('company.manage');
   const salesScoped = salesRep || Boolean(store?.salesSettings?.get?.('user:' + auth.user?.id)?.salesManager);
+  const defaultSalesChannel = auth.roles?.some(role => role.code === 'wholesale_representative' || role.code === 'wholesale_manager') ? 'wholesale' : 'retail';
   const canSeeWarehouse = warehouseId => {
     const scopes = auth.scopes || [];
     const warehouses = scopes.filter(scope => scope.type === 'warehouse');
@@ -315,9 +316,22 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
     if (intent === 'stock-balance') {
       const visibleWarehouses=(master.warehouses||[]).filter(row=>canSeeWarehouse(row.id));
       const stock=(master.stock||[]).filter(row=>canSeeWarehouse(row.warehouseId));
-      const rows=stock.map(row=>{const item=itemById.get(row.itemId);return [warehouseById.get(row.warehouseId)||'—',item?.sku||'—',item?.name||row.itemId,unitById.get(item?.baseUnitId)||'—',row.quantity||'0'];})
-        .sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'ar')||String(a[2]).localeCompare(String(b[2]),'ar')).slice(0,1000);
-      return localResult(`قرأت أرصدة المخزون محليًا من سجلات الشركة. ${rows.length} رصيد ضمن ${visibleWarehouses.length} مخزن مسموح لحسابك؛ لم أغيّر أي كمية.`,table(reportName,['المخزن','الكود','الصنف','الوحدة الأساسية','الرصيد'],rows));
+      const channel=store.salesSettings?.get?.('user:'+auth.user?.id)?.channel||defaultSalesChannel;
+      const includeSalePrices=has('catalog.read');
+      const rows=stock.map(row=>{
+        const item=itemById.get(row.itemId);
+        const unitId=item?.baseUnitId||(item?.units||[]).find(unit=>unit.isBase)?.unitId;
+        const result=[warehouseById.get(row.warehouseId)||'—',item?.sku||'—',item?.name||row.itemId,unitById.get(unitId)||'—',row.quantity||'0'];
+        if(includeSalePrices){
+          const candidates=(master.prices||[]).filter(price=>price.active!==false&&price.itemId===row.itemId&&price.unitId===unitId&&['sale_'+channel,'sale'].includes(price.priceType)).sort((a,b)=>String(b.validFrom||'').localeCompare(String(a.validFrom||'')));
+          const price=candidates.find(value=>value.priceType==='sale_'+channel)||candidates.find(value=>value.priceType==='sale');
+          result.push(price?.amount||'لا يوجد سعر',price?.currency||auth.company.currency||'—');
+        }
+        return result;
+      }).sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'ar')||String(a[2]).localeCompare(String(b[2]),'ar')).slice(0,1000);
+      const columns=['المخزن','الكود','الصنف','الوحدة الأساسية','الرصيد'];
+      if(includeSalePrices)columns.push('سعر البيع','العملة');
+      return localResult('قرأت أرصدة المخزون محليًا من سجلات الشركة. '+rows.length+' رصيد ضمن '+visibleWarehouses.length+' مخزن مسموح لحسابك'+(includeSalePrices?'، وأظهرت سعر البيع المسموح فقط':'')+'؛ لم أغيّر أي كمية أو سعر.',table(reportName,columns,rows));
     }
     if (intent === 'movement-search') {
       const needle=reportSearchTerm(assistantQuery,new Set(['ابحث','بحث','دور','جد','لي','عن','حركة','المستند','فاتورة','مستند','رقم','برقم','من','الى','إلى']));
@@ -477,7 +491,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
     if (typeof store?.listMasterData !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'دليل الأصناف غير متاح في هذا الخادم بعد' };
     const data = await store.listMasterData(companyId);
     const query = String(assistantQuery || '').replace(/(?:ابحث|دور|بحث)\s+(?:لي\s+)?(?:عن\s+)?|(?:سعر|سعره|سعرها)\s+(?:الصنف|المادة)/ig, '').replace(/(?:صنفاً|صنف|مادة|item)/ig, '').trim().toLocaleLowerCase();
-    const channel = store.salesSettings?.get?.('user:' + auth.user?.id)?.channel || 'retail';
+    const channel = store.salesSettings?.get?.('user:' + auth.user?.id)?.channel || defaultSalesChannel;
     const prices = (data.prices || []).filter(price => price.active !== false && ['sale','sale_'+channel,'sale_retail','sale_wholesale'].includes(price.priceType) && (!salesScoped || ['sale','sale_'+channel].includes(price.priceType)));
     const units = new Map((data.units || []).map(unit=>[unit.id,unit.name || unit.code || unit.id]));
     const stock = (data.stock || []).filter(row=>canSeeWarehouse(row.warehouseId));
@@ -773,7 +787,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
     const data = await store.listMasterData(companyId);
     const items = new Map((data.items || []).map(item => [item.id, item]));
     const latest = new Map();
-    const channel = store.salesSettings?.get?.('user:' + auth.user?.id)?.channel || 'retail';
+    const channel = store.salesSettings?.get?.('user:' + auth.user?.id)?.channel || defaultSalesChannel;
     for (const price of data.prices || []) {
       if (price.active === false || !['sale', 'sale_retail', 'sale_wholesale'].includes(price.priceType)) continue;
       if (salesScoped && !['sale', 'sale_' + channel].includes(price.priceType)) continue;
