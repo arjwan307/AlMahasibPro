@@ -3,7 +3,28 @@ const root=document.getElementById('assistantRoot'),workspace=document.getElemen
 if(!root||!workspace)return;
 const launcher=document.getElementById('assistantLauncher'),panel=document.getElementById('assistantPanel'),status=document.getElementById('assistantStatus'),messagesBox=document.getElementById('assistantMessages'),form=document.getElementById('assistantForm'),input=form.elements.message,send=form.querySelector('button[type="submit"]');
 launcher.textContent='المساعد الذكي';document.querySelector('.assistant-head strong')?.replaceChildren('المساعد الذكي');
-const history=[];let ready=false,busy=false,attachedFile=null;
+const history=[];let ready=false,busy=false,attachedFile=null,attachedPageContext=null,checkpointKey=null;
+const readPageButton=document.getElementById('assistantReadPage'),pageContextStatus=document.getElementById('assistantContextStatus');
+function updatePageContextStatus(){if(!pageContextStatus)return;pageContextStatus.hidden=!attachedPageContext;pageContextStatus.textContent=attachedPageContext?'أُرفقت صفحة «'+String(attachedPageContext.title||'الحالية')+'». سيُرسل النص الظاهر لمزوّد الذكاء عند الضغط على إرسال.':'';
+ if(readPageButton)readPageButton.textContent=attachedPageContext?'إزالة الصفحة':'قراءة الصفحة الحالية';}
+function saveAssistantCheckpoint(){if(!checkpointKey)return;try{localStorage.setItem(checkpointKey,JSON.stringify({version:1,savedAt:Date.now(),history:history.slice(-12).map(message=>({role:message.role,content:String(message.content||'').slice(0,4000)})),draft:String(input.value||'').slice(0,4000)}));}catch{}}
+let checkpointTimer=null;
+function scheduleAssistantCheckpoint(){if(checkpointTimer)clearTimeout(checkpointTimer);checkpointTimer=setTimeout(saveAssistantCheckpoint,300);}
+window.addEventListener('pagehide',saveAssistantCheckpoint);
+window.addEventListener('almahasib:assistant-session',event=>{
+ const identity=event.detail||{},companyId=String(identity.companyId||''),userId=String(identity.userId||'');
+ if(!companyId||!userId)return;
+ checkpointKey='almahasib_assistant_checkpoint:'+encodeURIComponent(companyId)+':'+encodeURIComponent(userId);
+ try{
+  const raw=localStorage.getItem(checkpointKey);if(!raw)return;
+  const saved=JSON.parse(raw);if(saved.version!==1||Date.now()-Number(saved.savedAt)>7*86400000){localStorage.removeItem(checkpointKey);return;}
+  if(!confirm('وجدت آخر عمل محفوظًا للمساعد لهذا المستخدم. هل تريد استعادته؟'))return;
+  history.splice(0,history.length,...(Array.isArray(saved.history)?saved.history:[]).filter(message=>['user','assistant'].includes(message.role)&&typeof message.content==='string').slice(-12));
+  messagesBox.querySelector('.assistant-welcome')?.remove();
+  for(const message of history)addMessage(message.content,message.role);
+  input.value=String(saved.draft||'').slice(0,4000);updatePageContextStatus();input.focus();
+ }catch{try{localStorage.removeItem(checkpointKey);}catch{}}
+});
 const filePicker=document.getElementById('assistantFile'),fileStatus=document.getElementById('assistantFileStatus'),attachButton=document.getElementById('assistantAttach');
 const infoButton=document.getElementById('assistantInfoButton'),infoDialog=document.getElementById('assistantInfoDialog'),infoRole=document.getElementById('assistantInfoRole'),infoPermissions=document.getElementById('assistantInfoPermissions');
 const FILE_HELP='حتى ٢٠ ميغابايت؛ XLSX وDOCX وCSV وTSV وTXT. يمكنك لصق النص.';
@@ -16,6 +37,13 @@ function addDocumentPreview(name,content){const section=document.createElement('
 
 async function setAttachedFile(file){attachedFile=null;if(!file){fileStatus.textContent='حتى ٢٠ ميغابايت؛ CSV وTSV وTXT وExcel وWord. يمكنك لصق النص.';return;}if(file.size>20*1024*1024){fileStatus.textContent='الحد الأقصى للملف ٢٠ ميغابايت';filePicker.value='';return;}try{if(/\.docx$/i.test(file.name)){const text=await readDocx(file);addDocumentPreview(file.name,text);fileStatus.textContent='استخرجت نص Word محليًا؛ راجعه ثم انسخه للصقه في المحادثة.';filePicker.value='';return;}if(/\.xlsx$/i.test(file.name)){const workbook=await readXlsx(file);attachedFile={name:file.name.replace(/\.xlsx$/i,'.tsv'),content:workbook.content};fileStatus.textContent='Excel جاهز لمعاينة الأصناف محليًا: '+workbook.sheetName+' · '+file.name;return;}if(!/\.(?:csv|tsv|txt)$/i.test(file.name)){attachedFile={name:file.name,unsupported:true};fileStatus.textContent='يدعم Word بصيغة DOCX وExcel بصيغة XLSX؛ صيغ DOC وXLS القديمة والصور وPDF غير مدعومة بعد.';return;}const content=await file.text();attachedFile={name:file.name,content};fileStatus.textContent='جاهز للمعاينة المحلية: '+file.name+' ('+file.size+' بايت)';}catch(error){attachedFile=null;filePicker.value='';fileStatus.textContent=error.message||'تعذرت قراءة الملف محليًا';}}
 attachButton?.addEventListener('click',()=>filePicker?.click());
+readPageButton?.addEventListener('click',()=>{
+ if(attachedPageContext){attachedPageContext=null;updatePageContextStatus();return;}
+ if(attachedFile){addMessage('أزل الملف المرفق قبل إرفاق الصفحة الحالية.','assistant',true);return;}
+ try{const context=window.AlMahasibReadPageContext?.();if(!context?.content)throw Error('تعذر قراءة محتوى الصفحة الحالية');attachedPageContext=context;updatePageContextStatus();}
+ catch(error){addMessage(error.message||'تعذر قراءة الصفحة الحالية','assistant',true);}
+});
+input.addEventListener('input',scheduleAssistantCheckpoint);
 function openAssistantInfo(){
  const role=document.getElementById('profileRoles')?.textContent?.trim()||'غير محدد';
  if(infoRole)infoRole.textContent='الدور الحالي: '+role+' · البيانات المعروضة تتبع صلاحيات هذا الحساب ونطاق مخازنه.';
@@ -40,11 +68,12 @@ function show(){panel.hidden=false;launcher.setAttribute('aria-expanded','true')
 function hide(){panel.hidden=true;launcher.setAttribute('aria-expanded','false');}
 launcher.addEventListener('click',()=>panel.hidden?show():hide());document.getElementById('assistantClose').addEventListener('click',hide);
 form.addEventListener('submit',async event=>{event.preventDefault();const text=input.value.trim();if(busy)return;if(attachedFile?.unsupported){addMessage('هذا النوع من الملفات غير مدعوم؛ لم أرسله. يدعم المساعد DOCX وXLSX وCSV وTSV وTXT.','assistant',true);attachedFile=null;if(filePicker)filePicker.value='';if(fileStatus)fileStatus.textContent=FILE_HELP;return;}if(!text&&!attachedFile)return;
- const message=text||'هيئ الملف المرفق للمعاينة';const file=attachedFile;
- busy=true;send.disabled=true;input.value='';addMessage(file?'📎 '+file.name+(text?' — '+text:''):message,'user');history.push({role:'user',content:message});
- try{const data=await api('/api/v1/assistant/chat',{method:'POST',body:JSON.stringify({messages:history.slice(-12),...(file?{assistantFile:file}:{})})});if(!data.localOnly)history.push({role:'assistant',content:data.answer});addMessage(data.answer,'assistant');addReport(data.report);}
+ if(attachedFile&&attachedPageContext){addMessage('أرسل الملف أو الصفحة الحالية في طلب منفصل.','assistant',true);return;}
+ const message=text||'هيئ الملف المرفق للمعاينة';const file=attachedFile;const pageContext=attachedPageContext;
+ busy=true;send.disabled=true;input.value='';addMessage(file?'📎 '+file.name+(text?' — '+text:''):message,'user');history.push({role:'user',content:message});scheduleAssistantCheckpoint();
+ try{const data=await api('/api/v1/assistant/chat',{method:'POST',body:JSON.stringify({messages:history.slice(-12),...(file?{assistantFile:file}:{}),...(pageContext?{pageContext}:{})})});if(!data.localOnly&&!pageContext){history.push({role:'assistant',content:data.answer});scheduleAssistantCheckpoint();}addMessage(data.answer,'assistant');addReport(data.report);if(pageContext){attachedPageContext=null;updatePageContextStatus();}}
  catch(error){addMessage(error.message,'assistant',true);}
- finally{attachedFile=null;if(filePicker)filePicker.value='';if(fileStatus)fileStatus.textContent=FILE_HELP;busy=false;send.disabled=false;input.focus();}
+ finally{attachedFile=null;if(filePicker)filePicker.value='';if(fileStatus)fileStatus.textContent=FILE_HELP;busy=false;send.disabled=false;scheduleAssistantCheckpoint();input.focus();}
 });
 const observer=new MutationObserver(()=>{if(!workspace.hidden){root.hidden=false;observer.disconnect();checkStatus();}});observer.observe(workspace,{attributes:true,attributeFilter:['hidden']});
 if(!workspace.hidden){root.hidden=false;checkStatus();}else if(sessionStorage.getItem('almahasib_login_success')==='1'){root.hidden=false;checkStatus();}
