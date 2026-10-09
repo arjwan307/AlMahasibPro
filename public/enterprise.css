@@ -65,3 +65,5 @@ input:focus,select:focus,textarea:focus{outline:3px solid #126b6522;border-color
 
 #categoryEditor{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto}
 @media(max-width:600px){#categoryEditor{grid-template-columns:1fr}}
+
+.item-category-dialog form{display:grid;gap:18px}.item-category-dialog h3{margin:0}.item-category-dialog .actions{justify-content:flex-end}
