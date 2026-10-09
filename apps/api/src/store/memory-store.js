@@ -846,8 +846,11 @@ export class MemoryStore {
     const code = String(input.code || '').trim().toUpperCase();
     const currency = String(input.currency || '').toUpperCase();
     if (!code || !['IQD','USD'].includes(currency)) throw new AppError(400,'INVALID_CASHBOX','رمز الصندوق وعملته غير صالحين');
-    if ([...this.cashboxes.values()].some(x => x.companyId === companyId && (x.code === code || x.currency === currency))) throw new AppError(409,'CASHBOX_EXISTS','يوجد صندوق بهذه العملة أو الرمز');
-    const row = { id: randomUUID(), companyId, code, name: String(input.name || '').trim().slice(0,100), currency, accountCode: currency === 'USD' ? '1000-CASH-USD' : '1000-CASH', active: true, createdBy: context.user.id, createdAt: new Date().toISOString() };
+    if ([...this.cashboxes.values()].some(x => x.companyId === companyId && x.code === code)) throw new AppError(409,'CASHBOX_EXISTS','رمز الصندوق مستخدم');
+    const branchId=input.branchId||null, branch=branchId?(this.companies.get(companyId)?.branches||[]).find(x=>x.id===branchId&&x.active!==false):null;
+    if(branchId&&!branch)throw new AppError(400,'BRANCH_NOT_FOUND','الفرع المحدد غير موجود أو متوقف');
+    if(branchId&&(context.scopes||[]).some(x=>x.type==='branch')&&!(context.scopes||[]).some(x=>x.type==='branch'&&x.id===branchId))throw new AppError(403,'BRANCH_SCOPE_DENIED','الفرع خارج نطاق حسابك');
+    const row = { id: randomUUID(), companyId, branchId, code, name: String(input.name || '').trim().slice(0,100), currency, accountCode: currency === 'USD' ? '1000-CASH-USD' : '1000-CASH', active: true, createdBy: context.user.id, createdAt: new Date().toISOString() };
     this.cashboxes.set(row.id, row);
     this.#audit(companyId,context.user.id,'cashbox.created','cashbox',row.id,{code,currency});
     this.#change(companyId,'cashbox',row.id,'upsert',row);
@@ -879,9 +882,9 @@ export class MemoryStore {
     const opening = decimal(input.openingBalance,{nonNegative:true});
     const previous = [...this.cashboxSessions.values()].filter(x => x.companyId === companyId && x.cashboxId === box.id && x.status === 'closed').sort((a,b) => String(b.closedAt).localeCompare(String(a.closedAt)))[0];
     let journal = null;
-    if (!previous && opening > ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-${box.code}-${input.sessionNumber}`,box.currency,[[box.accountCode,opening,ZERO],['3000-EQUITY',ZERO,opening]]);
+    if (!previous && opening > ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-${box.code}-${input.sessionNumber}`,box.currency,[[box.accountCode,opening,ZERO],['3000-EQUITY',ZERO,opening]],{branchId:box.branchId,cashboxId:box.id});
     let openingVariance=ZERO;
-    if(previous){const later=[...this.journalEntries.values()].filter(j=>j.companyId===companyId&&j.currency===box.currency&&j.id!==previous.closingJournalId&&String(j.occurredAt)>previous.closedAt&&String(j.occurredAt)<=input.openedAt&&j.status==='posted').flatMap(j=>j.lines).filter(line=>(line.accountCode||line.account)===box.accountCode).reduce((sum,line)=>sum+decimal(line.debit||'0')-decimal(line.credit||'0'),ZERO);const book=decimal(previous.countedBalance)+later;openingVariance=opening-book;if(openingVariance>ZERO)journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-SURPLUS-${box.code}-${input.sessionNumber}`,box.currency,[[box.accountCode,openingVariance,ZERO],['4800-OTHER-INCOME',ZERO,openingVariance]]);else if(openingVariance<ZERO)journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-SHORT-${box.code}-${input.sessionNumber}`,box.currency,[['6150-CASH-SHORTAGE',-openingVariance,ZERO],[box.accountCode,ZERO,-openingVariance]]);}
+    if(previous){const later=[...this.journalEntries.values()].filter(j=>j.companyId===companyId&&j.currency===box.currency&&j.id!==previous.closingJournalId&&String(j.occurredAt)>previous.closedAt&&String(j.occurredAt)<=input.openedAt&&j.status==='posted').flatMap(j=>j.lines).filter(line=>(line.accountCode||line.account)===box.accountCode&&(line.cashboxId===box.id||(!line.cashboxId&&!box.branchId))).reduce((sum,line)=>sum+decimal(line.debit||'0')-decimal(line.credit||'0'),ZERO);const book=decimal(previous.countedBalance)+later;openingVariance=opening-book;if(openingVariance>ZERO)journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-SURPLUS-${box.code}-${input.sessionNumber}`,box.currency,[[box.accountCode,openingVariance,ZERO],['4800-OTHER-INCOME',ZERO,openingVariance]]);else if(openingVariance<ZERO)journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-SHORT-${box.code}-${input.sessionNumber}`,box.currency,[['6150-CASH-SHORTAGE',-openingVariance,ZERO],[box.accountCode,ZERO,-openingVariance]]);}
     const row = { id: input.sessionId || randomUUID(), companyId, cashboxId: box.id, sessionNumber: input.sessionNumber, status: 'open', currency: box.currency, openingBalance: decimalString(opening), openingVariance: decimalString(openingVariance), openingJournalId: journal?.id || null, openOperationId: input.operationId, openedAt: input.openedAt, openedBy: context.user.id, expectedBalance: decimalString(opening), countedBalance: null, variance: null };
     this.cashboxSessions.set(row.id,row);
     this.#audit(companyId,context.user.id,'cashbox.opened','cashbox_session',row.id,{});
@@ -908,7 +911,7 @@ export class MemoryStore {
     const counterCode = String(input.counterAccountCode || '').trim().toUpperCase();
     if (counterCode === box.accountCode || !this.listChartAccounts(companyId).some(x => x.code === counterCode && x.active)) throw new AppError(400,'ACCOUNT_NOT_FOUND','الحساب المقابل غير موجود');
     const lines = input.direction === 'in' ? [[box.accountCode,amount,ZERO],[counterCode,ZERO,amount]] : [[counterCode,amount,ZERO],[box.accountCode,ZERO,amount]];
-    const journal = this.#simpleJournal(context,{operationId,occurredAt:input.occurredAt},`CASH-${box.code}-${input.movementNumber}`,box.currency,lines);
+    const journal = this.#simpleJournal(context,{operationId,occurredAt:input.occurredAt},`CASH-${box.code}-${input.movementNumber}`,box.currency,lines,{branchId:box.branchId,cashboxId:box.id});
     const row = { id: randomUUID(), companyId, cashboxId: box.id, sessionId: session.id, movementNumber: input.movementNumber, operationId, direction: input.direction, amount: decimalString(amount), currency: box.currency, counterAccountCode: counterCode, reference: String(input.reference || '').slice(0,160), note: String(input.note || '').slice(0,500), journalEntryId: journal.id, occurredAt: input.occurredAt, createdBy: context.user.id };
     this.cashboxMovements.set(row.id,row);
     session.expectedBalance = decimalString(this.#cashboxExpectedBalance(session,box));
@@ -930,8 +933,8 @@ export class MemoryStore {
     const expected = this.#cashboxExpectedBalance(session,box);
     const variance = counted - expected;
     let journal = null;
-    if (variance > ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.closedAt},`CASH-SURPLUS-${box.code}-${session.sessionNumber}`,box.currency,[[box.accountCode,variance,ZERO],['4800-OTHER-INCOME',ZERO,variance]]);
-    else if (variance < ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.closedAt},`CASH-SHORT-${box.code}-${session.sessionNumber}`,box.currency,[['6150-CASH-SHORTAGE',-variance,ZERO],[box.accountCode,ZERO,-variance]]);
+    if (variance > ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.closedAt},`CASH-SURPLUS-${box.code}-${session.sessionNumber}`,box.currency,[[box.accountCode,variance,ZERO],['4800-OTHER-INCOME',ZERO,variance]],{branchId:box.branchId,cashboxId:box.id});
+    else if (variance < ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.closedAt},`CASH-SHORT-${box.code}-${session.sessionNumber}`,box.currency,[['6150-CASH-SHORTAGE',-variance,ZERO],[box.accountCode,ZERO,-variance]],{branchId:box.branchId,cashboxId:box.id});
     session.status = 'closed'; session.expectedBalance = decimalString(expected); session.countedBalance = decimalString(counted); session.variance = decimalString(variance); session.closeOperationId = input.operationId; session.closingJournalId = journal?.id || null; session.closedAt = input.closedAt; session.closedBy = context.user.id;
     this.#audit(companyId,context.user.id,'cashbox.closed','cashbox_session',session.id,{variance:session.variance});
     this.#change(companyId,'cashbox_session',session.id,'upsert',session);
@@ -1008,7 +1011,7 @@ export class MemoryStore {
     return [...this.importShipments.values()].filter(x => x.companyId === companyId).map(clone);
   }
 
-  #cashboxExpectedBalance(session,box){const delta=[...this.journalEntries.values()].filter(j=>j.companyId===session.companyId&&j.currency===box.currency&&j.id!==session.openingJournalId&&String(j.occurredAt)>=session.openedAt&&j.status==='posted').flatMap(j=>j.lines).filter(line=>(line.accountCode||line.account)===box.accountCode).reduce((sum,line)=>sum+decimal(line.debit||'0')-decimal(line.credit||'0'),ZERO);return decimal(session.openingBalance)+delta;}
+  #cashboxExpectedBalance(session,box){const delta=[...this.journalEntries.values()].filter(j=>j.companyId===session.companyId&&j.currency===box.currency&&j.id!==session.openingJournalId&&String(j.occurredAt)>=session.openedAt&&j.status==='posted').flatMap(j=>j.lines).filter(line=>(line.accountCode||line.account)===box.accountCode&&(line.cashboxId===box.id||(!line.cashboxId&&!box.branchId))).reduce((sum,line)=>sum+decimal(line.debit||'0')-decimal(line.credit||'0'),ZERO);return decimal(session.openingBalance)+delta;}
 
   async listCustomerAccountSummaries(companyId) {
     const company = this.companies.get(companyId), currency = company?.currency || 'IQD', result = {};
@@ -1373,8 +1376,8 @@ export class MemoryStore {
   }
   #recordDebt(companyId, customerId, representativeId, documentId, operation, type, amount, currency) { const row = { id: randomUUID(), companyId, customerId, representativeId, documentId, operationId: operation.operationId, movementType: type, amount: decimalString(amount), currency, occurredAt: operation.occurredAt }; this.debtMovements.set(row.id, Object.freeze(row)); }
   #recordCustody(companyId, representativeId, operation, type, amount, currency, referenceType, referenceId) { const row = { id: randomUUID(), companyId, representativeId, operationId: operation.operationId, movementType: type, amount: decimalString(amount), currency, referenceType, referenceId, occurredAt: operation.occurredAt }; this.custodyMovements.set(row.id, Object.freeze(row)); }
-  #simpleJournal(context, operation, number, currency, lines) {
-    const normalized = lines.filter(([,debit,credit]) => debit || credit).map(([accountCode,debit,credit]) => ({ accountCode, debit: decimalString(debit), credit: decimalString(credit) }));
+  #simpleJournal(context, operation, number, currency, lines, dimensions = {}) {
+    const normalized = lines.filter(([,debit,credit]) => debit || credit).map(([accountCode,debit,credit]) => ({ accountCode, debit: decimalString(debit), credit: decimalString(credit),...(dimensions.branchId?{branchId:dimensions.branchId}:{}),...(dimensions.cashboxId?{cashboxId:dimensions.cashboxId}:{}) }));
     const companyId = context.company.id;
     const existing = operation.operationId ? [...this.journalEntries.values()].find(row => row.companyId === companyId && row.operationId === operation.operationId) : null;
     if (existing) {
@@ -1382,7 +1385,7 @@ export class MemoryStore {
       return clone(existing);
     }
     if ([...this.journalEntries.values()].some(row => row.companyId === companyId && row.entryNumber === number)) throw new AppError(409,'ENTRY_NUMBER_EXISTS','رقم القيد مستخدم');
-    const journal = { id: randomUUID(), companyId, entryNumber: number, operationId: operation.operationId || null, status: 'posted', currency, description: number, occurredAt: operation.occurredAt, createdBy: context.user.id, lines: normalized };
+    const journal = { id: randomUUID(), companyId, entryNumber: number, operationId: operation.operationId || null, status: 'posted', currency, branchId:dimensions.branchId||null, cashboxId:dimensions.cashboxId||null, description: number, occurredAt: operation.occurredAt, createdBy: context.user.id, lines: normalized };
     const debit = journal.lines.reduce((sum,row) => sum + decimal(row.debit),ZERO), credit = journal.lines.reduce((sum,row) => sum + decimal(row.credit),ZERO);
     if (debit !== credit) throw new AppError(500,'UNBALANCED_JOURNAL','القيد غير متوازن');
     this.journalEntries.set(journal.id,Object.freeze(journal));
@@ -1512,6 +1515,13 @@ export class MemoryStore {
     if (isReturn && [...this.financialRecords.values()].some(row => row.companyId === companyId && row.kind === 'enterprise_settlement' && row.documentId === payload.originalDocumentId)) throw new AppError(409, 'SETTLED_RETURN_REVIEW_REQUIRED', 'الفاتورة لها سندات تسوية؛ يلزم معالجة التسوية قبل المرتجع');
     const expectedOriginalType = payload.documentType === 'sale_return' ? 'sale' : 'purchase';
     if (isReturn && (!original || original.companyId !== companyId || original.documentType !== expectedOriginalType)) throw new AppError(400, 'ORIGINAL_DOCUMENT_INVALID', 'المستند الأصلي غير صالح');
+    const cashbox=payload.cashboxId?this.cashboxes.get(payload.cashboxId):null;if(payload.cashboxId&&(!cashbox||cashbox.companyId!==companyId))throw new AppError(404,'CASHBOX_NOT_FOUND','الصندوق غير موجود');
+    const company=this.companies.get(companyId),branchScopes=(context.scopes||[]).filter(x=>x.type==='branch'),primaryBranch=(company?.branches||[]).find(x=>x.code==='main'&&x.active!==false)||(company?.branches||[]).find(x=>x.active!==false);
+    const branchId=payload.branchId||(isReturn?original?.branchId:null)||cashbox?.branchId||(branchScopes.length===1?branchScopes[0].id:null)||warehouse.branchId||primaryBranch?.id||null;
+    const branch=(company?.branches||[]).find(x=>x.id===branchId&&x.active!==false);if(!branch)throw new AppError(400,'BRANCH_REQUIRED','حدد فرع العملية قبل اعتمادها');
+    if(branchScopes.length&&!branchScopes.some(x=>x.id===branchId))throw new AppError(403,'BRANCH_SCOPE_DENIED','الفرع خارج نطاق حسابك');
+    if(cashbox&&cashbox.branchId&&cashbox.branchId!==branchId)throw new AppError(400,'CASHBOX_BRANCH_MISMATCH','الصندوق لا يتبع فرع العملية');
+    if(cashbox&&cashbox.currency!==payload.currency)throw new AppError(400,'CASHBOX_CURRENCY_MISMATCH','عملة الصندوق لا تطابق عملة الفاتورة');
     if(isReturn&&salesRep(context)&&original?.customerId&&(this.salesSettings.get('customer:'+original.customerId)?.channel||'retail')!==(this.salesSettings.get('user:'+context.user.id)?.channel||'retail'))throw new AppError(403,'CUSTOMER_SCOPE','المستند خارج نطاق زبائنك');
     if (isReturn && original.currency !== payload.currency) throw new AppError(400, 'RETURN_CURRENCY_MISMATCH', 'عملة المرتجع يجب أن تطابق المستند الأصلي');
     if (!Array.isArray(payload.lines) || !payload.lines.length) throw new AppError(400, 'DOCUMENT_LINES_REQUIRED', 'بنود المستند مطلوبة');
@@ -1587,7 +1597,7 @@ export class MemoryStore {
     if (isSale && subtotal > paid && !payload.partyId) throw new AppError(400, 'CUSTOMER_REQUIRED_FOR_CREDIT', 'العميل مطلوب للبيع الآجل أو المختلط');
     if (!isSale && subtotal > paid && !payload.partyId) throw new AppError(400, 'SUPPLIER_REQUIRED_FOR_CREDIT', 'المورد مطلوب للشراء الآجل أو المختلط');
     const document = {
-      id: randomUUID(), companyId, documentType: payload.documentType, documentNumber: payload.documentNumber,
+      id: randomUUID(), companyId, documentType: payload.documentType, documentNumber: payload.documentNumber, branchId, cashboxId:cashbox?.id||null,
       warehouseId: warehouse.id, customerId: isSale ? payload.partyId || null : null,
       supplierId: isSale ? null : payload.partyId || null, originalDocumentId: original?.id || null,
       currency: payload.currency, subtotal: decimalString(subtotal), paidAmount: decimalString(paid), dueAmount: decimalString(subtotal - paid),
@@ -1619,7 +1629,7 @@ export class MemoryStore {
     const paid = decimal(document.paidAmount);
     const due = total - paid;
     const lines = [];
-    const add = (account, debit, credit) => { if (debit || credit) lines.push({ account, debit: decimalString(debit), credit: decimalString(credit) }); };
+    const add = (account, debit, credit) => { if (debit || credit) lines.push({ account, debit: decimalString(debit), credit: decimalString(credit), branchId:document.branchId||null, ...(document.cashboxId?{cashboxId:document.cashboxId}:{}) }); };
     const cashAccount = document.representativeId ? '1150-REP-CASH-CUSTODY' : document.currency === 'USD' ? '1000-CASH-USD' : '1000-CASH';
     if (document.documentType === 'purchase') {
       add('1200-INVENTORY', total, ZERO); add(document.currency === 'USD' ? '1000-CASH-USD' : '1000-CASH', ZERO, paid); add('2100-AP', ZERO, due);
@@ -1635,7 +1645,7 @@ export class MemoryStore {
     const debit = lines.reduce((sum, line) => sum + decimal(line.debit), ZERO);
     const credit = lines.reduce((sum, line) => sum + decimal(line.credit), ZERO);
     if (debit !== credit) throw new AppError(500, 'UNBALANCED_JOURNAL', 'القيد غير متوازن');
-    return { id: randomUUID(), companyId: document.companyId, documentId: document.id, status: 'posted', currency: document.currency, lines };
+    return { id: randomUUID(), companyId: document.companyId, documentId: document.id, branchId:document.branchId||null, cashboxId:document.cashboxId||null, status: 'posted', currency: document.currency, lines };
   }
 
   #assertUnique(map, companyId, field, value, code) {
