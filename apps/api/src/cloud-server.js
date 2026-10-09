@@ -29,7 +29,7 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
  const app=express();app.disable('x-powered-by');app.set('trust proxy',1);
  app.use((req,res,next)=>{if(req.headers.origin && req.headers.origin!==origin)return res.status(403).json({error:{message:'المصدر غير مسموح'}});next();});
  app.use((req,res,next)=>{if(product==='company'&&!req.path.startsWith('/api/'))res.set('Cache-Control','no-store');next();});
- const defaultJsonParser=express.json({limit:'1mb'});const assistantChatJsonParser=express.json({limit:'21mb'});
+ const defaultJsonParser=express.json({limit:'5mb'});const assistantChatJsonParser=express.json({limit:'21mb'});
  app.use((req,res,next)=>(req.path==='/api/v1/assistant/chat'?assistantChatJsonParser:defaultJsonParser)(req,res,next));
  if (basePath) {
   app.use((req,res,next)=>{const redirect=res.redirect.bind(res);res.redirect=target=>redirect(basePath+target);next();});
