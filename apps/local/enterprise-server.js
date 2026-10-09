@@ -1,3 +1,4 @@
+import { installLocalCloud } from './cloud-sync.js';
 import { productPages } from '../api/src/product-pages.js';
 import express from 'express';
 import { join } from 'node:path';
@@ -8,7 +9,7 @@ import { SQLiteStore } from '../api/src/store/sqlite-store.js';
 import { hashPassword } from '../api/src/lib/security.js';
 import { normalizeUsername } from '../api/src/lib/http.js';
 
-export async function startEnterpriseLocal({ dataDirectory, port = 3211, product = 'company' }) {
+export async function startEnterpriseLocal({ dataDirectory, port = 3211, product = 'company', protect, unprotect, allowTestCloud = false }) {
   await mkdir(dataDirectory, { recursive: true });
   const store = new SQLiteStore(join(dataDirectory, 'enterprise.sqlite'));
   const app = express();
@@ -18,6 +19,8 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211, product
     next();
   });
   app.use(express.json({ limit: '5mb' }));
+  app.get('/desktop-cloud.html',(req,res)=>res.sendFile(fileURLToPath(new URL('../../public/desktop-cloud.html',import.meta.url))));
+  const cloud=product==='company'?await installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud}):null;
   app.use(productPages(product));
   if (product === 'retail') {
     const html = new Set(['/pos.html','/market-cashier.html','/market-admin.html']);
@@ -50,7 +53,7 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211, product
   });
   app.use(createApp({ store, allowedOrigins: [`http://127.0.0.1:${port}`, `http://localhost:${port}`] }));
   const server = await new Promise((resolve, reject) => { const server = app.listen(port, '127.0.0.1', () => resolve(server)); server.on('error', reject); });
-  return { url: `http://127.0.0.1:${port}`, store, close: async () => { await new Promise(resolve => server.close(resolve)); await store.close(); } };
+  return { url: `http://127.0.0.1:${port}`, store, close: async () => { cloud?.close(); await new Promise(resolve => server.close(resolve)); await store.close(); } };
 }
 if (process.argv[1]?.endsWith('enterprise-server.js')) {
   const { homedir } = await import('node:os');
