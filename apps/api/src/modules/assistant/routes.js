@@ -91,6 +91,7 @@ function accountingReadIntent(message) {
   if (/(?:البضاعة|الأصناف|الاصناف|المواد).{0,25}(?:الراكدة|الراكده)|(?:الراكدة|الراكده)\s+(?:من\s+)?(?:البضاعة|الأصناف|الاصناف|المواد)|مخزون\s+راكد/i.test(catalogIntentText)) return 'slow-stock';
   if (/(?:تالف|التالف|ضرر|الأضرار|الاضرار|بضاعة\s+متضررة)/i.test(catalogIntentText)) return 'damaged-stock';
   if (/(?:طابق|مطابقة|قارن).{0,35}(?:رصيد\s+(?:الحاسبة|النظام)|الرصيد).{0,25}(?:جرد|المخزن|المستودع)|(?:جرد|جردية).{0,35}(?:رصيد\s+(?:الحاسبة|النظام)|الرصيد)/i.test(catalogIntentText)) return 'stocktake-reconciliation';
+  if (/(?:هل\s*)?(?:يمكنك|تستطيع|تقدر|لديك\s+صلاحية)?\s*(?:أن\s*)?(?:تقرأ|قراءة|اعرض|عرض|اقرأ|اقرا|بين|بيّن)?\s*(?:لي\s*)?(?:رصيد|أرصدة|ارصدة)?\s*(?:المخزون|مخزون|مخازن|المخازن|المواد|الأصناف|الاصناف)|(?:المخزون|مخزون|رصيد\s+المخزون|أرصدة\s+المخزون|ارصدة\s+المخزون|المواد\s+الموجودة|المتوفر\s+بالمخازن)/i.test(catalogIntentText)) return 'stock-balance';
   if (/(?:حركة|حركات)\s+(?:المخزون|الأصناف|الاصناف|المواد)|(?:تقرير|كشف)\s+حركة\s+(?:المخزون|الأصناف|الاصناف)/i.test(catalogIntentText)) return 'inventory-movements';
   if (/(?:ابحث|بحث|دور|جد)\s+(?:لي\s+)?(?:عن\s+)?(?:حركة|المستند|فاتورة)|(?:حركة|فاتورة|مستند)\s+(?:رقم|برقم)\s+[\p{L}\p{N}-]+/iu.test(catalogIntentText)) return 'movement-search';
   if (/(?:ابحث|بحث|دور|جد)\s+(?:لي\s+)?(?:عن\s+)?(?:القيد|قيد)|(?:القيد|قيد)\s+(?:رقم|برقم)\s+[\p{L}\p{N}-]+/iu.test(catalogIntentText)) return 'journal-search';
@@ -194,8 +195,8 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
     if (wholeRaw.startsWith('-')) answer = 'سالب ' + answer;
     return { answer, model: 'محول الأرقام المحلي', localOnly: true };
   }
-  if (['fast-moving-stock','slow-stock','damaged-stock','inventory-movements','stocktake-reconciliation','top-customers','customer-statement','movement-search','debtor-report','inactive-customers'].includes(intent)) {
-    const needsInventory = ['fast-moving-stock','slow-stock','damaged-stock','inventory-movements','stocktake-reconciliation'].includes(intent);
+  if (['fast-moving-stock','slow-stock','stock-balance','damaged-stock','inventory-movements','stocktake-reconciliation','top-customers','customer-statement','movement-search','debtor-report','inactive-customers'].includes(intent)) {
+    const needsInventory = ['fast-moving-stock','slow-stock','stock-balance','damaged-stock','inventory-movements','stocktake-reconciliation'].includes(intent);
     const needsCatalog = ['fast-moving-stock','slow-stock','damaged-stock','inventory-movements','stocktake-reconciliation'].includes(intent);
     const needsSales = ['fast-moving-stock','slow-stock','top-customers','customer-statement','debtor-report','inactive-customers'].includes(intent);
     const needsDocuments = needsSales || intent === 'movement-search';
@@ -206,7 +207,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
     if (intent === 'movement-search' && !['sales.read','purchasing.read','inventory.read','accounting.read'].some(has)) return { status: 403, code: 'PERMISSION_DENIED', message: 'تحتاج صلاحية قراءة الحركة المطلوبة' };
     if (['top-customers','customer-statement','debtor-report','inactive-customers'].includes(intent) && !has('customers.read')) return { status: 403, code: 'PERMISSION_DENIED', message: 'تحتاج صلاحية قراءة بيانات الزبائن' };
     if (['customer-statement','debtor-report','inactive-customers'].includes(intent) && !has('accounting.read')) return { status: 403, code: 'PERMISSION_DENIED', message: 'مطابقة التسديدات وكشف الحساب تحتاج صلاحية قراءة الحسابات' };
-    const needsMaster=needsCatalog||['top-customers','customer-statement','debtor-report','inactive-customers'].includes(intent)||(intent==='movement-search'&&(has('catalog.read')||has('customers.read')));
+    const needsMaster=needsCatalog||intent==='stock-balance'||['top-customers','customer-statement','debtor-report','inactive-customers'].includes(intent)||(intent==='movement-search'&&(has('catalog.read')||has('customers.read')));
     if ((needsMaster && typeof store?.listMasterData !== 'function') || (needsDocuments && typeof store?.listCommerceDocuments !== 'function')) return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'مصدر بيانات التقرير غير متاح في هذا الخادم بعد' };
     const period = reportPeriod(assistantQuery);
     if (period.error) return localResult(period.error, table('الفترة المطلوبة',['الحالة'],[[period.error]]));
@@ -222,7 +223,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
     documents = documents.filter(doc => canSeeWarehouse(doc.warehouseId) && (doc.status == null || doc.status === 'posted') && (!salesScoped || (doc.documentType.startsWith('sale') && doc.customerId && (store.salesSettings.get('customer:'+doc.customerId)?.channel || 'retail') === (store.salesSettings.get('user:'+auth.user.id)?.channel || 'retail') && (!store.salesSettings.get('user:'+auth.user.id)?.salesManager || !doc.assignedSalesManagerId || doc.assignedSalesManagerId === auth.user.id))));
     const inPeriod = value => { const date = Date.parse(value || ''); return Number.isFinite(date) && date >= period.start.getTime() && date <= period.end.getTime(); };
     const reportName = {
-      'fast-moving-stock':'الأصناف الأكثر حركة', 'slow-stock':'الأصناف الراكدة', 'damaged-stock':'حركات التالف',
+      'fast-moving-stock':'الأصناف الأكثر حركة', 'slow-stock':'الأصناف الراكدة', 'stock-balance':'أرصدة المخزون الحالية', 'damaged-stock':'حركات التالف',
       'inventory-movements':'حركة المخزون', 'stocktake-reconciliation':'مطابقة الجرد', 'top-customers':'الزبائن الأعلى حركة', 'customer-statement':'كشف حساب الزبون', 'debtor-report':'كشف المدينين', 'inactive-customers':'الزبائن بلا حركة'
     }[intent];
     if (intent === 'stocktake-reconciliation') {
@@ -240,6 +241,13 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
       const stockByItem = new Map((master.stock || []).filter(row=>row.warehouseId===warehouse.id).map(row=>[row.itemId,row.quantity||'0']));
       const rows = (master.items || []).filter(item=>item.active!==false).map(item=>[item.sku||'—',item.name||item.id,unitById.get(item.baseUnitId)||'—',stockByItem.get(item.id)||'0','', '', 'بانتظار إدخال العدد اليدوي']);
       return localResult(`لا يوجد جرد مسجل ${period.explicit?`ضمن ${period.label} `:''}لمخزن ${warehouse.name||warehouse.code}. أعددت قائمة رصيد النظام لتعبئة العدد الفعلي؛ أرسل ملف الجرد أو أدخل أعداده في النظام لإظهار الفروقات.`,table(reportName,['الكود','الصنف','الوحدة','رصيد النظام الحالي','العدد الفعلي','الفرق','الحالة'],rows));
+    }
+    if (intent === 'stock-balance') {
+      const visibleWarehouses=(master.warehouses||[]).filter(row=>canSeeWarehouse(row.id));
+      const stock=(master.stock||[]).filter(row=>canSeeWarehouse(row.warehouseId));
+      const rows=stock.map(row=>{const item=itemById.get(row.itemId);return [warehouseById.get(row.warehouseId)||'—',item?.sku||'—',item?.name||row.itemId,unitById.get(item?.baseUnitId)||'—',row.quantity||'0'];})
+        .sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'ar')||String(a[2]).localeCompare(String(b[2]),'ar')).slice(0,1000);
+      return localResult(`قرأت أرصدة المخزون محليًا من سجلات الشركة. ${rows.length} رصيد ضمن ${visibleWarehouses.length} مخزن مسموح لحسابك؛ لم أغيّر أي كمية.`,table(reportName,['المخزن','الكود','الصنف','الوحدة الأساسية','الرصيد'],rows));
     }
     if (intent === 'movement-search') {
       const needle=reportSearchTerm(assistantQuery,new Set(['ابحث','بحث','دور','جد','لي','عن','حركة','المستند','فاتورة','مستند','رقم','برقم','من','الى','إلى']));

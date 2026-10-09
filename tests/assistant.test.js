@@ -602,3 +602,27 @@ test('assistant produces permission-scoped inventory and customer activity repor
     const incomeExpense=await ask('اعرض مجموع المصروفات مع التفاصيل او مجموع الايرادات من 2026-10-01 إلى 2026-10-31');assert.match(incomeExpense.answer,/إيرادات 100\.000000/);assert.match(incomeExpense.answer,/مصروفات 10\.000000/);assert.ok(incomeExpense.report.rows.some(row=>row[0]==='إجمالي المصروفات'&&row[6]==='10.000000'));
   } finally {globalThis.fetch=originalFetch;if(old===undefined)delete process.env.GROQ_API_KEY;else process.env.GROQ_API_KEY=old;}
 });
+
+test('assistant reads current stock locally inside inventory permission and warehouse scope', async () => {
+  const old=process.env.GROQ_API_KEY,originalFetch=globalThis.fetch;
+  try {
+    delete process.env.GROQ_API_KEY;
+    globalThis.fetch=async()=>{throw new Error('stock data must remain local')};
+    let reads=0;
+    const store={
+      warehouses:new Map([['wh-1',{id:'wh-1',companyId:'co',name:'المخزن الرئيسي'}],['wh-2',{id:'wh-2',companyId:'co',name:'مخزن الفرع'}]]),
+      listMasterData:async()=>{reads++;return {items:[{id:'item-1',sku:'S-1',name:'سكر',baseUnitId:'unit-1'}],units:[{id:'unit-1',name:'كغم'}],warehouses:[{id:'wh-1',name:'المخزن الرئيسي'},{id:'wh-2',name:'مخزن الفرع'}],stock:[{itemId:'item-1',warehouseId:'wh-1',quantity:'25.500000'},{itemId:'item-1',warehouseId:'wh-2',quantity:'99.000000'}]};}
+    };
+    const routes=setup(undefined,store),ask=async permissions=>{const response=capture();await routes['POST /api/v1/assistant/chat'].handler({auth:{company:{id:'co'},user:{id:'u1'},permissions,scopes:[{type:'warehouse',id:'wh-1'}]},body:{messages:[{role:'user',content:'هل تستطيع قراءة المخزون؟'}]}},response);return response;};
+    const allowed=await ask(['assistant.use','inventory.read']);
+    assert.equal(allowed.statusCode,200);
+    assert.equal(allowed.body.localOnly,true);
+    assert.equal(allowed.body.report.rows.length,1);
+    assert.deepEqual(allowed.body.report.rows[0],['المخزن الرئيسي','S-1','سكر','كغم','25.500000']);
+    assert.equal(reads,1);
+    const denied=await ask(['assistant.use']);
+    assert.equal(denied.statusCode,403);
+    assert.equal(denied.body.error.code,'PERMISSION_DENIED');
+    assert.equal(reads,1);
+  } finally {globalThis.fetch=originalFetch;if(old===undefined)delete process.env.GROQ_API_KEY;else process.env.GROQ_API_KEY=old;}
+});
