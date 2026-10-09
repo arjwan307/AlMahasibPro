@@ -24,3 +24,7 @@
 .assistant-info-dialog ul{margin:0;padding-inline-start:22px}
 .assistant-info-dialog .permissions-list{max-height:180px;overflow:auto}
 @media(max-width:420px){.assistant-form-actions{gap:5px}.assistant-form-actions>.assistant-info-button{font-size:10px;padding:9px 7px}.assistant-form-actions>button[type=submit]{padding:10px 8px}.assistant-info-dialog{padding:14px}}
+
+.assistant-context-button{background:#e7f4f2;color:#145f59;border:1px solid #b7d8d2}
+.assistant-context-status{flex-basis:100%;padding:8px 10px;border-radius:9px;background:#fff7de;color:#715714;font-size:11px;line-height:1.6}
+.assistant-context-status[hidden]{display:none}
