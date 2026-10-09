@@ -13,3 +13,31 @@
 .presence-badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:700;white-space:nowrap}.presence-badge:before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}.presence-badge.online{color:#16804a;background:#e8f7ee}.presence-badge.offline{color:#687581;background:#eef1f4}
 
 input.decimal-entry{direction:ltr;text-align:left;font-variant-numeric:tabular-nums}
+
+/* Fixed ERP toolbar and restrained visual polish; brand colors remain unchanged. */
+.app-topbar{position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:18px;margin:-27px -32px 22px;padding:12px 32px;background:rgba(255,255,255,.96);border-bottom:1px solid var(--line);box-shadow:0 5px 18px #112c3b0b;backdrop-filter:blur(12px)}
+.topbar-right,.topbar-left{display:flex;align-items:center;gap:12px;min-width:0}
+.topbar-right{flex:1}
+.topbar-left{justify-content:flex-end}
+.app-topbar .user-profile{padding:7px 10px;border-radius:12px;min-width:110px}
+.app-topbar .user-profile:hover{background:#f1f7f6;text-decoration:none}
+.app-topbar .user-profile strong{font-size:14px}
+.toolbar-role{padding:8px 12px;border:1px solid #cce4df;border-radius:999px;background:#eef8f6;color:#145b56;font-size:12px;font-weight:700;white-space:nowrap}
+.toolbar-datetime{display:grid;gap:2px;padding-inline-start:12px;border-inline-start:1px solid var(--line);color:var(--muted);font-size:12px;white-space:nowrap}
+.toolbar-datetime time:last-child{color:var(--ink);font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+.topbar-action{padding:9px 12px;white-space:nowrap}
+.server-status{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.server-status::before{content:"";width:8px;height:8px;border-radius:50%;background:#71808a}
+.server-status[data-state="online"]::before,.server-status[data-state="local"]::before{background:#18a477;box-shadow:0 0 0 3px #18a47720}
+.server-status[data-state="offline"]{background:#fff0ed;color:#a43b2c}
+.server-status[data-state="offline"]::before{background:#d64d3e;box-shadow:0 0 0 3px #d64d3e20}
+.page-heading{display:flex;align-items:center;justify-content:space-between;margin:0 0 20px}
+.page-heading h1{margin:0;font-size:25px;letter-spacing:-.25px}
+button{transition:background-color .16s ease,box-shadow .16s ease,transform .16s ease}
+button:not(:disabled):hover{filter:brightness(.97);box-shadow:0 4px 12px #112c3b18}
+button:not(:disabled):active{transform:translateY(1px)}
+.metric,.panel{box-shadow:0 5px 18px #112c3b08}
+input:focus,select:focus,textarea:focus{outline:3px solid #126b6522;border-color:var(--brand)}
+@media(max-width:1000px){.app-topbar{margin:-20px -20px 20px;padding:11px 20px}.topbar-right,.topbar-left{gap:8px}}
+@media(max-width:700px){.app-topbar{align-items:stretch;flex-direction:column;gap:8px}.topbar-right{justify-content:space-between;flex-wrap:wrap}.topbar-left{justify-content:flex-start;flex-wrap:wrap}.toolbar-datetime{margin-inline-start:auto}.page-heading{margin-bottom:16px}.page-heading h1{font-size:22px}}
+@media(max-width:420px){.toolbar-role{font-size:11px;padding:7px 9px}.topbar-action{padding:8px 10px;font-size:13px}.server-status{font-size:11px;padding:8px 10px}}
