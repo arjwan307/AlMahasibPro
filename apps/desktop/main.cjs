@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, Menu, net } = require('electron');
+const { app, BrowserWindow, dialog, Menu, net, shell } = require('electron');
 const path = require('node:path');
 // Preserve existing company data when installing the independently named product.
 app.setPath('userData', path.join(app.getPath('appData'), 'AlMahasibPro'));
@@ -8,9 +8,12 @@ app.whenReady().then(async () => {
     const { startEnterpriseLocal } = await import('../local/enterprise-server.js');
     runtime = await startEnterpriseLocal({ dataDirectory: app.getPath('userData'), port: 3211 });
     const window = new BrowserWindow({ width: 1440, height: 950, minWidth: 960, minHeight: 640, title: 'المحاسب برو — الشركات والمؤسسات', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    window.webContents.setWindowOpenHandler(({url}) => {
+      try{const target=new URL(url);if(target.protocol==='https:'&&target.hostname==='wa.me'&&/^\/\d{8,15}$/.test(target.pathname))shell.openExternal(target.href).catch(()=>dialog.showErrorBox('واتساب','تعذر فتح واتساب على هذا الجهاز'));}catch{}
+      return {action:'deny'};
+    });
     window.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(runtime.url + '/')) event.preventDefault(); });
-    Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'الملف', submenu: [{ label: 'استعادة نسخة احتياطية', click: restoreBackup }, { role: 'quit', label: 'خروج' }] }, { label: 'عرض', submenu: [{ role: 'reload', label: 'تحديث' }, { role: 'togglefullscreen', label: 'ملء الشاشة' }] }]));
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'الملف', submenu: [{ label: 'أخذ نسخة احتياطية', click: createBackup }, { label: 'استعادة نسخة احتياطية', click: restoreBackup }, { role: 'quit', label: 'خروج' }] }, { label: 'عرض', submenu: [{ role: 'reload', label: 'تحديث' }, { role: 'togglefullscreen', label: 'ملء الشاشة' }] }]));
     await window.loadURL(runtime.url + '/enterprise.html');
   } catch (error) { dialog.showErrorBox('تعذر تشغيل المحاسب برو', error.message); app.quit(); }
 });
@@ -20,6 +23,16 @@ app.on('before-quit', event => {
   if (runtime && !closing) { event.preventDefault(); closing = true; runtime.close().finally(() => app.quit()); }
 });
 
+async function createBackup(){
+ try{
+  const response=await net.fetch(runtime.url+'/api/v1/enterprise/backup',{credentials:'include'});
+  if(!response.ok){const result=await response.json();throw Error(result.error?.message||'تعذر أخذ النسخة الاحتياطية');}
+  const choice=await dialog.showSaveDialog({title:'حفظ نسخة احتياطية',defaultPath:'AlMahasibPro-'+new Date().toISOString().slice(0,10)+'.sqlite',filters:[{name:'SQLite',extensions:['sqlite']}]});
+  if(choice.canceled)return;
+  const fs=require('node:fs/promises');await fs.writeFile(choice.filePath,Buffer.from(await response.arrayBuffer()));
+  await dialog.showMessageBox({type:'info',message:'حُفظت النسخة الاحتياطية بنجاح'});
+ }catch(error){dialog.showErrorBox('النسخة الاحتياطية',error.message);}
+}
 async function restoreBackup() {
  try {
   const response = await net.fetch(runtime.url + '/api/v1/bootstrap', { credentials: 'include' });
