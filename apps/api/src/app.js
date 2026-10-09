@@ -13,6 +13,7 @@ import { installTreasuryRoutes } from './modules/treasury/routes.js';
 import { installImportRoutes } from './modules/imports/routes.js';
 import { installAssistantRoutes } from './modules/assistant/routes.js';
 import { imageData, invoiceDesign, invoiceAttachment } from './lib/company-media.js';
+import { installNotificationRoutes } from './modules/notifications/routes.js';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, '../../../public');
@@ -37,6 +38,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   installTreasuryRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency});
   installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
   installAssistantRoutes(app,{authenticate:authenticate(store),store});
+  installNotificationRoutes(app,{store,authenticate,permit});
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
   app.get('/api/v1/company/invoice-design', authenticate(store), (req,res)=>res.json({ design:store.salesSettings.get('invoice-design:'+req.auth.company.id)||{} }));
   app.put('/api/v1/company/invoice-design', authenticate(store), permit('company.manage'), asyncRoute(async(req,res)=>{
@@ -829,9 +831,11 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(201).json({application:await store.applyCustomerCredit(req.auth,{operationId:uuid(req.body.operationId,'operationId'),documentId:uuid(req.body.documentId,'documentId'),amount:decimalInput(req.body.amount,{positive:true}),receiptNumber:String(req.body.receiptNumber||'').trim().slice(0,64)||undefined,occurredAt:/^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paymentDate||''))?new Date(req.body.paymentDate+'T12:00:00.000Z').toISOString():new Date().toISOString()})});
   }));
   app.get('/api/v1/enterprise/backup', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
-    if (typeof store.exportBackup !== 'function') throw new AppError(400,'LOCAL_BACKUP_ONLY','النسخ الاحتياطي هنا خاص بقاعدة الجهاز');
-    res.setHeader('Content-Disposition','attachment; filename="AlMahasibPro-backup.sqlite"');
-    res.type('application/octet-stream').send(await store.exportBackup());
+    if (typeof store.exportCompanyBackup !== 'function') throw new AppError(400,'SQLITE_BACKUP_REQUIRED','النسخ الاحتياطي غير متاح لهذا الخادم');
+    const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+    res.setHeader('Cache-Control','private, no-store');
+    res.setHeader('Content-Disposition',`attachment; filename="AlMahasibPro-${stamp}.sqlite"`);
+    res.type('application/octet-stream').send(await store.exportCompanyBackup(req.auth.company.id));
   }));
 
   async function wholesaleRecords(companyId) {
