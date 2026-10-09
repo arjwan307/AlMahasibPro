@@ -287,7 +287,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.status(201).json({journal:await store.reverseJournal(req.auth,req.params.journalId,req.body)});
   }));
 
-  app.get('/api/v1/master-data', authenticate(store), permitAny(['catalog.read', 'customers.read', 'suppliers.read', 'inventory.read']), asyncRoute(async (req, res) => {
+  app.get('/api/v1/master-data', authenticate(store), permitAny(['catalog.read', 'customers.read', 'suppliers.read', 'inventory.read', 'inventory.manage', 'inventory.receive', 'inventory.issue']), asyncRoute(async (req, res) => {
     const m=await store.listMasterData(req.auth.company.id);
     filterWarehouseScope(req.auth, m);
     if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';m.customers=m.customers.filter(x=>(store.salesSettings.get('customer:'+x.id)?.channel||'retail')===channel);m.suppliers=[];m.prices=m.prices.filter(x=>['sale','sale_'+channel].includes(x.priceType));m.stock=m.stock.map(({averageCost,...x})=>x);}
@@ -488,6 +488,17 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({documents});
   }));
 
+  app.post('/api/v1/inventory/receipts',authenticate(store),permitAny(['inventory.receive','inventory.manage']),asyncRoute(async(req,res)=>{
+    requireFields(req.body,['operationId','voucherNumber']);if(!Array.isArray(req.body.lines)||!req.body.lines.length||req.body.lines.length>500)throw new AppError(400,'INVALID_STOCK_LINES','أدخل بنود الاستلام');
+    const lines=req.body.lines.map(line=>{const warehouseId=uuid(line.warehouseId,'warehouseId');assertWarehouseScope(req.auth,store.warehouses.get(warehouseId));return{itemId:uuid(line.itemId,'itemId'),warehouseId,quantity:decimalInput(line.quantity,{positive:true}),...(line.unitCost==null||line.unitCost===''?{}:{unitCost:decimalInput(line.unitCost,{nonNegative:true})})};});
+    const receipt=await store.receiveStock(req.auth,{operationId:uuid(req.body.operationId,'operationId'),voucherNumber:entityCode(req.body.voucherNumber),occurredAt:req.body.occurredAt&&Number.isFinite(Date.parse(req.body.occurredAt))?new Date(req.body.occurredAt).toISOString():null,counterparty:String(req.body.counterparty||'').trim().slice(0,200),receivedBy:String(req.body.receivedBy||'').trim().slice(0,200),note:String(req.body.note||'').trim().slice(0,1000),lines});res.status(201).json({receipt});
+  }));
+  app.post('/api/v1/inventory/issues',authenticate(store),permitAny(['inventory.issue','inventory.manage']),asyncRoute(async(req,res)=>{
+    requireFields(req.body,['operationId','voucherNumber','reason']);if(!Array.isArray(req.body.lines)||!req.body.lines.length||req.body.lines.length>500)throw new AppError(400,'INVALID_STOCK_LINES','أدخل بنود الإخراج');
+    const reason=String(req.body.reason).trim().slice(0,500);if(!reason)throw new AppError(400,'REASON_REQUIRED','سبب إخراج البضاعة مطلوب');
+    const lines=req.body.lines.map(line=>{const warehouseId=uuid(line.warehouseId,'warehouseId');assertWarehouseScope(req.auth,store.warehouses.get(warehouseId));return{itemId:uuid(line.itemId,'itemId'),warehouseId,quantity:decimalInput(line.quantity,{positive:true})};});
+    const issue=await store.issueStock(req.auth,{operationId:uuid(req.body.operationId,'operationId'),voucherNumber:entityCode(req.body.voucherNumber),occurredAt:req.body.occurredAt&&Number.isFinite(Date.parse(req.body.occurredAt))?new Date(req.body.occurredAt).toISOString():null,recipient:String(req.body.recipient||'').trim().slice(0,200),reason,note:String(req.body.note||'').trim().slice(0,1000),lines});res.status(201).json({issue});
+  }));
   app.post('/api/v1/inventory/stocktakes',authenticate(store),permit('inventory.manage'),asyncRoute(async(req,res)=>{
     requireFields(req.body,['operationId','stocktakeNumber','warehouseId']);if(!Array.isArray(req.body.lines)||!req.body.lines.length||req.body.lines.length>1000)throw new AppError(400,'INVALID_STOCKTAKE_LINES','أدخل بنود الجرد');
     const warehouseId=uuid(req.body.warehouseId,'warehouseId');assertWarehouseScope(req.auth,store.warehouses.get(warehouseId));
@@ -501,9 +512,11 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     requireFields(req.body,['operationId','loadNumber']);if(!Array.isArray(req.body.lines)||!req.body.lines.length||req.body.lines.length>500)throw new AppError(400,'INVALID_LOAD_LINES','أدخل بنود التحميل');const documentId=uuid(req.params.documentId,'documentId'),document=store.commerceDocuments.get(documentId);if(!document||document.companyId!==req.auth.company.id)throw new AppError(404,'SALE_NOT_FOUND','فاتورة البيع غير موجودة');assertWarehouseScope(req.auth,store.warehouses.get(document.warehouseId));
     const load=await store.recordDeliveryLoad(req.auth,{operationId:uuid(req.body.operationId,'operationId'),loadNumber:entityCode(req.body.loadNumber),documentId,loadedAt:req.body.loadedAt&&Number.isFinite(Date.parse(req.body.loadedAt))?new Date(req.body.loadedAt).toISOString():null,lines:req.body.lines.map(line=>({originalLineId:uuid(line.originalLineId,'originalLineId'),quantity:decimalInput(line.quantity,{positive:true})}))});res.status(201).json({load});
   }));
-  app.get('/api/v1/inventory/operations',authenticate(store),permitAny(['inventory.read','inventory.manage']),asyncRoute(async(req,res)=>{
-    const companyId=req.auth.company.id,allowed=warehouse=>warehouseScopeAllows(req.auth,warehouse),visible=row=>allowed(store.warehouses.get(row.warehouseId));
-    res.json({stocktakes:[...store.stocktakes.values()].filter(x=>x.companyId===companyId&&visible(x)).map(({fingerprint,...x})=>x),writeoffs:[...store.stockWriteoffs.values()].filter(x=>x.companyId===companyId&&visible(x)).map(({fingerprint,...x})=>x),loads:[...store.deliveryLoads.values()].filter(x=>x.companyId===companyId&&visible(x)).map(({fingerprint,...x})=>x)});
+  app.get('/api/v1/inventory/operations',authenticate(store),permitAny(['inventory.read','inventory.manage','inventory.receive','inventory.issue']),asyncRoute(async(req,res)=>{
+    const companyId=req.auth.company.id,allowed=warehouse=>warehouseScopeAllows(req.auth,warehouse),visible=row=>allowed(store.warehouses.get(row.warehouseId)),safeLines=row=>row.lines.filter(line=>allowed(store.warehouses.get(line.warehouseId)));
+    const clean=(map)=>[...map.values()].filter(x=>x.companyId===companyId).map(({fingerprint,...x})=>x);
+    const movement=(map)=>clean(map).map(row=>({...row,lines:safeLines(row)})).filter(row=>row.lines.length);
+    res.json({stocktakes:clean(store.stocktakes).filter(visible),writeoffs:clean(store.stockWriteoffs).filter(visible),loads:clean(store.deliveryLoads).filter(visible),receipts:movement(store.stockReceipts),issues:movement(store.stockIssues)});
   }));
 
   app.post('/api/v1/pos/devices', authenticate(store), permit('pos.device.manage'), asyncRoute(async (req, res) => {
