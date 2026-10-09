@@ -8,7 +8,7 @@ export function productPages(product = 'company') {
  return (req, res, next) => {
   if(product==='company'&&req.path==='/market-service-worker.js'){res.set('Cache-Control','no-store');return res.type('js').send("self.addEventListener('install',e=>e.waitUntil(self.skipWaiting()));self.addEventListener('activate',e=>e.waitUntil((async()=>{for(const key of await caches.keys())if(key.startsWith('almahasib-market-shell-'))await caches.delete(key);await self.clients.claim();await self.registration.unregister();})()));");}
   if (req.path.startsWith('/api/')) return next();
-  if (['/', '/index.html'].includes(req.path)) return res.redirect(login);
+  if (['/', '/index.html'].includes(req.path)) { if (product === 'company') return next(); return res.redirect(login); }
   if (req.path === '/dashboard.html') return res.redirect(home);
   const name = req.path.slice(1);
   if (files.has(name) || files.has(name + '.html')) return next();
