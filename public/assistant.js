@@ -2,6 +2,7 @@
 const root=document.getElementById('assistantRoot'),workspace=document.getElementById('workspace');
 if(!root||!workspace)return;
 const launcher=document.getElementById('assistantLauncher'),panel=document.getElementById('assistantPanel'),status=document.getElementById('assistantStatus'),messagesBox=document.getElementById('assistantMessages'),form=document.getElementById('assistantForm'),input=form.elements.message,send=form.querySelector('button[type="submit"]');
+launcher.textContent='المساعد الذكي';document.querySelector('.assistant-head strong')?.replaceChildren('المساعد الذكي');
 const history=[];let ready=false,busy=false,attachedFile=null;
 const filePicker=document.getElementById('assistantFile'),fileStatus=document.getElementById('assistantFileStatus'),attachButton=document.getElementById('assistantAttach');
 async function setAttachedFile(file){attachedFile=null;if(!file){fileStatus.textContent='أرفق صورة أو مستندًا أو ملفًا، أو اكتب والصق النص هنا.';return;}if(file.size>200000){fileStatus.textContent='الحد الأقصى للملف ٢٠٠ كيلوبايت';filePicker.value='';return;}if(!/\\.(?:csv|tsv|txt)$/i.test(file.name)){attachedFile={name:file.name,unsupported:true};fileStatus.textContent='تم اختيار '+file.name+'؛ قراءة الصور وPDF وملفات Office غير مفعّلة بعد، ولم يُرسل الملف.';return;}try{const content=await file.text();attachedFile={name:file.name,content};fileStatus.textContent='جاهز للمعاينة المحلية: '+file.name+' ('+file.size+' بايت)';}catch{fileStatus.textContent='تعذرت قراءة الملف محليًا';}}
@@ -15,7 +16,7 @@ async function checkStatus(){status.textContent='يتحقق من الاتصال 
 function show(){panel.hidden=false;launcher.setAttribute('aria-expanded','true');input.focus();}
 function hide(){panel.hidden=true;launcher.setAttribute('aria-expanded','false');}
 launcher.addEventListener('click',()=>panel.hidden?show():hide());document.getElementById('assistantClose').addEventListener('click',hide);
-form.addEventListener('submit',async event=>{event.preventDefault();const text=input.value.trim();if(busy)return;if(attachedFile?.unsupported){addMessage('قراءة هذا النوع من الملفات غير متاحة بعد؛ لم أرسل الملف. أرفق CSV أو TSV أو TXT، أو الصق النص في مربع المحادثة.','assistant',true);return;}if(!text&&!attachedFile)return;
+form.addEventListener('submit',async event=>{event.preventDefault();const text=input.value.trim();if(busy)return;if(attachedFile?.unsupported){addMessage('قراءة هذا النوع من الملفات غير متاحة بعد؛ لم أرسل الملف. أرفق CSV أو TSV أو TXT، أو الصق النص في مربع المحادثة.','assistant',true);attachedFile=null;if(filePicker)filePicker.value='';if(fileStatus)fileStatus.textContent='أرفق صورة أو مستندًا أو ملفًا، أو اكتب والصق النص هنا.';return;}if(!text&&!attachedFile)return;
  const message=text||'هيئ الملف المرفق للمعاينة';const file=attachedFile;
  busy=true;send.disabled=true;input.value='';addMessage(file?'📎 '+file.name+(text?' — '+text:''):message,'user');history.push({role:'user',content:message});
  try{const data=await api('/api/v1/assistant/chat',{method:'POST',body:JSON.stringify({messages:history.slice(-12),...(file?{assistantFile:file}:{})})});if(!data.localOnly)history.push({role:'assistant',content:data.answer});addMessage(data.answer,'assistant');addReport(data.report);}
