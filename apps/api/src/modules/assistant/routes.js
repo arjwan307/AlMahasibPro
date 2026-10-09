@@ -133,7 +133,33 @@ function reportSearchTerm(query, stopWords) {
     .split(/\s+/).map(word=>word.replace(/^[،,؛:]+|[،,؛:]+$/g,'')).filter(word=>word&&!stopWords.has(word)).join(' ').trim().toLocaleLowerCase('ar');
 }
 
-async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
+
+function parseDelimitedRows(input, delimiter) {
+  const rows = [];
+  let row = [], cell = '', quoted = false;
+  const text = String(input || '');
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (quoted) {
+      if (char === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (char === '"') quoted = false;
+      else cell += char;
+    } else if (char === '"' && cell.length === 0) quoted = true;
+    else if (char === delimiter) { row.push(cell.trim()); cell = ''; }
+    else if (char === '\n' || char === '\r') {
+      if (char === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell.trim()); cell = '';
+      if (row.some(value => value !== '')) rows.push(row);
+      row = [];
+      if (rows.length > 2001) break;
+    } else cell += char;
+  }
+  row.push(cell.trim());
+  if (row.some(value => value !== '')) rows.push(row);
+  return rows.slice(0, 2001);
+}
+
+async function formatAccountingRead(intent, store, auth, assistantQuery = '', assistantFile = null) {
   const companyId = auth?.company?.id;
   const table = (title, columns, rows) => ({ title, columns, rows });
   const has = permission => auth.permissions?.includes(permission);
@@ -150,6 +176,45 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
       (!branches.length || branches.some(scope => scope.id === warehouse.branchId)));
   };
   const localResult = (answer, report) => ({ answer, model: 'محرك المحاسبة', localOnly: true, report });
+  if (intent === 'catalog-file-preview') {
+    if (!has('catalog.read') || !has('inventory.manage')) return { status: 403, code: 'PERMISSION_DENIED', message: 'تهيئة ملف أصناف للمخزون تحتاج صلاحية قراءة الأصناف وإدارة المخزون' };
+    const content = String(assistantFile?.content || '');
+    if (!content || content.length > 200000) return { status: 400, code: 'ASSISTANT_FILE_INVALID', message: 'الملف فارغ أو أكبر من الحد المسموح (٢٠٠ كيلوبايت)' };
+    if (typeof store?.listMasterData !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'دليل الأصناف غير متاح لتهيئة الملف' };
+    const firstLine = content.split(/\r?\n/, 1)[0] || '';
+    const choices = [',', ';', '\t'].map(value => [value, (firstLine.match(new RegExp(value === '\t' ? '\\t' : value === ',' ? ',' : ';', 'g')) || []).length]).sort((a,b) => b[1] - a[1]);
+    const delimiter = choices[0][1] ? choices[0][0] : ',';
+    const parsed = parseDelimitedRows(content, delimiter);
+    if (parsed.length < 2 || parsed.length > 2000) return { status: 400, code: 'ASSISTANT_FILE_INVALID', message: 'يجب أن يحتوي CSV على عناوين أعمدة وصف واحد على الأقل، وبحد أقصى ٢٠٠٠ صف' };
+    const normalize = value => String(value || '').toLocaleLowerCase('ar').replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/[ًٌٍَُِّْ]/g,'').replace(/[^\p{L}\p{N}]+/gu,'').trim();
+    const headers = parsed[0].map(normalize);
+    const codeIndex = headers.findIndex(value => ['code','sku','itemcode','barcode','رمز','كود','رمزالصنف','رقمالصنف'].includes(value));
+    const nameIndex = headers.findIndex(value => ['name','item','product','الصنف','اسم','اسمالصنف','المادة'].includes(value));
+    const qtyIndex = headers.findIndex(value => ['quantity','qty','count','الكمية','كمية','العدد','عدد','الرصيدالفعلي'].includes(value));
+    if ((codeIndex < 0 && nameIndex < 0) || qtyIndex < 0) return { status: 400, code: 'ASSISTANT_FILE_COLUMNS_REQUIRED', message: 'لم أتعرف على الأعمدة. استخدم أعمدة code أو name مع quantity (أو: رمز الصنف، اسم الصنف، الكمية)' };
+    const data = await store.listMasterData(companyId);
+    const items = (data.items || []).filter(item => item.active !== false);
+    const byCode = new Map(items.filter(item => item.sku || item.code).map(item => [normalize(item.sku || item.code), item]));
+    const byName = new Map(items.map(item => [normalize(item.name), item]));
+    const rows = [];
+    for (const values of parsed.slice(1)) {
+      const code = codeIndex >= 0 ? values[codeIndex] || '' : '';
+      const name = nameIndex >= 0 ? values[nameIndex] || '' : '';
+      const item = (code && byCode.get(normalize(code))) || (name && byName.get(normalize(name))) || null;
+      let quantityText = String(values[qtyIndex] || '').replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit))).replace(/٫/g,'.').replace(/٬/g,'');
+      if (quantityText.includes('.') && quantityText.includes(',')) quantityText = quantityText.replace(/,/g,'');
+      else if ((quantityText.match(/,/g)||[]).length > 1 || /,\d{3}$/.test(quantityText)) quantityText = quantityText.replace(/,/g,'');
+      else quantityText = quantityText.replace(',','.');
+      let quantity = null;
+      try { const value = decimal(quantityText,{nonNegative:true}); if (value > 0n) quantity = decimalString(value); } catch {}
+      rows.push([code || item?.sku || '—', name || item?.name || '—', quantity || '—',
+        item?.name || 'غير مطابق', quantity ? (item ? 'مطابق؛ جاهز للمراجعة' : 'الصنف غير موجود بالدليل') : 'الكمية غير صالحة']);
+      if (rows.length >= 2000) break;
+    }
+    const matched = rows.filter(row => row[3] !== 'غير مطابق').length;
+    const answer = 'قرأت ملف CSV محليًا وجهزت ' + rows.length + ' صفًا؛ طابقت ' + matched + ' صنفًا. لم أستورد الملف ولم أغيّر المخزون. راجع الصفوف غير المطابقة ثم استخدم شاشة الاستيراد المخوّلة لإكمال المعاينة والاعتماد.';
+    return localResult(answer, table('معاينة ملف الأصناف',['رمز الملف','اسم الملف','الكمية','الصنف المطابق','الفحص'],rows));
+  }
   if (intent === 'permission-audit') {
     if (!has('audit.read')) return { status: 403, code: 'PERMISSION_DENIED', message: 'تحتاج صلاحية قراءة سجل التدقيق لمراجعة محاولات الوصول المرفوضة' };
     if (typeof store?.listPermissionDenials !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'سجل محاولات الوصول المرفوضة غير متاح في هذا الخادم بعد' };
@@ -889,6 +954,16 @@ export function installAssistantRoutes(app, { authenticate, store }) {
     if (!clean.length || clean.at(-1).role !== 'user') return error(res, 400, 'ASSISTANT_MESSAGE_REQUIRED', 'اكتب رسالة للمساعد');
     if (clean.reduce((total, message) => total + message.content.length, 0) > 12000) {
       return error(res, 413, 'ASSISTANT_CONTEXT_TOO_LONG', 'اختصر المحادثة ثم أعد المحاولة');
+    }
+    if (req.body?.assistantFile) {
+      try {
+        const result = await formatAccountingRead('catalog-file-preview', store, req.auth, clean.at(-1).content, req.body.assistantFile);
+        if (result.status) return error(res, result.status, result.code, result.message);
+        return res.json(result);
+      } catch (cause) {
+        console.warn('[assistant] local file preview failed', { code: cause?.code || cause?.name || 'UNKNOWN' });
+        return error(res, 503, 'ASSISTANT_FILE_PREVIEW_FAILED', 'تعذر تحليل الملف محليًا');
+      }
     }
     const readIntent = accountingReadIntent(clean.at(-1).content);
     if (readIntent) {
