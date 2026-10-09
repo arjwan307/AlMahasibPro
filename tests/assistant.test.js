@@ -679,3 +679,52 @@ test('assistant prepares a local sales invoice draft preview only with user perm
     if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
   }
 });
+
+
+test('assistant prepares a balanced journal preview locally and requires accounting permissions', async () => {
+  const oldKey = process.env.GROQ_API_KEY;
+  const originalFetch = globalThis.fetch;
+  try {
+    delete process.env.GROQ_API_KEY;
+    globalThis.fetch = async () => { throw new Error('journal preview must stay local'); };
+    let reads = 0;
+    const store = { listChartAccounts: async companyId => {
+      assert.equal(companyId, 'journal-company');
+      reads++;
+      return [
+        { code: '1000', name: 'الصندوق', active: true },
+        { code: '4000', name: 'المبيعات', active: true }
+      ];
+    } };
+    const routes = setup(undefined, store);
+    const auth = { company: { id: 'journal-company' }, permissions: ['assistant.use', 'accounting.read', 'accounting.post'] };
+    const balanced = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth, body: { messages: [{ role: 'user', content: 'جهز مسودة قيد: مدين الصندوق ١٠٠٠؛ دائن المبيعات ١٠٠٠' }] }
+    }, balanced);
+    assert.equal(balanced.statusCode, 200);
+    assert.equal(balanced.body.localOnly, true);
+    assert.match(balanced.body.answer, /لم أحفظ أو أعتمد أو أرحّل القيد/);
+    assert.equal(balanced.body.report.rows[0][1], '1000');
+    assert.equal(balanced.body.report.rows.at(-1)[4], 'متوازن مبدئيًا');
+    assert.equal(reads, 1);
+
+    const unbalanced = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth, body: { messages: [{ role: 'user', content: 'جهز مسودة قيد: مدين الصندوق 1000؛ دائن المبيعات 900' }] }
+    }, unbalanced);
+    assert.equal(unbalanced.body.report.rows.at(-1)[4], 'غير متوازن');
+    assert.match(unbalanced.body.answer, /لم أحفظ أو أرحّل أي قيد/);
+
+    const denied = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth: { ...auth, permissions: ['assistant.use', 'accounting.read'] },
+      body: { messages: [{ role: 'user', content: 'جهز مسودة قيد: مدين الصندوق 1000؛ دائن المبيعات 1000' }] }
+    }, denied);
+    assert.equal(denied.statusCode, 403);
+    assert.equal(reads, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
+  }
+});
