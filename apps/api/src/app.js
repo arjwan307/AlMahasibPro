@@ -35,7 +35,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   installPayrollRoutes(app,{store,authenticate,permit});
   installTreasuryRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency});
   installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
-  installAssistantRoutes(app,{authenticate:authenticate(store)});
+  installAssistantRoutes(app,{authenticate:authenticate(store),store});
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
 
   app.post('/api/v1/companies/register', asyncRoute(async (req, res) => {
@@ -233,7 +233,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     }, req.auth.user.id) });
   }));
 
-  app.get('/api/v1/accounting/chart', authenticate(store), permit('accounting.read'), asyncRoute(async (req,res)=>{ res.json({accounts:store.listChartAccounts(req.auth.company.id)}); }));
+  app.get('/api/v1/accounting/chart', authenticate(store), permit('accounting.read'), asyncRoute(async (req,res)=>{ res.json({accounts:await store.listChartAccounts(req.auth.company.id)}); }));
   app.post('/api/v1/accounting/chart', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{ res.status(201).json({account:await store.createChartAccount(req.auth.company.id,req.body||{},req.auth.user.id)}); }));
   app.post('/api/v1/accounting/journals', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{
     requireFields(req.body,['operationId','entryNumber','occurredAt']);
@@ -946,6 +946,11 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);
     const status = error.status || 500;
+    if (status === 403 && req.auth?.company?.id && req.auth?.user?.id && typeof store.recordPermissionDenied === 'function') {
+      void store.recordPermissionDenied(req.auth.company.id, req.auth.user.id, {
+        permission: error.requiredPermission || error.code || 'PERMISSION_DENIED', method: req.method, path: req.route?.path || req.path
+      }).catch(() => {});
+    }
     if (status >= 500) console.error(error);
     res.status(status).json({
       error: {
@@ -975,14 +980,14 @@ function authenticate(store) {
 
 function permit(permission) {
   return (req, res, next) => {
-    if (!req.auth.permissions.includes(permission)) return next(new AppError(403, 'PERMISSION_DENIED', 'لا توجد صلاحية لهذه العملية'));
+    if (!req.auth.permissions.includes(permission)) { const error = new AppError(403, 'PERMISSION_DENIED', 'لا توجد صلاحية لهذه العملية'); error.requiredPermission = permission; return next(error); }
     next();
   };
 }
 
 function permitAny(permissions) {
   return (req, res, next) => {
-    if (!permissions.some((permission) => req.auth.permissions.includes(permission))) return next(new AppError(403, 'PERMISSION_DENIED', 'لا توجد صلاحية لهذه العملية'));
+    if (!permissions.some((permission) => req.auth.permissions.includes(permission))) { const error = new AppError(403, 'PERMISSION_DENIED', 'لا توجد صلاحية لهذه العملية'); error.requiredPermission = permissions.join('|'); return next(error); }
     next();
   };
 }

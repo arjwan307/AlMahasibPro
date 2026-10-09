@@ -4,12 +4,96 @@ import { AppError } from '../lib/http.js';
 import { decimal, decimalString, divide, multiply, ZERO } from '../lib/decimal.js';
 import { PERMISSIONS, ROLE_TEMPLATES } from '../permissions.js';
 
+const DEFAULT_ACCOUNTS = [
+  ['1000-CASH','الصندوق بالدينار','asset'],['1000-CASH-USD','الصندوق بالدولار','asset'],['1010-BANK','البنك بالدينار','asset'],['1010-BANK-USD','البنك بالدولار','asset'],['1100-AR','ذمم العملاء','asset'],
+  ['1150-REP-CASH-CUSTODY','عهدة نقد المندوبين','asset'],['1200-INVENTORY','المخزون','asset'],['1300-EMPLOYEE-ADVANCES','سلف الموظفين','asset'],['1400-EMPLOYEE-RECEIVABLE','ذمم الموظفين','asset'],
+  ['2100-AP','ذمم الموردين','liability'],['2200-PAYROLL-DEDUCTIONS','استقطاعات الرواتب','liability'],['2205-CUSTOMER-CREDITS','أرصدة العملاء الدائنة','liability'],['2300-PAYROLL-PAYABLE','رواتب مستحقة','liability'],['3000-EQUITY','حقوق الملكية','equity'],
+  ['4100-SALES','المبيعات','revenue'],['4200-SALES-RETURNS','مردودات المبيعات','contra_revenue'],['4800-OTHER-INCOME','إيرادات أخرى','revenue'],['6150-CASH-SHORTAGE','عجز الصندوق','expense'],['5100-COGS','كلفة البضاعة المباعة','expense'],['6100-PAYROLL-EXPENSE','مصروف الرواتب','expense'],['6150-PAYROLL-RECOVERY','استردادات الرواتب','revenue']
+];
+
 export class PostgresStore {
   constructor(connectionString, options = {}) {
     this.pool = new pg.Pool({ connectionString, max: options.max || 10 });
   }
 
   async close() { await this.pool.end(); }
+
+  async recordPermissionDenied(companyId, actorUserId, metadata = {}) {
+    if (!companyId || !actorUserId) return;
+    return this.#transaction({ companyId }, client => this.#audit(client, companyId, actorUserId,
+      'security.permission_denied', 'access_attempt', null, {
+        permission: String(metadata.permission || '').slice(0, 80),
+        method: String(metadata.method || '').slice(0, 12),
+        path: String(metadata.path || '').slice(0, 180)
+      }));
+  }
+
+  async listPostedJournals(companyId, limit = 500) {
+    return this.#transaction({ companyId }, async client => {
+      const entries = await client.query(`SELECT id, company_id, entry_number, status, currency, description, occurred_at, created_by
+        FROM journal_entries WHERE company_id=$1 AND status='posted' ORDER BY occurred_at DESC LIMIT $2`,
+      [companyId, Math.max(1, Math.min(Number(limit) || 500, 1000))]);
+      if (!entries.rowCount) return [];
+      const ids = entries.rows.map(row => row.id);
+      const lines = await client.query(`SELECT journal_entry_id, account_code, debit, credit FROM journal_lines
+        WHERE company_id=$1 AND journal_entry_id=ANY($2::uuid[]) ORDER BY journal_entry_id, id`, [companyId, ids]);
+      const byEntry = new Map();
+      for (const row of lines.rows) {
+        if (!byEntry.has(row.journal_entry_id)) byEntry.set(row.journal_entry_id, []);
+        byEntry.get(row.journal_entry_id).push({ accountCode: row.account_code, debit: decimalString(decimal(row.debit)), credit: decimalString(decimal(row.credit)) });
+      }
+      return entries.rows.map(row => ({ id: row.id, companyId: row.company_id, entryNumber: row.entry_number, status: row.status,
+        currency: row.currency, description: row.description, occurredAt: row.occurred_at, createdBy: row.created_by, lines: byEntry.get(row.id) || [] }));
+    });
+  }
+
+  async listChartAccounts(companyId) {
+    const journals = await this.listPostedJournals(companyId, 1000);
+    const defaults = new Map(DEFAULT_ACCOUNTS.map(([code,name,type])=>[code,{companyId,code,name,type,system:true,active:true}]));
+    for (const line of journals.flatMap(journal=>journal.lines)) if (!defaults.has(line.accountCode)) defaults.set(line.accountCode,{companyId,code:line.accountCode,name:line.accountCode,type:'unknown',system:false,active:true});
+    return [...defaults.values()];
+  }
+
+  async trialBalance(companyId) {
+    return this.#transaction({ companyId }, async client => {
+      const company = await client.query(`SELECT currency FROM companies WHERE id=$1`, [companyId]);
+      const baseCurrency = company.rows[0]?.currency || 'IQD';
+      const result = await client.query(`SELECT l.account_code, j.currency,
+          COALESCE(SUM(l.debit),0)::numeric(20,6) AS debit,
+          COALESCE(SUM(l.credit),0)::numeric(20,6) AS credit
+        FROM journal_lines l JOIN journal_entries j ON j.company_id=l.company_id AND j.id=l.journal_entry_id
+        WHERE l.company_id=$1 AND j.status='posted'
+        GROUP BY l.account_code,j.currency ORDER BY l.account_code,j.currency`, [companyId]);
+      const accounts = new Map(DEFAULT_ACCOUNTS.map(([code,name,type])=>[code,{name,type}]));
+      const rows = new Map();
+      const rowFor = (code,currency) => {
+        const key=code+':'+currency;
+        if(!rows.has(key)) rows.set(key,{accountCode:code,name:accounts.get(code)?.name||code,type:accounts.get(code)?.type||'unknown',currency,debit:'0.000000',credit:'0.000000',balance:'0.000000'});
+        return rows.get(key);
+      };
+      for(const [code] of DEFAULT_ACCOUNTS) rowFor(code,baseCurrency);
+      for(const row of result.rows){const target=rowFor(row.account_code,row.currency),debit=decimal(row.debit),credit=decimal(row.credit);target.debit=decimalString(debit);target.credit=decimalString(credit);target.balance=decimalString(debit-credit);}
+      return [...rows.values()];
+    });
+  }
+
+  async listEnterpriseData(companyId) {
+    const [journals,chartAccounts,trialBalance] = await Promise.all([
+      this.listPostedJournals(companyId), this.listChartAccounts(companyId), this.trialBalance(companyId)
+    ]);
+    return { journals, chartAccounts, trialBalance, transfers: [], settlements: [], users: [] };
+  }
+
+  async listPermissionDenials(companyId, limit = 100) {
+    return this.#transaction({ companyId }, async client => {
+      const result = await client.query(
+        `SELECT actor_user_id, created_at, metadata FROM audit_events
+         WHERE company_id=$1 AND action='security.permission_denied'
+         ORDER BY created_at DESC LIMIT $2`, [companyId, Math.max(1, Math.min(Number(limit) || 100, 500))]
+      );
+      return result.rows.map(row => ({ actorUserId: row.actor_user_id, occurredAt: row.created_at, ...(row.metadata || {}) }));
+    });
+  }
 
   async seedPlatformAdmin({ username, passwordHash, displayName = 'Platform Admin' }) {
     return this.#transaction({ platform: true }, async (client) => {

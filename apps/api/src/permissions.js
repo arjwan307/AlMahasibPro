@@ -1,5 +1,6 @@
 export const PERMISSIONS = Object.freeze([
   'company.manage', 'company.approve', 'users.manage', 'roles.manage',
+  'assistant.use',
   'catalog.read', 'catalog.manage', 'customers.read', 'customers.manage', 'suppliers.read', 'suppliers.manage',
   'inventory.read', 'inventory.manage',
   'purchasing.read', 'purchasing.create', 'purchasing.approve', 'purchasing.return',
@@ -15,17 +16,17 @@ export const PERMISSIONS = Object.freeze([
 
 export const ROLE_TEMPLATES = Object.freeze({
   company_admin: PERMISSIONS.filter((permission) => permission !== 'company.approve'),
-  accountant: ['accounting.read', 'accounting.post', 'sales.read', 'customers.read', 'suppliers.read', 'purchasing.read', 'imports.read', 'imports.manage', 'payroll.read', 'payroll.review', 'payroll.pay', 'audit.read', 'sync.use'],
-  warehouse_keeper: ['catalog.read', 'suppliers.read', 'inventory.read', 'inventory.manage', 'purchasing.read', 'purchasing.create', 'imports.read', 'imports.manage', 'sync.use'],
-  cashier: ['catalog.read', 'customers.read', 'customers.manage', 'inventory.read', 'sales.read', 'sales.create', 'sales.approve', 'sales.return', 'pos.shift.open', 'pos.shift.close', 'sync.use'],
-  representative: ['catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.create', 'sales.return', 'representatives.read', 'representatives.operate', 'representatives.collect', 'representatives.handover', 'sync.use'],
-  representative_supervisor: ['catalog.read', 'customers.read', 'inventory.read', 'inventory.manage', 'sales.read', 'representatives.read', 'representatives.manage', 'representatives.review', 'sync.use'],
-  wholesale_representative: ['catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.create', 'sales.wholesale.submit', 'sync.use'],
-  retail_representative: ['catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.create', 'sales.retail.submit', 'sync.use'],
-  wholesale_manager: ['catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.approve', 'sales.wholesale.review', 'sync.use'],
-  general_manager: ['catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.approve', 'sales.wholesale.finalize', 'sales.invoice.template.manage', 'sync.use'],
-  employee: ['employees.read', 'attendance.record', 'leaves.create', 'sync.use'],
-  hr: ['employees.read', 'employees.manage', 'attendance.record', 'attendance.manage', 'overtime.approve', 'leaves.create', 'leaves.manage', 'payroll.prepare', 'payroll.read', 'sync.use'],
-  auditor: ['catalog.read', 'inventory.read', 'sales.read', 'accounting.read', 'employees.read', 'audit.read']
+  accountant: ['assistant.use', 'accounting.read', 'accounting.post', 'sales.read', 'customers.read', 'suppliers.read', 'purchasing.read', 'imports.read', 'imports.manage', 'payroll.read', 'payroll.review', 'payroll.pay', 'audit.read', 'sync.use'],
+  warehouse_keeper: ['assistant.use', 'catalog.read', 'suppliers.read', 'inventory.read', 'inventory.manage', 'purchasing.read', 'purchasing.create', 'imports.read', 'imports.manage', 'sync.use'],
+  cashier: ['assistant.use', 'catalog.read', 'customers.read', 'customers.manage', 'inventory.read', 'sales.read', 'sales.create', 'sales.approve', 'sales.return', 'pos.shift.open', 'pos.shift.close', 'sync.use'],
+  representative: ['assistant.use', 'catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.create', 'sales.return', 'representatives.read', 'representatives.operate', 'representatives.collect', 'representatives.handover', 'sync.use'],
+  representative_supervisor: ['assistant.use', 'catalog.read', 'customers.read', 'inventory.read', 'inventory.manage', 'sales.read', 'representatives.read', 'representatives.manage', 'representatives.review', 'sync.use'],
+  wholesale_representative: ['assistant.use', 'catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.create', 'sales.wholesale.submit', 'sync.use'],
+  retail_representative: ['assistant.use', 'catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.create', 'sales.retail.submit', 'sync.use'],
+  wholesale_manager: ['assistant.use', 'catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.approve', 'sales.wholesale.review', 'sync.use'],
+  general_manager: ['assistant.use', 'catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.approve', 'sales.wholesale.finalize', 'sales.invoice.template.manage', 'sync.use'],
+  employee: ['assistant.use', 'employees.read', 'attendance.record', 'leaves.create', 'sync.use'],
+  hr: ['assistant.use', 'employees.read', 'employees.manage', 'attendance.record', 'attendance.manage', 'overtime.approve', 'leaves.create', 'leaves.manage', 'payroll.prepare', 'payroll.read', 'sync.use'],
+  auditor: ['assistant.use', 'catalog.read', 'inventory.read', 'sales.read', 'accounting.read', 'employees.read', 'audit.read']
 });
 
