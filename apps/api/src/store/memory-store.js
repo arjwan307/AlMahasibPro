@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { AppError } from '../lib/http.js';
 import { decimal, decimalString, divide, multiply, ZERO } from '../lib/decimal.js';
 import { PERMISSIONS, ROLE_TEMPLATES } from '../permissions.js';
+import { receiptNotification } from '../lib/customer-notifications.js';
 
 const clone = (value) => structuredClone(value);
 const overlapDates = (start, end, periodStart, periodEnd) => {
@@ -20,6 +21,7 @@ export class MemoryStore {
     this.users = new Map();
     this.roles = new Map();
     this.sessions = new Map();
+    this.customerNotifications = new Map();
     this.operations = new Map();
     this.changes = [];
     this.audit = [];
@@ -69,6 +71,20 @@ export class MemoryStore {
   }
 
   async close() {}
+  async prepareCustomerNotification(companyId,input,actor){
+    const customer=input.customerId?this.customers.get(input.customerId):null;
+    if(input.customerId&&(!customer||customer.companyId!==companyId))throw new AppError(404,'CUSTOMER_NOT_FOUND','الزبون غير موجود');
+    const key=companyId+':manual:'+input.operationId;
+    const existing=this.customerNotifications.get(key);
+    const fingerprint=JSON.stringify(input);
+    if(existing){if(existing.fingerprint!==fingerprint)throw new AppError(409,'OPERATION_ID_REUSED','معرف الرسالة مستخدم لبيانات أخرى');return clone(existing);}
+    const row={...input,id:key,companyId,customerName:customer?.name||input.recipientName,status:'draft',fingerprint,createdAt:new Date().toISOString(),createdBy:actor};
+    this.customerNotifications.set(key,row);this.#audit(companyId,actor,'notification.prepared','notification',key,{type:input.type});return clone(row);
+  }
+  async markCustomerNotificationOpened(companyId,id,actor){
+    const row=this.customerNotifications.get(id);if(!row||row.companyId!==companyId)throw new AppError(404,'NOTIFICATION_NOT_FOUND','الرسالة غير موجودة');
+    const updated={...row,openedAt:new Date().toISOString(),openedBy:actor};this.customerNotifications.set(id,updated);return clone(updated);
+  }
   async saveSalesSetting(key,value,actor) { this.salesSettings.set(key,clone(value));this.#audit(value.companyId,actor,'sales.setting.updated','sales_setting',key,{});return clone(value); }
   async saveSalesApproval(row) { this.salesApprovals.set(row.id,clone(row));this.#audit(row.companyId,row.reviewedBy||row.userId,'sales.approval.'+row.status,'sales_approval',row.id,{});return clone(row); }
   async deleteSalesApproval(id,companyId,actorUserId,reason='manual') { const row=this.salesApprovals.get(id);if(!row||row.companyId!==companyId)return false;this.salesApprovals.delete(id);this.#audit(companyId,actorUserId,reason==='expired'?'sales.approval.expired':'sales.approval.deleted','sales_approval',id,{reason});return true; }
@@ -844,6 +860,7 @@ export class MemoryStore {
     this.financialRecords.set(row.id, Object.freeze(row));
     this.#audit(context.company.id,context.user.id,'enterprise.settlement','financial_record',row.id,{});
     this.#change(context.company.id,'financial_record',row.id,'upsert',row);
+    if(document.documentType==='sale')receiptNotification(this,context.company.id,document.customerId,{operationId:input.operationId,sourceId:row.id,reference:row.receiptNumber,amount:row.receivedAmount,currency:row.receivedCurrency});
     return clone(row);
   }
 
@@ -1373,7 +1390,7 @@ export class MemoryStore {
       const debt = [...this.debtMovements.values()].filter((m) => m.companyId === companyId && m.customerId === p.customerId && m.currency === p.currency).reduce((s, m) => s + decimal(m.amount), ZERO);
       if (amount > debt) throw new AppError(409, 'COLLECTION_EXCEEDS_DEBT', 'التحصيل يتجاوز دين العميل');
       const collection = { id: randomUUID(), companyId, representativeId: rep.id, customerId: p.customerId, receiptNumber: p.receiptNumber, amount: decimalString(amount), currency: p.currency, operationId: operation.operationId, occurredAt: operation.occurredAt, createdBy: context.user.id };
-      this.representativeCollections.set(collection.id, Object.freeze(collection)); this.#recordDebt(companyId, p.customerId, rep.id, null, operation, 'collection', -amount, p.currency); this.#recordCustody(companyId, rep.id, operation, 'collection', amount, p.currency, 'collection', collection.id); this.#simpleJournal(context, operation, `COL-${p.receiptNumber}`, p.currency, [['1150-REP-CASH-CUSTODY', amount, ZERO], ['1100-AR', ZERO, amount]]); this.#change(companyId, 'representative_collection', collection.id, 'upsert', collection); return { entityId: collection.id, collection: clone(collection) };
+      this.representativeCollections.set(collection.id, Object.freeze(collection)); this.#recordDebt(companyId, p.customerId, rep.id, null, operation, 'collection', -amount, p.currency); this.#recordCustody(companyId, rep.id, operation, 'collection', amount, p.currency, 'collection', collection.id); this.#simpleJournal(context, operation, `COL-${p.receiptNumber}`, p.currency, [['1150-REP-CASH-CUSTODY', amount, ZERO], ['1100-AR', ZERO, amount]]); this.#change(companyId, 'representative_collection', collection.id, 'upsert', collection); receiptNotification(this,companyId,p.customerId,{operationId:operation.operationId,sourceId:collection.id,reference:collection.receiptNumber,amount:collection.amount,currency:collection.currency}); return { entityId: collection.id, collection: clone(collection) };
     }
     if (operation.type === 'representative.handover.submit') {
       const custody = [...this.custodyMovements.values()].filter((m) => m.companyId === companyId && m.representativeId === rep.id && m.currency === p.currency).reduce((s, m) => s + decimal(m.amount), ZERO);
@@ -1424,7 +1441,7 @@ export class MemoryStore {
   #calculatePayrollLine(companyId,employee,contract,settings,input){const base=decimal(contract.basicSalary),working=BigInt(settings.workingDaysPerMonth)*1000000n;const presentDates=new Set([...this.attendanceEvents.values()].filter(x=>x.companyId===companyId&&x.employeeId===employee.id&&x.eventType==='check_in'&&x.eventTime.slice(0,10)>=input.periodStart&&x.eventTime.slice(0,10)<=input.periodEnd).map(x=>x.eventTime.slice(0,10)));const paidLeaveDates=new Set(),unpaidLeaveDates=new Set();for(const leave of this.leaveRequests.values())if(leave.companyId===companyId&&leave.employeeId===employee.id&&leave.status==='approved'){const target=leave.paid?paidLeaveDates:unpaidLeaveDates;for(const day of overlapDates(leave.startDate,leave.endDate,input.periodStart,input.periodEnd))target.add(day);}const paidLeaveDays=[...paidLeaveDates].filter(day=>!presentDates.has(day)).length,unpaidLeaveDays=[...unpaidLeaveDates].filter(day=>!presentDates.has(day)).length;const attendanceAbsence=settings.attendanceRequired?Math.max(0,settings.workingDaysPerMonth-presentDates.size-paidLeaveDays):0;const absenceDays=Math.min(settings.workingDaysPerMonth,Math.max(attendanceAbsence,unpaidLeaveDays));const absence=settings.deductAbsence?multiply(divide(base,working),BigInt(absenceDays)*1000000n):ZERO;const baseEarned=base-absence;const recurring=[...this.employeeComponents.values()].filter(x=>x.companyId===companyId&&x.employeeId===employee.id&&x.active);const allowances=recurring.filter(x=>x.componentType==='allowance').reduce((s,x)=>s+decimal(x.amount),ZERO);const recurringDeductions=recurring.filter(x=>x.componentType==='deduction').reduce((s,x)=>s+decimal(x.amount),ZERO);const approvedOvertime=[...this.overtimeRequests.values()].filter(x=>x.companyId===companyId&&x.employeeId===employee.id&&x.status==='approved'&&x.workDate>=input.periodStart&&x.workDate<=input.periodEnd);const overtimeMinutes=approvedOvertime.reduce((s,x)=>s+x.minutes,0);const minuteRate=divide(base,multiply(working,multiply(decimal(settings.dailyHours),decimal('60'))));const overtimeAmount=approvedOvertime.reduce((s,x)=>s+multiply(minuteRate,multiply(BigInt(x.minutes)*1000000n,decimal(x.multiplier))),ZERO);const gross=baseEarned+allowances+overtimeAmount;let advance=ZERO;const advances=[...this.employeeAdvances.values()].filter(x=>x.companyId===companyId&&x.employeeId===employee.id&&x.status==='active'&&x.currency===contract.currency);for(const item of advances){const value=decimal(item.remainingAmount)<decimal(item.installmentAmount)?decimal(item.remainingAmount):decimal(item.installmentAmount);advance+=value;}if(recurringDeductions>gross)throw new AppError(409,'DEDUCTIONS_EXCEED_GROSS','الاستقطاعات تتجاوز مستحق الموظف');if(recurringDeductions+advance>gross)advance=gross-recurringDeductions;const deductions=recurringDeductions+advance,net=gross-deductions;const components=[{type:'base',code:'BASE',name:'الراتب المستحق',amount:decimalString(baseEarned)},...recurring.map(x=>({type:x.componentType,code:x.code,name:x.name,amount:x.amount,sourceId:x.id})),...approvedOvertime.map(x=>({type:'overtime',code:'OVERTIME',name:'إضافي',amount:decimalString(multiply(minuteRate,multiply(BigInt(x.minutes)*1000000n,decimal(x.multiplier)))),sourceId:x.id})),...advances.map(x=>({type:'advance',code:'ADVANCE',name:'قسط سلفة',amount:decimalString(decimal(x.remainingAmount)<decimal(x.installmentAmount)?decimal(x.remainingAmount):decimal(x.installmentAmount)),sourceId:x.id}))];return{id:randomUUID(),companyId,employeeId:employee.id,contractId:contract.id,basicSalary:contract.basicSalary,baseEarned:decimalString(baseEarned),allowances:decimalString(allowances),overtimeAmount:decimalString(overtimeAmount),absenceDeduction:decimalString(absence),recurringDeductions:decimalString(recurringDeductions),advanceDeduction:decimalString(advance),grossAmount:decimalString(gross),totalDeductions:decimalString(deductions),netAmount:decimalString(net),attendanceDays:presentDates.size,absenceDays,overtimeMinutes,snapshot:{employeeName:employee.fullName,settings:clone(settings)},components};}
   #payrollAccrualJournal(context,cycle,operationId){const advance=cycle.lines.reduce((s,x)=>s+decimal(x.advanceDeduction),ZERO),other=cycle.lines.reduce((s,x)=>s+decimal(x.recurringDeductions),ZERO);const journal=this.#simpleJournal(context,{operationId,occurredAt:new Date().toISOString()},`PAYROLL-${cycle.cycleCode}`,cycle.currency,[['6100-PAYROLL-EXPENSE',decimal(cycle.totalGross),ZERO],['1300-EMPLOYEE-ADVANCES',ZERO,advance],['2200-PAYROLL-DEDUCTIONS',ZERO,other],['2300-PAYROLL-PAYABLE',ZERO,decimal(cycle.totalNet)]]);for(const line of cycle.lines){let remaining=decimal(line.advanceDeduction);for(const component of line.components.filter(x=>x.type==='advance')){if(remaining<=ZERO)break;const item=this.employeeAdvances.get(component.sourceId);if(!item)continue;const componentAmount=decimal(component.amount),applied=componentAmount<remaining?componentAmount:remaining;item.remainingAmount=decimalString(decimal(item.remainingAmount)-applied);if(decimal(item.remainingAmount)===ZERO)item.status='settled';remaining-=applied;}}return journal;}
   #representativeTransactionSnapshot(){return{stockBalances:structuredClone(this.stockBalances),commerceDocuments:structuredClone(this.commerceDocuments),journalEntries:structuredClone(this.journalEntries),serverOutbox:structuredClone(this.serverOutbox),changes:structuredClone(this.changes),audit:structuredClone(this.audit),stockTransfers:structuredClone(this.stockTransfers),representativeOrders:structuredClone(this.representativeOrders),debtMovements:structuredClone(this.debtMovements),representativeCollections:structuredClone(this.representativeCollections),custodyMovements:structuredClone(this.custodyMovements),representativeHandovers:structuredClone(this.representativeHandovers),changeSequence:this.changeSequence};}
-  #restoreRepresentativeTransaction(s){for(const key of ['stockBalances','commerceDocuments','journalEntries','stockTransfers','representativeOrders','debtMovements','representativeCollections','custodyMovements','representativeHandovers'])this[key]=s[key];this.serverOutbox=s.serverOutbox;this.changes=s.changes;this.audit=s.audit;this.changeSequence=s.changeSequence;}
+  #restoreRepresentativeTransaction(s){for(const key of ['stockBalances','commerceDocuments','journalEntries','stockTransfers','representativeOrders','debtMovements','representativeCollections','custodyMovements','representativeHandovers','customerNotifications'])this[key]=s[key];this.serverOutbox=s.serverOutbox;this.changes=s.changes;this.audit=s.audit;this.changeSequence=s.changeSequence;}
 
   #openPosShift(context, operation) {
     const payload = operation.payload;
@@ -1647,6 +1664,7 @@ export class MemoryStore {
     this.#audit(companyId, context.user.id, 'commerce.document.posted', 'commerce_document', document.id, { documentType: document.documentType });
     this.#change(companyId, 'commerce_document', document.id, 'upsert', document);
     for (const balance of stockUpdates.values()) this.#change(companyId, 'stock_balance', balance.itemId, 'upsert', balance);
+    if(document.documentType==='sale'&&decimal(document.paidAmount)>ZERO)receiptNotification(this,companyId,document.customerId,{operationId:operation.operationId,sourceId:document.id,reference:document.documentNumber,amount:document.paidAmount,currency:document.currency});
     return clone(document);
   }
 
