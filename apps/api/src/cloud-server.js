@@ -32,7 +32,6 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
    res.type(name.endsWith('.html')?'html':name.endsWith('.js')?'js':name.endsWith('.css')?'css':'json').send(content);
   }catch(error){next(error);}
  });
- app.post('/api/v1/companies/register',(_req,res)=>res.status(403).json({error:{message:'إنشاء الشركات غير متاح على خادم الشركة'}}));
  app.get('/api/health',(_req,res)=>res.json({ok:true,storage:'sqlite',service:'AlMahasibPro'}));
  const belongsToProduct=company=>(company.product||'company')===product;
  const productCompany=()=>[...store.companies.values()].find(belongsToProduct);
