@@ -43,6 +43,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     const passwordHash = await passwordHashOrValidation(req.body.password);
     const company = await store.registerCompany({
       code: `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`,
+      product: req.productScope || 'company',
       legalName: req.body.legalName.trim(),
       timezone: req.body.timezone || 'Asia/Baghdad',
       currency: ['IQD','USD'].includes(String(req.body.currency||'IQD').toUpperCase()) ? String(req.body.currency||'IQD').toUpperCase() : 'IQD',
