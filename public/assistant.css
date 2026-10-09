@@ -28,3 +28,13 @@
 .assistant-context-button{background:#e7f4f2;color:#145f59;border:1px solid #b7d8d2}
 .assistant-context-status{flex-basis:100%;padding:8px 10px;border-radius:9px;background:#fff7de;color:#715714;font-size:11px;line-height:1.6}
 .assistant-context-status[hidden]{display:none}
+
+.assistant-form-actions{position:relative;width:100%;flex-wrap:nowrap;justify-content:flex-start;gap:7px}
+.assistant-form-actions>.assistant-context-status{flex-basis:100%;text-align:right}
+.assistant-form-actions>.assistant-info-button{font-size:13px;padding:11px 13px}
+.assistant-form-actions>.assistant-attach{flex:0 0 42px;width:42px;height:42px;padding:0}
+.assistant-form>.assistant-file-status{display:block;flex-basis:100%;width:100%;box-sizing:border-box;margin:0;padding:0 3px}
+.assistant-attach-menu{position:absolute;z-index:5;left:0;bottom:calc(100% + 8px);display:grid;gap:7px;width:190px;padding:9px;border:1px solid #405574;border-radius:12px;background:#17243a;box-shadow:0 12px 28px #0008}
+.assistant-attach-menu[hidden]{display:none}
+.assistant-attach-menu>button{width:100%;padding:11px 12px;text-align:right;border:1px solid #405574;background:#243650;color:#fff}
+@media(max-width:420px){.assistant-form-actions{gap:5px}.assistant-form-actions>.assistant-info-button{font-size:13px;padding:11px 10px}.assistant-form-actions>button[type=submit]{padding:11px 13px}}
