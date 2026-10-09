@@ -518,6 +518,12 @@ export class MemoryStore {
   }
 
   async listItemCategories(companyId){return [...new Set(this.salesSettings.get('categories:'+companyId)?.names||[])];}
+  async updateItemImage(companyId,itemId,image,actorUserId){
+    const item=this.items.get(itemId);
+    if(!item||item.companyId!==companyId)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
+    item.image=image;this.#audit(companyId,actorUserId,'item.image.updated','item',itemId,{});
+    this.#change(companyId,'item',itemId,'upsert',clone(item));return clone(item);
+  }
   async createItemCategory(companyId,name,actorUserId){name=String(name||'').trim();if(!name||name.length>100)throw new AppError(400,'INVALID_CATEGORY','اسم التصنيف مطلوب، بحد أقصى 100 حرف');const names=await this.listItemCategories(companyId);if(names.includes(name))throw new AppError(409,'CATEGORY_EXISTS','التصنيف موجود');names.push(name);await this.saveSalesSetting('categories:'+companyId,{companyId,names},actorUserId);return {name};}
   async updateItemDescription(companyId,itemId,description,actorUserId) {
     const item=this.items.get(itemId);if(!item||item.companyId!==companyId)throw new AppError(404,'ITEM_NOT_FOUND','المادة غير موجودة');
