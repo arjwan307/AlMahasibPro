@@ -4,10 +4,12 @@ import {mkdtemp,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createHmac} from 'node:crypto';
+import {createApp} from '../apps/api/src/app.js';
 import {SQLiteStore} from '../apps/api/src/store/sqlite-store.js';
 import {deliverNotification,verifyWhatsAppSignature,whatsappConfigured} from '../apps/api/src/lib/whatsapp-provider.js';
 
 test('official WhatsApp queues send once after consent; ambiguous provider response never retries automatically',async()=>{
+ const savedEnv=Object.fromEntries(['WHATSAPP_APP_SECRET','WHATSAPP_PHONE_NUMBER_ID','WHATSAPP_COMPANY_ID'].map(key=>[key,process.env[key]]));let server;
  const dir=await mkdtemp(join(tmpdir(),'whatsapp-provider-'));const store=new SQLiteStore(join(dir,'test.sqlite'));
  try{
   const env={WHATSAPP_TOKEN:'test-secret',WHATSAPP_PHONE_NUMBER_ID:'123',WHATSAPP_API_VERSION:'v25.0',WHATSAPP_COMPANY_ID:'co'};
@@ -24,6 +26,14 @@ test('official WhatsApp queues send once after consent; ambiguous provider respo
   const missing=async()=>{calls++;throw Error('lost response');};
   await deliverNotification(store,'uncertain',{env,fetcher:missing});assert.equal(store.customerNotifications.get('uncertain').status,'uncertain');
   await deliverNotification(store,'uncertain',{env,fetcher:missing});assert.equal(calls,2);
+  process.env.WHATSAPP_APP_SECRET='secret';process.env.WHATSAPP_PHONE_NUMBER_ID='123';process.env.WHATSAPP_COMPANY_ID='co';
+  server=await new Promise(resolve=>{const instance=createApp({store}).listen(0,'127.0.0.1',()=>resolve(instance));});
+  const webhook=async(status,callback=payload.biz_opaque_callback_data,valid=true)=>{const body=JSON.stringify({entry:[{changes:[{value:{metadata:{phone_number_id:'123'},statuses:[{id:'wamid.test',status,timestamp:String(Math.floor(Date.now()/1000)),biz_opaque_callback_data:callback}]}}]}]});const signature='sha256='+createHmac('sha256',valid?'secret':'wrong').update(body).digest('hex');return fetch('http://127.0.0.1:'+server.address().port+'/api/v1/notifications/webhook',{method:'POST',headers:{'Content-Type':'application/json','X-Hub-Signature-256':signature},body});};
+  assert.equal((await webhook('delivered',undefined,false)).status,403);assert.equal(store.customerNotifications.get(message.id).status,'accepted');
+  assert.equal((await webhook('read')).status,200);assert.equal(store.customerNotifications.get(message.id).status,'read');
+  await webhook('sent');assert.equal(store.customerNotifications.get(message.id).status,'read','late callbacks cannot regress delivery state');
+  await store.transaction(()=>{const row=store.customerNotifications.get(message.id);store.customerNotifications.set(message.id,{...row,status:'accepted',activeCallbackId:'new-attempt'});});
+  await webhook('failed');assert.equal(store.customerNotifications.get(message.id).status,'accepted','callback from a prior send attempt cannot overwrite the current attempt');
   const bytes=Buffer.from('{"entry":[]}'),signature='sha256='+createHmac('sha256','secret').update(bytes).digest('hex');assert.equal(verifyWhatsAppSignature(bytes,signature,'secret'),true);assert.equal(verifyWhatsAppSignature(Buffer.from('changed'),signature,'secret'),false);
- }finally{await store.close();await rm(dir,{recursive:true,force:true});}
+ }finally{if(server)await new Promise(resolve=>server.close(resolve));for(const [key,value] of Object.entries(savedEnv)){if(value===undefined)delete process.env[key];else process.env[key]=value;}await store.close();await rm(dir,{recursive:true,force:true});}
 });
