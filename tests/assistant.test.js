@@ -626,3 +626,199 @@ test('assistant reads current stock locally inside inventory permission and ware
     assert.equal(reads,1);
   } finally {globalThis.fetch=originalFetch;if(old===undefined)delete process.env.GROQ_API_KEY;else process.env.GROQ_API_KEY=old;}
 });
+
+
+test('assistant prepares a local sales invoice draft preview only with user permissions', async () => {
+  const oldKey = process.env.GROQ_API_KEY;
+  const originalFetch = globalThis.fetch;
+  try {
+    delete process.env.GROQ_API_KEY;
+    globalThis.fetch = async () => { throw new Error('invoice draft preview must stay local'); };
+    let reads = 0;
+    const store = {
+      salesSettings: new Map(),
+      listMasterData: async () => {
+        reads++;
+        return {
+          items: [{ id: 'item-sugar', sku: 'S-1', name: 'سكر', active: true, baseUnitId: 'unit-kg',
+            units: [{ unitId: 'unit-kg', isBase: true }] }],
+          units: [{ id: 'unit-kg', name: 'كغم' }],
+          prices: [{ id: 'price-1', itemId: 'item-sugar', unitId: 'unit-kg', priceType: 'sale_retail',
+            amount: '1500.000000', currency: 'IQD', active: true, validFrom: '2026-10-01' }],
+          stock: [{ itemId: 'item-sugar', warehouseId: 'wh-1', quantity: '12.000000' }]
+        };
+      }
+    };
+    const routes = setup(undefined, store);
+    const auth = { company: { id: 'co', currency: 'IQD' }, user: { id: 'u1' },
+      permissions: ['assistant.use', 'sales.create', 'catalog.read', 'inventory.read'], scopes: [] };
+    const response = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({ auth, body: { messages: [
+      { role: 'user', content: 'أنشئ فاتورة مفرد: 3 سكر' }
+    ] } }, response);
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.localOnly, true);
+    assert.match(response.body.answer, /لم أحفظ أو أعتمد أو أرحّل/);
+    assert.equal(response.body.report.rows[0][1], 'سكر');
+    assert.equal(response.body.report.rows[0][3], '3');
+    assert.deepEqual(response.body.report.actions[0], {
+      itemId: 'item-sugar', unitId: 'unit-kg', quantity: '3', invoiceType: 'retail',
+      label: 'أضف 3 إلى مسودة الفاتورة'
+    });
+    assert.equal(reads, 1);
+
+    const denied = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({ auth: {
+      ...auth, permissions: ['assistant.use', 'catalog.read', 'inventory.read']
+    }, body: { messages: [{ role: 'user', content: 'أنشئ فاتورة مفرد: 3 سكر' }] } }, denied);
+    assert.equal(denied.statusCode, 403);
+    assert.equal(denied.body.error.code, 'PERMISSION_DENIED');
+    assert.equal(reads, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
+  }
+});
+
+
+test('assistant prepares a balanced journal preview locally and requires accounting permissions', async () => {
+  const oldKey = process.env.GROQ_API_KEY;
+  const originalFetch = globalThis.fetch;
+  try {
+    delete process.env.GROQ_API_KEY;
+    globalThis.fetch = async () => { throw new Error('journal preview must stay local'); };
+    let reads = 0;
+    const store = { listChartAccounts: async companyId => {
+      assert.equal(companyId, 'journal-company');
+      reads++;
+      return [
+        { code: '1000', name: 'الصندوق', active: true },
+        { code: '4000', name: 'المبيعات', active: true }
+      ];
+    } };
+    const routes = setup(undefined, store);
+    const auth = { company: { id: 'journal-company' }, permissions: ['assistant.use', 'accounting.read', 'accounting.post'] };
+    const balanced = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth, body: { messages: [{ role: 'user', content: 'جهز مسودة قيد: مدين الصندوق ١٠٠٠؛ دائن المبيعات ١٠٠٠' }] }
+    }, balanced);
+    assert.equal(balanced.statusCode, 200);
+    assert.equal(balanced.body.localOnly, true);
+    assert.match(balanced.body.answer, /لم أحفظ أو أعتمد أو أرحّل القيد/);
+    assert.equal(balanced.body.report.rows[0][1], '1000');
+    assert.equal(balanced.body.report.rows.at(-1)[4], 'متوازن مبدئيًا');
+    assert.equal(reads, 1);
+
+    const unbalanced = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth, body: { messages: [{ role: 'user', content: 'جهز مسودة قيد: مدين الصندوق 1000؛ دائن المبيعات 900' }] }
+    }, unbalanced);
+    assert.equal(unbalanced.body.report.rows.at(-1)[4], 'غير متوازن');
+    assert.match(unbalanced.body.answer, /لم أحفظ أو أرحّل أي قيد/);
+
+    const denied = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth: { ...auth, permissions: ['assistant.use', 'accounting.read'] },
+      body: { messages: [{ role: 'user', content: 'جهز مسودة قيد: مدين الصندوق 1000؛ دائن المبيعات 1000' }] }
+    }, denied);
+    assert.equal(denied.statusCode, 403);
+    assert.equal(reads, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
+  }
+});
+
+
+test('assistant previews stock receipt lines locally, honors warehouse scope and purchasing permission', async () => {
+  const oldKey = process.env.GROQ_API_KEY;
+  const originalFetch = globalThis.fetch;
+  try {
+    delete process.env.GROQ_API_KEY;
+    globalThis.fetch = async () => { throw new Error('stock receipt preview must stay local'); };
+    let reads = 0;
+    const store = {
+      warehouses: new Map([
+        ['wh-visible', { id: 'wh-visible', companyId: 'receipt-company', name: 'المخزن المسموح' }],
+        ['wh-hidden', { id: 'wh-hidden', companyId: 'receipt-company', name: 'مخزن آخر' }]
+      ]),
+      listMasterData: async companyId => {
+        assert.equal(companyId, 'receipt-company');
+        reads++;
+        return {
+          items: [{ id: 'sugar', sku: 'S-1', name: 'سكر', active: true, baseUnitId: 'kg', units: [{ unitId: 'kg', isBase: true }] }],
+          units: [{ id: 'kg', name: 'كغم' }],
+          stock: [
+            { itemId: 'sugar', warehouseId: 'wh-visible', quantity: '3' },
+            { itemId: 'sugar', warehouseId: 'wh-hidden', quantity: '99' }
+          ]
+        };
+      }
+    };
+    const routes = setup(undefined, store);
+    const auth = {
+      company: { id: 'receipt-company' }, user: { id: 'warehouse-user' },
+      permissions: ['assistant.use', 'catalog.read', 'purchasing.create', 'inventory.read'],
+      scopes: [{ type: 'warehouse', id: 'wh-visible' }]
+    };
+    const response = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth, body: { messages: [{ role: 'user', content: 'جهز معاينة استلام مخزني: ١٠ سكر' }] }
+    }, response);
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.localOnly, true);
+    assert.match(response.body.answer, /لم أسجل استلامًا أو أغيّر المخزون/);
+    assert.deepEqual(response.body.report.rows[0], ['S-1', 'سكر', '10', 'كغم', '3', 'صنف مطابق؛ راجع الوحدة']);
+    assert.equal(reads, 1);
+
+    const denied = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth: { ...auth, permissions: ['assistant.use', 'catalog.read'] },
+      body: { messages: [{ role: 'user', content: 'جهز معاينة استلام مخزني: 10 سكر' }] }
+    }, denied);
+    assert.equal(denied.statusCode, 403);
+    assert.equal(reads, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
+  }
+});
+
+
+test('assistant previews CSV inventory rows locally and rejects uploads without inventory permissions', async () => {
+  const oldKey = process.env.GROQ_API_KEY;
+  const originalFetch = globalThis.fetch;
+  try {
+    delete process.env.GROQ_API_KEY;
+    globalThis.fetch = async () => { throw new Error('uploaded company file must never reach Groq'); };
+    let reads = 0;
+    const store = { listMasterData: async () => {
+      reads++;
+      return { items: [{ id: 'sugar', sku: 'S-1', name: 'سكر', active: true }] };
+    } };
+    const routes = setup(undefined, store);
+    const file = { name: 'stocktake.csv', content: 'sku,name,quantity\nS-1,سكر,١٢\nOLD,مادة قديمة,2' };
+    const allowed = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth: { company: { id: 'file-company' }, permissions: ['assistant.use', 'catalog.read', 'inventory.manage'] },
+      body: { messages: [{ role: 'user', content: 'هيئ الملف المرفق للمعاينة' }], assistantFile: file }
+    }, allowed);
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(allowed.body.localOnly, true);
+    assert.match(allowed.body.answer, /قرأت ملف CSV محليًا/);
+    assert.deepEqual(allowed.body.report.rows[0], ['S-1', 'سكر', '12.000000', 'سكر', 'مطابق؛ جاهز للمراجعة']);
+    assert.equal(allowed.body.report.rows[1][4], 'الصنف غير موجود بالدليل');
+    assert.equal(reads, 1);
+
+    const denied = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth: { company: { id: 'file-company' }, permissions: ['assistant.use', 'catalog.read'] },
+      body: { messages: [{ role: 'user', content: 'هيئ الملف المرفق للمعاينة' }], assistantFile: file }
+    }, denied);
+    assert.equal(denied.statusCode, 403);
+    assert.equal(reads, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
+  }
+});
