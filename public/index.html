@@ -1,63 +1,25 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#102a43">
-  <title>اختيار التطبيق | المحاسب برو</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    :root{color-scheme:dark;--bg:#0b1724;--panel:#122438;--muted:#a9bac8;--gold:#f3c969;--line:#ffffff1b}
-    *{box-sizing:border-box}
-    body{margin:0;min-height:100vh;font-family:Cairo,system-ui,sans-serif;color:#f5f8fa;background:radial-gradient(ellipse at 50% -10%,#24415a 0,transparent 55%),linear-gradient(145deg,#091522,#0d2031 60%,#101a28);display:grid;place-items:center;padding:26px}
-    .shell{width:min(100%,1000px)}
-    header{text-align:center;margin-bottom:38px}
-    .brand-mark{width:72px;height:72px;margin:0 auto 16px;border:1px solid #f3c96977;border-radius:24px;display:grid;place-items:center;color:var(--gold);font-size:35px;background:#f3c96912;box-shadow:0 12px 38px #0003}
-    h1{font-size:clamp(2rem,5vw,3.1rem);line-height:1.2;margin:0;font-weight:800}
-    h1 span{color:var(--gold)}
-    .intro{margin:12px 0 0;color:var(--muted);font-size:1.05rem}
-    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
-    .app{position:relative;display:flex;min-height:270px;flex-direction:column;text-decoration:none;color:inherit;padding:28px;border:1px solid var(--line);border-radius:26px;background:linear-gradient(150deg,#ffffff0d,#ffffff05);box-shadow:0 18px 55px #0002;transition:transform .2s,border-color .2s,background .2s}
-    .app:hover,.app:focus-visible{transform:translateY(-5px);border-color:#f3c96999;background:linear-gradient(150deg,#ffffff17,#ffffff08);outline:none}
-    .app-icon{width:58px;height:58px;border-radius:18px;display:grid;place-items:center;font-size:29px;margin-bottom:20px;background:#f3c96919}
-    .company .app-icon{background:#69c5f219}
-    .app h2{font-size:1.4rem;margin:0 0 9px}
-    .app p{margin:0;color:var(--muted);line-height:1.8;max-width:37ch}
-    .features{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
-    .features span{font-size:.78rem;color:#d9e4eb;border:1px solid var(--line);border-radius:99px;padding:5px 10px}
-    .go{margin-top:auto;padding-top:24px;color:var(--gold);font-weight:700}
-    .company .go{color:#8ad7f4}
-    footer{text-align:center;color:#8295a5;font-size:.85rem;margin-top:25px}
-    @media(max-width:680px){body{padding:20px}.grid{grid-template-columns:1fr;gap:14px}.app{min-height:230px;padding:23px}header{margin-bottom:25px}}
-    @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}}
-  </style>
-</head>
-<body>
-  <main class="shell">
-    <header>
-      <div class="brand-mark" aria-hidden="true">▦</div>
-      <h1>المحاسب <span>برو</span></h1>
-      <p class="intro">اختر التطبيق الذي تريد الدخول إليه</p>
-    </header>
-    <section class="grid" aria-label="التطبيقات المتاحة">
-      <a class="app" href="/retail/retail-login.html">
-        <div class="app-icon" aria-hidden="true">🍽️</div>
-        <h2>المطاعم والمجمعات</h2>
-        <p>نظام المطاعم والكافيهات والماركتات والمجمعات، بنقطة بيع ومخزون يناسب طبيعة النشاط.</p>
-        <div class="features"><span>المبيعات والكاشير</span><span>الطلبات</span><span>المخزون</span></div>
-        <div class="go">الدخول إلى تطبيق المطاعم والمجمعات ←</div>
-      </a>
-      <a class="app company" href="/enterprise.html">
-        <div class="app-icon" aria-hidden="true">📊</div>
-        <h2>الشركات</h2>
-        <p>نظام الشركات للحسابات والفواتير والذمم والمخازن والموظفين والتقارير.</p>
-        <div class="features"><span>المحاسبة</span><span>الفواتير والذمم</span><span>التقارير</span></div>
-        <div class="go">الدخول إلى تطبيق الشركات ←</div>
-      </a>
-    </section>
-    <footer>تسجيل الدخول وبيانات كل تطبيق تبقى ضمن نظامه وصلاحياته.</footer>
-  </main>
-</body>
-</html>
+<html lang="ar" dir="rtl"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#102a43">
+<title>اختيار التطبيق | المحاسب برو</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--muted:#a9bac8;--gold:#f3c969;--line:#ffffff1b}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;font-family:Cairo,system-ui,sans-serif;color:#f5f8fa;background:radial-gradient(ellipse at 50% -10%,#24415a 0,transparent 55%),linear-gradient(145deg,#091522,#0d2031 60%,#101a28);display:grid;place-items:center;padding:26px}
+.shell{width:min(100%,1000px)}header{text-align:center;margin-bottom:38px}.brand-mark{width:72px;height:72px;margin:0 auto 16px;border:1px solid #f3c96977;border-radius:24px;display:grid;place-items:center;color:var(--gold);font-size:35px;background:#f3c96912;box-shadow:0 12px 38px #0003}
+h1{font-size:clamp(2rem,5vw,3.1rem);line-height:1.2;margin:0;font-weight:800}h1 span{color:var(--gold)}.intro{margin:12px 0 0;color:var(--muted);font-size:1.05rem}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.app{display:flex;min-height:285px;flex-direction:column;padding:28px;border:1px solid var(--line);border-radius:26px;background:linear-gradient(150deg,#ffffff0d,#ffffff05);box-shadow:0 18px 55px #0002;transition:transform .2s,border-color .2s,background .2s}.app:hover{transform:translateY(-3px);border-color:#f3c96966}
+.app-icon{width:58px;height:58px;border-radius:18px;display:grid;place-items:center;font-size:29px;margin-bottom:20px;background:#f3c96919}.company .app-icon{background:#69c5f219}
+.app h2{font-size:1.4rem;margin:0 0 9px}.app p{margin:0;color:var(--muted);line-height:1.8;max-width:37ch}.features{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.features span{font-size:.78rem;color:#d9e4eb;border:1px solid var(--line);border-radius:99px;padding:5px 10px}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:auto;padding-top:24px}.action{display:inline-flex;justify-content:center;align-items:center;min-height:44px;padding:9px 14px;border-radius:12px;text-decoration:none;font-weight:700;background:#f3c969;color:#152538}.company .action{background:#8ad7f4}.action.secondary{background:#ffffff12;color:#f3c969;border:1px solid #f3c96955}.company .action.secondary{color:#8ad7f4;border-color:#8ad7f455}
+footer{text-align:center;color:#8295a5;font-size:.85rem;margin-top:25px}.developer-link{display:inline-block;margin-top:13px;color:#b8c7d3;text-decoration:none;border-bottom:1px dotted #b8c7d3}
+@media(max-width:680px){body{padding:20px}.grid{grid-template-columns:1fr;gap:14px}.app{min-height:250px;padding:23px}header{margin-bottom:25px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}}
+</style></head><body><main class="shell">
+<header><div class="brand-mark" aria-hidden="true">▦</div><h1>المحاسب <span>برو</span></h1><p class="intro">اختر التطبيق الذي تريد الدخول إليه</p></header>
+<section class="grid" aria-label="التطبيقات المتاحة">
+<article class="app"><div class="app-icon" aria-hidden="true">🍽️</div><h2>المطاعم والمجمعات</h2><p>نظام المطاعم والكافيهات والماركتات والمجمعات، بنقطة بيع ومخزون يناسب طبيعة النشاط.</p><div class="features"><span>المبيعات والكاشير</span><span>الطلبات</span><span>المخزون</span></div><div class="actions"><a class="action" href="/retail/retail-login.html">تسجيل الدخول</a><a class="action secondary" href="/retail/register.html">إنشاء حساب</a></div></article>
+<article class="app company"><div class="app-icon" aria-hidden="true">📊</div><h2>الشركات</h2><p>نظام الشركات للحسابات والفواتير والذمم والمخازن والموظفين والتقارير.</p><div class="features"><span>المحاسبة</span><span>الفواتير والذمم</span><span>التقارير</span></div><div class="actions"><a class="action" href="/enterprise.html">تسجيل الدخول</a><a class="action secondary" href="/register.html">إنشاء حساب</a></div></article>
+</section><footer>لكل تطبيق حساباته وصلاحياته وبياناته المستقلة.<br><a class="developer-link" href="/developer.html">دخول المطور</a></footer>
+</main></body></html>
