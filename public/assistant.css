@@ -38,3 +38,5 @@
 .assistant-attach-menu[hidden]{display:none}
 .assistant-attach-menu>button{width:100%;padding:11px 12px;text-align:right;border:1px solid #405574;background:#243650;color:#fff}
 @media(max-width:420px){.assistant-form-actions{gap:5px}.assistant-form-actions>.assistant-info-button{font-size:13px;padding:11px 10px}.assistant-form-actions>button[type=submit]{padding:11px 13px}}
+
+.assistant-form-actions{flex-wrap:wrap}
