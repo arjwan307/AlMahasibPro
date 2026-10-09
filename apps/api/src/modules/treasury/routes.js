@@ -6,7 +6,7 @@ const timestamp = value => { const parsed=Date.parse(value); if(typeof value!=='
 export function installTreasuryRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency}) {
   const branchAllowed=(auth,id)=>{const scopes=(auth.scopes||[]).filter(x=>x.type==='branch');return !scopes.length||scopes.some(x=>x.id===id);};
   const assertCashboxScope=(auth,id)=>{const box=store.cashboxes.get(id);if(!box||box.companyId!==auth.company.id)throw new AppError(404,'CASHBOX_NOT_FOUND','الصندوق غير موجود');if(!branchAllowed(auth,box.branchId))throw new AppError(403,'BRANCH_SCOPE_DENIED','الصندوق خارج نطاق حسابك');return box;};
-  app.get('/api/v1/treasury/cashboxes',authenticate(store),anyPermission(['company.manage','accounting.read','pos.shift.open','pos.shift.close']),asyncRoute(async(req,res)=>res.json({cashboxes:(await store.listCashboxes(req.auth.company.id)).filter(box=>branchAllowed(req.auth,box.branchId))})));
+  app.get('/api/v1/treasury/cashboxes',authenticate(store),anyPermission(['company.manage','accounting.read','accounting.post','pos.shift.open','pos.shift.close']),asyncRoute(async(req,res)=>res.json({cashboxes:(await store.listCashboxes(req.auth.company.id)).filter(box=>branchAllowed(req.auth,box.branchId))})));
   app.post('/api/v1/treasury/cashboxes',authenticate(store),permit('accounting.post'),asyncRoute(async(req,res)=>{
     requireFields(req.body,['code','name','currency','branchId']);
     const branchId=uuid(req.body.branchId,'branchId');if(!(req.auth.company.branches||[]).some(x=>x.id===branchId&&x.active!==false))throw new AppError(400,'BRANCH_NOT_FOUND','الفرع المحدد غير موجود أو متوقف');if(!branchAllowed(req.auth,branchId))throw new AppError(403,'BRANCH_SCOPE_DENIED','الفرع خارج نطاق حسابك');
