@@ -2,7 +2,7 @@ export const PERMISSIONS = Object.freeze([
   'company.manage', 'company.approve', 'users.manage', 'roles.manage',
   'assistant.use',
   'catalog.read', 'catalog.manage', 'customers.read', 'customers.manage', 'suppliers.read', 'suppliers.manage',
-  'inventory.read', 'inventory.manage',
+  'inventory.read', 'inventory.manage', 'inventory.receive', 'inventory.issue',
   'purchasing.read', 'purchasing.create', 'purchasing.approve', 'purchasing.return',
   'sales.read', 'sales.create', 'sales.approve', 'sales.return',
   'sales.discount.override', 'sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize', 'sales.invoice.template.manage', 'pos.device.manage', 'pos.shift.open', 'pos.shift.close',
@@ -17,7 +17,7 @@ export const PERMISSIONS = Object.freeze([
 export const ROLE_TEMPLATES = Object.freeze({
   company_admin: PERMISSIONS.filter((permission) => permission !== 'company.approve'),
   accountant: ['assistant.use', 'accounting.read', 'accounting.post', 'sales.read', 'customers.read', 'suppliers.read', 'purchasing.read', 'imports.read', 'imports.manage', 'payroll.read', 'payroll.review', 'payroll.pay', 'audit.read', 'sync.use'],
-  warehouse_keeper: ['assistant.use', 'catalog.read', 'suppliers.read', 'inventory.read', 'inventory.manage', 'purchasing.read', 'purchasing.create', 'imports.read', 'imports.manage', 'sync.use'],
+  warehouse_keeper: ['assistant.use', 'catalog.read', 'suppliers.read', 'inventory.read', 'inventory.manage', 'inventory.receive', 'inventory.issue', 'purchasing.read', 'purchasing.create', 'imports.read', 'imports.manage', 'sync.use'],
   cashier: ['assistant.use', 'catalog.read', 'customers.read', 'customers.manage', 'inventory.read', 'sales.read', 'sales.create', 'sales.approve', 'sales.return', 'pos.shift.open', 'pos.shift.close', 'sync.use'],
   representative: ['assistant.use', 'catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.create', 'sales.return', 'representatives.read', 'representatives.operate', 'representatives.collect', 'representatives.handover', 'sync.use'],
   representative_supervisor: ['assistant.use', 'catalog.read', 'customers.read', 'inventory.read', 'inventory.manage', 'sales.read', 'representatives.read', 'representatives.manage', 'representatives.review', 'sync.use'],
