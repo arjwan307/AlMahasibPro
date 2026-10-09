@@ -783,3 +783,42 @@ test('assistant previews stock receipt lines locally, honors warehouse scope and
     if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
   }
 });
+
+
+test('assistant previews CSV inventory rows locally and rejects uploads without inventory permissions', async () => {
+  const oldKey = process.env.GROQ_API_KEY;
+  const originalFetch = globalThis.fetch;
+  try {
+    delete process.env.GROQ_API_KEY;
+    globalThis.fetch = async () => { throw new Error('uploaded company file must never reach Groq'); };
+    let reads = 0;
+    const store = { listMasterData: async () => {
+      reads++;
+      return { items: [{ id: 'sugar', sku: 'S-1', name: 'سكر', active: true }] };
+    } };
+    const routes = setup(undefined, store);
+    const file = { name: 'stocktake.csv', content: 'sku,name,quantity\nS-1,سكر,١٢\nOLD,مادة قديمة,2' };
+    const allowed = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth: { company: { id: 'file-company' }, permissions: ['assistant.use', 'catalog.read', 'inventory.manage'] },
+      body: { messages: [{ role: 'user', content: 'هيئ الملف المرفق للمعاينة' }], assistantFile: file }
+    }, allowed);
+    assert.equal(allowed.statusCode, 200);
+    assert.equal(allowed.body.localOnly, true);
+    assert.match(allowed.body.answer, /قرأت ملف CSV محليًا/);
+    assert.deepEqual(allowed.body.report.rows[0], ['S-1', 'سكر', '12.000000', 'سكر', 'مطابق؛ جاهز للمراجعة']);
+    assert.equal(allowed.body.report.rows[1][4], 'الصنف غير موجود بالدليل');
+    assert.equal(reads, 1);
+
+    const denied = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth: { company: { id: 'file-company' }, permissions: ['assistant.use', 'catalog.read'] },
+      body: { messages: [{ role: 'user', content: 'هيئ الملف المرفق للمعاينة' }], assistantFile: file }
+    }, denied);
+    assert.equal(denied.statusCode, 403);
+    assert.equal(reads, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
+  }
+});
