@@ -3,7 +3,7 @@ import { serialize, deserialize } from 'node:v8';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { dirname } from 'node:path';
+import { dirname, join, basename } from 'node:path';
 import { MemoryStore } from './memory-store.js';
 
 // Reuse the audited accounting engine; every successful domain mutation is
@@ -100,6 +100,36 @@ export class SQLiteStore extends MemoryStore {
       finally { try { unlinkSync(filename); } catch {} }
     });
     this.queue = task.catch(() => {}); return task;
+  }
+  async exportCompanyBackup(companyId) {
+    const task=this.queue.then(()=>{
+      if(!this.companies.has(companyId))throw Error('الشركة غير موجودة');
+      const filename=this.filename+'.'+randomUUID()+'.company-backup';let database;
+      try{
+        database=new DatabaseSync(filename);
+        database.exec('CREATE TABLE domain_state (field TEXT PRIMARY KEY,data BLOB NOT NULL) STRICT;');
+        const write=database.prepare('INSERT INTO domain_state(field,data) VALUES (?,?)');
+        const knownIds=new Set();
+        for(const value of Object.values(this))if(value instanceof Map)for(const [id,row] of value)if(row?.companyId===companyId)knownIds.add(String(id));
+        for(const [field,value] of Object.entries(this)){
+          let filtered;
+          if(value instanceof Map){
+            filtered=new Map([...value].filter(([id,row])=>field==='sessions'?false:field==='companies'?id===companyId:row?.companyId===companyId||(field==='salesSettings'&&!row?.companyId&&knownIds.has(String(id).split(':').at(-1)))).map(([id,row])=>[id,structuredClone(row)]));
+            if(field==='salesSettings')for(const row of filtered.values())if(Array.isArray(row.photos))row.photos=row.photos.map(photo=>{
+              if(photo.data)return photo;
+              if(!photo.filename||basename(photo.filename)!==photo.filename)throw Error('مسار صورة غير صالح');
+              const data=readFileSync(join(dirname(this.filename),'item-photos',photo.filename));
+              return {id:photo.id,mime:photo.mime,data:'data:'+photo.mime+';base64,'+data.toString('base64')};
+            });
+          }else if(Array.isArray(value))filtered=structuredClone(value.filter(row=>row?.companyId===companyId));
+          else if(field==='changeSequence')filtered=value;
+          else continue;
+          write.run(field,serialize(filtered));
+        }
+        database.close();database=null;return readFileSync(filename);
+      }finally{database?.close();try{unlinkSync(filename);}catch{}}
+    });
+    this.queue=task.catch(()=>{});return task;
   }
   async close() { await this.queue; this.sqlite.close(); }
 }
