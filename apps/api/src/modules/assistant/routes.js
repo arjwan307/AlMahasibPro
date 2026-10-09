@@ -816,6 +816,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
   if (intent === 'journal-draft') {
     if (!has('accounting.read') || !has('accounting.post')) return { status: 403, code: 'PERMISSION_DENIED', message: 'إعداد مسودة قيد يحتاج صلاحية قراءة الحسابات وصلاحية accounting.post؛ لم أكتب أو أرحّل أي قيد' };
     if (typeof store?.listChartAccounts !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'دليل الحسابات غير متاح لإعداد مسودة القيد' };
+    const normalizeAccount = value => String(value || '').toLocaleLowerCase('ar').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ًٌٍَُِّْ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
     const chart = (await store.listChartAccounts(companyId)).filter(account => account.active !== false);
     const normalized = String(assistantQuery || '').replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit))).replace(/٫/g, '.').replace(/٬/g, '').replace(/^.*?(?=(?:مدين|دائن)\s)/s, '');
     const segments = normalized.replace(/[,،](?=\s*(?:مدين|دائن)\s)/g, ';').split(/[;؛|]+/).map(value => value.trim()).filter(Boolean);
@@ -830,8 +831,8 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
       else amountText = amountText.replace(',', '.');
       let amount;
       try { amount = decimal(amountText, { nonNegative: true }); } catch { amount = 0n; }
-      const key = normalize(accountLabel);
-      const matches = chart.filter(account => normalize(account.code) === key || normalize(account.name) === key);
+      const key = normalizeAccount(accountLabel);
+      const matches = chart.filter(account => normalizeAccount(account.code) === key || normalizeAccount(account.name) === key);
       const account = matches.length === 1 ? matches[0] : null;
       lines.push({ side, account, amount, accountLabel, issue: amount <= 0n ? 'المبلغ غير صالح أو يساوي صفرًا' : matches.length !== 1 ? (matches.length ? 'اسم الحساب ملتبس؛ استخدم الرمز' : 'الحساب غير موجود في الدليل') : '' });
     }
