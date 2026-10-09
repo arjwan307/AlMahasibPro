@@ -17,7 +17,7 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211, product
     if (!hosts.has(req.headers.host) || (req.headers.origin && ![`http://127.0.0.1:${port}`, `http://localhost:${port}`].includes(req.headers.origin))) return res.status(403).json({ error: { message: 'المصدر غير مسموح' } });
     next();
   });
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '5mb' }));
   app.use(productPages(product));
   if (product === 'retail') {
     const html = new Set(['/pos.html','/market-cashier.html','/market-admin.html']);
