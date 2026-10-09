@@ -13,13 +13,14 @@ import { installTreasuryRoutes } from './modules/treasury/routes.js';
 import { installImportRoutes } from './modules/imports/routes.js';
 import { installAssistantRoutes } from './modules/assistant/routes.js';
 import { imageData, invoiceDesign, invoiceAttachment } from './lib/company-media.js';
+import { installDesktopSync } from './lib/desktop-sync.js';
 import { installNotificationRoutes } from './modules/notifications/routes.js';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, '../../../public');
 const loginAttempts = new Map();
 
-export function createApp({ store, sessionDays = 14, secureCookies = false, allowedOrigins = [], cookieName = 'almahasib_session', cookiePath = '/' }) {
+export function createApp({ store, sessionDays = 14, secureCookies = false, allowedOrigins = [], cookieName = 'almahasib_session', cookiePath = '/', notificationSending = false }) {
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => { req.sessionCookieName = cookieName; next(); });
@@ -30,7 +31,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     },
     credentials: true
   }));
-  app.use(express.json({ limit: '5mb' }));
+  app.use(express.json({ limit: '5mb', verify(req,res,bytes){if(req.path==='/api/v1/notifications/webhook')req.rawBody=Buffer.from(bytes);} }));
   app.use(express.static(publicDirectory, { extensions: ['html'], etag: true }));
 
   installSalesRoutes(app,{store,authenticate,permit,validateDocument:validateCommercePayload});
@@ -38,7 +39,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   installTreasuryRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency});
   installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
   installAssistantRoutes(app,{authenticate:authenticate(store),store});
-  installNotificationRoutes(app,{store,authenticate,permit});
+  installNotificationRoutes(app,{store,authenticate,permit,sending:notificationSending});
+  installDesktopSync(app,{store,authenticate,permit});
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
   app.get('/api/v1/company/invoice-design', authenticate(store), (req,res)=>res.json({ design:store.salesSettings.get('invoice-design:'+req.auth.company.id)||{} }));
   app.put('/api/v1/company/invoice-design', authenticate(store), permit('company.manage'), asyncRoute(async(req,res)=>{
