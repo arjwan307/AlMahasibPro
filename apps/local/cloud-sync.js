@@ -23,7 +23,7 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
   function mapped(value){if(typeof value==='string')return store.desktopIdMappings.get(value)?.remoteId||value;if(Array.isArray(value))return value.map(mapped);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,v])=>[mapped(key),mapped(v)]));return value;}
   function remember(local,remote,generated){if(typeof local==='string'&&typeof remote==='string'&&/^[0-9a-f-]{36}$/i.test(local)&&/^[0-9a-f-]{36}$/i.test(remote)&&local!==remote&&(!generated||generated.includes(local)))store.desktopIdMappings.set(local,{companyId:config.companyId,remoteId:remote});else if(Array.isArray(local)&&Array.isArray(remote))local.forEach((v,i)=>remember(v,remote[i],generated));else if(local&&remote&&typeof local==='object'&&typeof remote==='object')for(const key of Object.keys(local))remember(local[key],remote[key],generated);}
   async function synchronize(){
-    if(running)return {state:'busy',...status()};if(!config.companyId)return {state:'failed',message:'اربط الجهاز بالشركة السحابية أولًا',...status()};
+    if(running||connecting)return {state:'busy',...status()};if(!config.companyId)return {state:'failed',message:'اربط الجهاز بالشركة السحابية أولًا',...status()};
     running=true;lastError='';
     try{
       for(const command of pending()){
@@ -55,13 +55,21 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
   app.put('/api/local/cloud/settings',async(req,res)=>{if(!await authorized(req,res,'company.manage'))return;if(typeof req.body.automatic!=='boolean')return res.status(400).json({error:{message:'إعداد غير صالح'}});config.automatic=req.body.automatic;await save();res.json(status());});
   app.get('/api/local/cloud/commands',async(req,res)=>{const account=await authorized(req,res,'sync.use');if(!account)return;res.json({commands:pending().filter(x=>account.permissions.includes('company.manage')||x.userId===account.user.id).map(x=>({id:x.id,path:x.path,method:x.method,status:x.status,error:x.error,createdAt:x.createdAt}))});});
   app.post('/api/local/cloud/commands/:id/retry',async(req,res)=>{const account=await authorized(req,res,'sync.use');if(!account)return;const command=store.desktopCommands.get(req.params.id);if(!command?.local||command.companyId!==account.company.id||(!account.permissions.includes('company.manage')&&command.userId!==account.user.id))return res.status(404).json({error:{message:'العملية غير موجودة'}});if(running)return res.status(409).json({error:{message:'انتظر انتهاء المزامنة'}});await store.transaction(()=>{command.status='pending';command.error=null;command.reviewedBy=account.user.id;command.reviewedAt=new Date().toISOString();store.desktopCommands.set(command.id,command);});res.json({saved:true});});
+  app.post('/api/local/cloud/reset',async(req,res)=>{
+    let ownsLock=false;try{if(!await authorized(req,res,'company.manage'))return;if(req.body.confirm!==true)throw Error('أكد اعتماد نسخة السحابة');if(running||connecting)throw Error('انتظر انتهاء المزامنة');connecting=true;ownsLock=true;
+      const token=tokens.get(config.directorId);if(!token)throw Error('سجّل دخول المدير للاتصال بالسحابة');
+      const bytes=Buffer.from(await(await remote('/api/v1/enterprise/backup',{token})).arrayBuffer());
+      const backup=await store.exportBackup();const backupName='before-cloud-review-'+Date.now()+'.sqlite';await writeFile(join(dataDirectory,backupName),backup);
+      await store.importCloudSnapshot(bytes,config.companyId,{initial:true});lastSync=new Date().toISOString();res.json({saved:true,backupName});
+    }catch(error){res.status(400).json({error:{message:error.message}});}finally{if(ownsLock)connecting=false;}
+  });
   app.post('/api/local/cloud/connect',async(req,res)=>{
-    try{
+    let ownsLock=false;try{
       if(store.companies.size&&!await authorized(req,res,'company.manage'))return;
       if(connecting||running)throw Error('عملية ربط أو مزامنة قيد التنفيذ');
       if(pending().length)throw Error('توجد عمليات غير مرسلة؛ لا يمكن تغيير الاتصال أو استبدال البيانات');
       if(req.body.adopt!==true)throw Error('اختر اعتماد بيانات الشركة السحابية لتهيئة الجهاز');
-      connecting=true;
+      connecting=true;ownsLock=true;
       const previous=config;config={...config,url:cloudURL(req.body.url)};
       let account,token,bytes;
       try{
@@ -72,7 +80,7 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
       const backup=await store.exportBackup();await writeFile(join(dataDirectory,'before-cloud-'+Date.now()+'.sqlite'),backup);
       await store.importCloudSnapshot(bytes,account.company.id,{initial:true});
       config={...config,companyId:account.company.id,companyCode:account.company.code,directorId:account.user.id};tokens=new Map([[account.user.id,token]]);await save();res.json({connected:true,companyCode:account.company.code});
-    }catch(error){res.status(400).json({error:{message:error.message}});}finally{connecting=false;}
+    }catch(error){res.status(400).json({error:{message:error.message}});}finally{if(ownsLock)connecting=false;}
   });
   const idsIn=(value,ids=new Set())=>{if(typeof value==='string'&&/^[0-9a-f-]{36}$/i.test(value))ids.add(value);else if(value instanceof Map)for(const [key,row] of value){idsIn(key,ids);idsIn(row,ids);}else if(Array.isArray(value))for(const row of value)idsIn(row,ids);else if(value&&typeof value==='object')for(const row of Object.values(value))idsIn(row,ids);return ids;};
   // Commit the domain mutation and its replay command together before releasing
