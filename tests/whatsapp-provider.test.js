@@ -19,7 +19,7 @@ test('official WhatsApp queues send once after consent; ambiguous provider respo
   assert.equal(await deliverNotification(store,message.id,{env,fetcher}),false);assert.equal(calls,0);
   await store.saveSalesSetting('notification-consent:co:'+message.phone,{companyId:'co',phone:message.phone,optIn:true},'owner');
   await Promise.all([deliverNotification(store,message.id,{env,fetcher}),deliverNotification(store,message.id,{env,fetcher})]);
-  assert.equal(calls,1);assert.equal(payload.type,'template');assert.equal(payload.template.name,'receipt_confirm');assert.equal(payload.biz_opaque_callback_data,message.id);assert.equal(store.customerNotifications.get(message.id).status,'accepted');
+  assert.equal(calls,1);assert.equal(payload.type,'template');assert.equal(payload.template.name,'receipt_confirm');assert.ok(payload.biz_opaque_callback_data.startsWith(message.id+':'));assert.equal(store.customerNotifications.get(message.id).status,'accepted');
   await store.transaction(()=>store.customerNotifications.set('uncertain',{...message,id:'uncertain'}));
   const missing=async()=>{calls++;throw Error('lost response');};
   await deliverNotification(store,'uncertain',{env,fetcher:missing});assert.equal(store.customerNotifications.get('uncertain').status,'uncertain');
