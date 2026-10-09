@@ -16,7 +16,7 @@ export async function sendWhatsAppTemplate(message,settings,{env=process.env,fet
  }
  const parameters=message.type==='receipt'?[message.customerName||message.recipientName,message.amount,message.currency,message.reference]:[message.recipientName||message.customerName||'',message.text];
  components.push({type:'body',parameters:parameters.map(text=>({type:'text',text:String(text||'')}))});
- const response=await fetcher(root+'/messages',{method:'POST',headers:{Authorization:'Bearer '+env.WHATSAPP_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({messaging_product:'whatsapp',to:message.phone,type:'template',template:{name,language:{code:language},components},biz_opaque_callback_data:message.id}),signal:AbortSignal.timeout(30000)});
+ const response=await fetcher(root+'/messages',{method:'POST',headers:{Authorization:'Bearer '+env.WHATSAPP_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({messaging_product:'whatsapp',to:message.phone,type:'template',template:{name,language:{code:language},components},biz_opaque_callback_data:message.callbackId||message.id}),signal:AbortSignal.timeout(30000)});
  let body;try{body=await response.json();}catch{throw Error('لم يصل تأكيد واضح من خدمة واتساب');}
  if(!response.ok){const error=Error('رفضت خدمة واتساب الرسالة'+(body.error?.code?' (رمز '+body.error.code+')':''));error.definitive=response.status>=400&&response.status<500&&![408,429].includes(response.status);throw error;}
  if(!body.messages?.[0]?.id)throw Error('لم يصل معرف الرسالة من خدمة واتساب');return body.messages[0].id;
@@ -30,7 +30,7 @@ export async function deliverNotification(store,id,options={}){
   if(settings?.mode!=='cloud'||!consent?.optIn||!whatsappConfigured(message.companyId,options.env||process.env))return;
   if(message.status==='draft'&&(message.type!=='receipt'||!settings.automaticReceipts))return;
   if(!settings.templates?.[message.type])return;
-  claimed={message:{...message},settings,attempt:randomUUID()};store.customerNotifications.set(id,{...message,status:'sending',attemptId:claimed.attempt,attemptedAt:new Date().toISOString()});
+  claimed={message:{...message},settings,attempt:randomUUID()};claimed.message.callbackId=message.id+':'+claimed.attempt;store.customerNotifications.set(id,{...message,status:'sending',attemptId:claimed.attempt,activeCallbackId:claimed.message.callbackId,attemptedAt:new Date().toISOString()});
  });
  if(!claimed)return false;
  try{
