@@ -4,6 +4,13 @@
   let database;
   let account;
   let syncing = false;
+  let initialization;
+  const autoKey=()=>`almahasib-sync-auto-${account?.company?.id}-${account?.user?.id}`;
+  function automaticEnabled(){return !!account&&localStorage.getItem(autoKey())!=='false';}
+  function setAutomatic(enabled){localStorage.setItem(autoKey(),String(enabled===true));}
+  async function status(){const queue=await queueStatus();return {pending:queue.pending.length,conflicts:queue.conflicts.length,lastSuccessfulSync:await getMetadata('lastSuccessfulSync'),automatic:automaticEnabled(),syncing};}
+  function autoSync(){if(automaticEnabled())void synchronize();}
+
 
   async function request(url, options = {}) {
     const response = await fetch(url, { credentials: 'same-origin', ...options });
@@ -78,23 +85,29 @@
       if (nextPosState) tx.objectStore('metadata').put({ key: 'posState', value: nextPosState });
       if (nextRepresentativeState) tx.objectStore('metadata').put({ key: 'representativeState', value: nextRepresentativeState });
     });
-    if (navigator.onLine) void synchronize();
+    if (navigator.onLine && automaticEnabled()) void synchronize();
     return operation;
   }
 
   async function synchronize() {
-    if (!database || !navigator.onLine || syncing) return;
+    if (!database) return {state:'not-ready'};
+    if (!navigator.onLine) return {state:'offline'};
+    if (syncing) return {state:'busy'};
     const run = async () => {
       syncing = true;
       try {
-        await pushPending();
+        let batchCount;
+        do { batchCount=await pushPending(); } while(batchCount===100);
         await pullChanges();
         await refreshPosAfterSync();
         await refreshRepresentativeAfterSync();
         await setMetadata('lastSuccessfulSync', new Date().toISOString());
-        window.dispatchEvent(new CustomEvent('almahasib:sync', { detail: { state: 'complete' } }));
+        const current=await status();
+        window.dispatchEvent(new CustomEvent('almahasib:sync', { detail: { state: 'complete',...current } }));
+        return {state:'complete',...current};
       } catch (error) {
         window.dispatchEvent(new CustomEvent('almahasib:sync', { detail: { state: 'failed', error } }));
+        return {state:'failed',message:error.message};
       } finally {
         syncing = false;
       }
@@ -107,13 +120,14 @@
     const operations = await readRequest(database.transaction('outbox').objectStore('outbox').getAll());
     const pending = operations.filter((operation) => ['pending', 'retry', 'sending'].includes(operation.state))
       .sort((a, b) => a.clientSequence - b.clientSequence).slice(0, 100);
-    if (!pending.length) return;
+    if (!pending.length) return 0;
     await updateStates(pending, 'sending');
     try {
       const body = { operations: pending.map(({ state, attempts, lastError, localReservations, representativeStateBefore, serverResult, acknowledgedAt, ...operation }) => operation) };
       const data = await request('/api/v1/sync/push', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
       });
+      if(!Array.isArray(data?.results)||data.results.length!==pending.length||new Set(data.results.map(x=>x.operationId)).size!==pending.length||data.results.some(x=>!pending.some(p=>p.operationId===x.operationId)||!['acknowledged','rejected'].includes(x.status)))throw Error('لم يؤكد الخادم جميع العمليات؛ ستُعاد المحاولة بالمعرفات نفسها');
       const posState = await getMetadata('posState');
       let representativeState = await getMetadata('representativeState');
       data.results.forEach((result) => {
@@ -135,6 +149,7 @@
         if (posState) tx.objectStore('metadata').put({ key: 'posState', value: posState });
         if (representativeState) tx.objectStore('metadata').put({ key: 'representativeState', value: representativeState });
       });
+      return pending.length;
     } catch (error) {
       await transaction('outbox', 'readwrite', (tx) => {
         const store = tx.objectStore('outbox');
@@ -368,6 +383,11 @@
   function maxBigInt(left, right) { return left > right ? left : right; }
 
   async function initialize() {
+    if(initialization)return initialization;
+    initialization=initializeAccount();
+    try{return await initialization;}finally{initialization=null;}
+  }
+  async function initializeAccount(){
     try {
       try {
         account = await request('/api/v1/bootstrap');
@@ -378,21 +398,21 @@
         account = JSON.parse(cached);
         if (!account.offlineSessionExpiresAt || Date.parse(account.offlineSessionExpiresAt) <= Date.now()) throw error;
       }
+      if(database)database.close();
       database = await openDatabase(account);
       window.AlMahasibOffline = {
-        enqueue, synchronize, account: () => account, initializePos, getPosState,
+        enqueue, synchronize, initialize, status, setAutomatic, account: () => account, initializePos, getPosState,
         openPosShift, enqueuePosDocument, closePosShift, deviceId, posDeviceId
         , initializeRepresentative, getRepresentativeState, enqueueRepresentativeOperation, queueStatus
       };
-      if (navigator.onLine) await synchronize();
+      if (navigator.onLine && automaticEnabled()) await synchronize();
     } catch (error) {
-      if (error.status === 401 && location.pathname !== '/' && !location.pathname.endsWith('/index.html')) {
-        location.replace('/');
-      }
+      window.dispatchEvent(new CustomEvent('almahasib:sync',{detail:{state:'failed',error}}));
     }
   }
 
-  window.addEventListener('online', synchronize);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void synchronize(); });
+  window.addEventListener('online', autoSync);
+  setInterval(autoSync,60000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') autoSync(); });
   void initialize();
 }());
