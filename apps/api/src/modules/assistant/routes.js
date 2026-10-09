@@ -622,10 +622,10 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
     const rows = [];
     const actions = [];
     for (const match of matches) {
-      const before = text.slice(Math.max(0, match.start - 36), match.start).replace(/20\\d{2}-\\d{2}-\\d{2}/g, ' ');
-      const after = text.slice(match.end, Math.min(text.length, match.end + 36)).replace(/20\\d{2}-\\d{2}-\\d{2}/g, ' ');
-      const beforeMatch = [...before.matchAll(/(?:^|[\\s،,;:×x])([0-9]+(?:[.,][0-9]+)?)\\s*(?:(?:عدد|كمية|وحدة|حبة|قطعة|كغم|كغ|كيلو|كرتون|علبة)\\s*)?$/giu)].at(-1);
-      const afterMatch = after.match(/^\\s*(?:(?:عدد|كمية|×|x|=|:)\\s*)?([0-9]+(?:[.,][0-9]+)?)/iu);
+      const before = text.slice(Math.max(0, match.start - 36), match.start).replace(/20\d{2}-\d{2}-\d{2}/g, ' ');
+      const after = text.slice(match.end, Math.min(text.length, match.end + 36)).replace(/20\d{2}-\d{2}-\d{2}/g, ' ');
+      const beforeMatch = [...before.matchAll(/(?:^|[\s،,;:×x])([0-9]+(?:[.,][0-9]+)?)\s*(?:(?:عدد|كمية|وحدة|حبة|قطعة|كغم|كغ|كيلو|كرتون|علبة)\s*)?$/giu)].at(-1);
+      const afterMatch = after.match(/^\s*(?:(?:عدد|كمية|×|x|=|:)\s*)?([0-9]+(?:[.,][0-9]+)?)/iu);
       const rawQuantity = afterMatch?.[1] || beforeMatch?.[1] || '';
       const quantity = Number(rawQuantity.replace(',', '.'));
       const item = match.item;
