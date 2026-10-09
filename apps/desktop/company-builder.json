@@ -11,7 +11,11 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "deleteAppDataOnUninstall": false,
-    "script": "apps/desktop/company-installer.nsi"
+    "script": "apps/desktop/company-installer.nsi",
+    "installerLanguages": [
+      "en_US",
+      "ar"
+    ]
   },
   "files": [
     "apps/local/**",
