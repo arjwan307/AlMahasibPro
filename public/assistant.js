@@ -6,7 +6,7 @@ launcher.textContent='المساعد الذكي';document.querySelector('.assist
 const history=[];let ready=false,busy=false,attachedFile=null,attachedPageContext=null,checkpointKey=null;
 const readPageButton=document.getElementById('assistantReadPage'),pageContextStatus=document.getElementById('assistantContextStatus');
 function updatePageContextStatus(){if(!pageContextStatus)return;pageContextStatus.hidden=!attachedPageContext;pageContextStatus.textContent=attachedPageContext?'أُرفقت صفحة «'+String(attachedPageContext.title||'الحالية')+'». سيُرسل النص الظاهر لمزوّد الذكاء عند الضغط على إرسال.':'';
- if(readPageButton)readPageButton.textContent=attachedPageContext?'إزالة الصفحة':'قراءة الصفحة الحالية';}
+ if(readPageButton){readPageButton.textContent='قراءة';readPageButton.setAttribute('aria-pressed',String(!!attachedPageContext));}}
 function saveAssistantCheckpoint(){if(!checkpointKey)return;try{localStorage.setItem(checkpointKey,JSON.stringify({version:1,savedAt:Date.now(),history:history.slice(-12).map(message=>({role:message.role,content:String(message.content||'').slice(0,4000)})),draft:String(input.value||'').slice(0,4000)}));}catch{}}
 let checkpointTimer=null;
 function scheduleAssistantCheckpoint(){if(checkpointTimer)clearTimeout(checkpointTimer);checkpointTimer=setTimeout(saveAssistantCheckpoint,300);}
@@ -25,7 +25,7 @@ window.addEventListener('almahasib:assistant-session',event=>{
   input.value=String(saved.draft||'').slice(0,4000);updatePageContextStatus();input.focus();
  }catch{try{localStorage.removeItem(checkpointKey);}catch{}}
 });
-const filePicker=document.getElementById('assistantFile'),fileStatus=document.getElementById('assistantFileStatus'),attachButton=document.getElementById('assistantAttach');
+const filePicker=document.getElementById('assistantFile'),fileStatus=document.getElementById('assistantFileStatus'),attachButton=document.getElementById('assistantAttach'),attachMenu=document.getElementById('assistantAttachMenu'),pasteFocusButton=document.getElementById('assistantPasteFocus');
 const infoButton=document.getElementById('assistantInfoButton'),infoDialog=document.getElementById('assistantInfoDialog'),infoRole=document.getElementById('assistantInfoRole'),infoPermissions=document.getElementById('assistantInfoPermissions');
 const FILE_HELP='حتى ٢٠ ميغابايت؛ XLSX وDOCX وCSV وTSV وTXT. يمكنك لصق النص.';
 const ZIP_LIMIT=20*1024*1024;
@@ -36,7 +36,12 @@ async function readXlsx(file){const buffer=await file.arrayBuffer(),wbText=await
 function addDocumentPreview(name,content){const section=document.createElement('section');section.className='assistant-document-preview';const title=document.createElement('strong');title.textContent='نص مستخرج محليًا من '+name;const preview=document.createElement('textarea');preview.readOnly=true;preview.rows=6;preview.value=content.slice(0,10000);const hint=document.createElement('small');hint.textContent='لم يُرسل النص للخادم أو لمزوّد الذكاء. انسخه والصقه يدويًا إذا أردت متابعة التحليل.';const copy=document.createElement('button');copy.type='button';copy.textContent='نسخ النص كاملًا';copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(content);copy.textContent='تم نسخ النص';}catch{preview.focus();preview.select();copy.textContent='حدّد النص وانسخه يدويًا';}});section.append(title,preview,hint,copy);messagesBox.append(section);messagesBox.scrollTop=messagesBox.scrollHeight;}
 
 async function setAttachedFile(file){attachedFile=null;if(!file){fileStatus.textContent='حتى ٢٠ ميغابايت؛ CSV وTSV وTXT وExcel وWord. يمكنك لصق النص.';return;}if(file.size>20*1024*1024){fileStatus.textContent='الحد الأقصى للملف ٢٠ ميغابايت';filePicker.value='';return;}try{if(/\.docx$/i.test(file.name)){const text=await readDocx(file);addDocumentPreview(file.name,text);fileStatus.textContent='استخرجت نص Word محليًا؛ راجعه ثم انسخه للصقه في المحادثة.';filePicker.value='';return;}if(/\.xlsx$/i.test(file.name)){const workbook=await readXlsx(file);attachedFile={name:file.name.replace(/\.xlsx$/i,'.tsv'),content:workbook.content};fileStatus.textContent='Excel جاهز لمعاينة الأصناف محليًا: '+workbook.sheetName+' · '+file.name;return;}if(!/\.(?:csv|tsv|txt)$/i.test(file.name)){attachedFile={name:file.name,unsupported:true};fileStatus.textContent='يدعم Word بصيغة DOCX وExcel بصيغة XLSX؛ صيغ DOC وXLS القديمة والصور وPDF غير مدعومة بعد.';return;}const content=await file.text();attachedFile={name:file.name,content};fileStatus.textContent='جاهز للمعاينة المحلية: '+file.name+' ('+file.size+' بايت)';}catch(error){attachedFile=null;filePicker.value='';fileStatus.textContent=error.message||'تعذرت قراءة الملف محليًا';}}
-attachButton?.addEventListener('click',()=>filePicker?.click());
+function closeAttachMenu(){if(attachMenu)attachMenu.hidden=true;attachButton?.setAttribute('aria-expanded','false');}
+attachButton?.addEventListener('click',()=>{if(!attachMenu)return;attachMenu.hidden=!attachMenu.hidden;attachButton.setAttribute('aria-expanded',String(!attachMenu.hidden));});
+attachMenu?.querySelectorAll('[data-accept]').forEach(button=>button.addEventListener('click',()=>{if(filePicker){filePicker.accept=button.dataset.accept||'';closeAttachMenu();filePicker.click();}}));
+pasteFocusButton?.addEventListener('click',()=>{closeAttachMenu();input.focus();input.setSelectionRange(input.value.length,input.value.length);});
+document.addEventListener('click',event=>{if(!attachMenu?.contains(event.target)&&event.target!==attachButton)closeAttachMenu();});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')closeAttachMenu();});
 readPageButton?.addEventListener('click',()=>{
  if(attachedPageContext){attachedPageContext=null;updatePageContextStatus();return;}
  if(attachedFile){addMessage('أزل الملف المرفق قبل إرفاق الصفحة الحالية.','assistant',true);return;}
