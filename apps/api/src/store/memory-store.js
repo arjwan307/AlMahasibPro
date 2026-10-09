@@ -234,7 +234,7 @@ export class MemoryStore {
     if ((company.branches || []).some((branch) => branch.code.toUpperCase() === code)) {
       throw new AppError(409, 'BRANCH_CODE_EXISTS', 'رمز الفرع مستخدم');
     }
-    const branch = { id: randomUUID(), name: String(input.name).trim(), code, active: true, createdAt: new Date().toISOString() };
+    const branch = { id: randomUUID(), name: String(input.name).trim(), code, active: true, managerName:input.managerName||'', managerPhone:input.managerPhone||'', accountantName:input.accountantName||'', accountantPhone:input.accountantPhone||'', phone:input.phone||'', address:input.address||'', createdAt: new Date().toISOString() };
     company.branches = [...(company.branches || []), branch];
     this.#audit(companyId, actorUserId, 'branch.created', 'branch', branch.id, {});
     this.#change(companyId, 'company', companyId, 'upsert', this.#publicCompany(company));
@@ -255,11 +255,29 @@ export class MemoryStore {
     if (input.active === false && [...this.warehouses.values()].some((warehouse) => warehouse.companyId === companyId && warehouse.branchId === branchId && warehouse.active !== false)) {
       throw new AppError(409, 'BRANCH_HAS_WAREHOUSES', 'انقل المخازن النشطة قبل إيقاف الفرع');
     }
-    const updated = { ...current, code, name: input.name === undefined ? current.name : String(input.name).trim(), active: input.active === undefined ? current.active !== false : input.active };
+    const contacts=Object.fromEntries(['managerName','managerPhone','accountantName','accountantPhone','phone','address'].filter(key=>input[key]!==undefined).map(key=>[key,input[key]]));
+    const updated = { ...current, ...contacts, code, name: input.name === undefined ? current.name : String(input.name).trim(), active: input.active === undefined ? current.active !== false : input.active };
     company.branches = branches.map((branch) => branch.id === branchId ? updated : branch);
     this.#audit(companyId, actorUserId, 'branch.updated', 'branch', branchId, { active: updated.active });
     this.#change(companyId, 'company', companyId, 'upsert', this.#publicCompany(company));
     return clone(updated);
+  }
+
+  async deleteBranch(companyId, branchId, actorUserId) {
+    const company=this.companies.get(companyId);
+    if(!company)throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
+    const branches=company.branches||[];
+    if(!branches.some(branch=>branch.id===branchId))throw new AppError(404,'BRANCH_NOT_FOUND','الفرع غير موجود');
+    if(branches.length===1)throw new AppError(409,'LAST_BRANCH','لا يمكن حذف آخر فرع للشركة');
+    for(const [field,map] of Object.entries(this)){
+      if(!(map instanceof Map)||field==='companies')continue;
+      for(const row of map.values())if(row?.companyId===companyId&&(row.branchId===branchId||(row.scopes||[]).some(scope=>scope.type==='branch'&&scope.id===branchId)||(row.lines||[]).some(line=>line.branchId===branchId)))throw new AppError(409,'BRANCH_IN_USE','الفرع مرتبط بمخازن أو صناديق أو مستخدمين أو حركات؛ استخدم الإيقاف للحفاظ على سجلاته');
+    }
+    company.branches=branches.filter(branch=>branch.id!==branchId);
+    this.#audit(companyId,actorUserId,'branch.deleted','branch',branchId,{});
+    this.#change(companyId,'branch',branchId,'delete',{id:branchId});
+    this.#change(companyId,'company',companyId,'upsert',this.#publicCompany(company));
+    return {id:branchId};
   }
 
   async listPendingCompanies() {
@@ -1675,4 +1693,3 @@ export class MemoryStore {
 }
 
 export { PERMISSIONS };
-
