@@ -11,7 +11,7 @@
     "desktop": "electron apps/desktop/main.cjs",
     "build:windows": "npm run build:windows:company",
     "start:cloud": "node apps/api/src/cloud-server.js",
-    "build:windows:company": "electron-builder --config apps/desktop/company-builder.json --win nsis",
+    "build:windows:company": "electron-builder --config apps/desktop/company-builder.json --win nsis --publish never",
     "build:windows:retail": "electron-builder --config apps/retail/retail-builder.json --win nsis",
     "desktop:retail": "electron apps/retail/main.cjs"
   },
