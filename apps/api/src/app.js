@@ -165,11 +165,11 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     requireFields(req.body, ['code', 'name']);
     const name = String(req.body.name).trim();
     if (!name || name.length > 120) throw new AppError(400, 'INVALID_BRANCH_NAME', 'اسم الفرع مطلوب ولا يتجاوز ١٢٠ حرفًا');
-    const branch = await store.createBranch(req.auth.company.id, { code: entityCode(req.body.code), name }, req.auth.user.id);
+    const branch = await store.createBranch(req.auth.company.id, { code: entityCode(req.body.code), name, ...branchContactInput(req.body) }, req.auth.user.id);
     res.status(201).json({ branch });
   }));
   app.patch('/api/v1/company/branches/:branchId', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
-    const input = {};
+    const input = branchContactInput(req.body);
     if (req.body.code !== undefined) input.code = entityCode(req.body.code);
     if (req.body.name !== undefined) {
       input.name = String(req.body.name).trim();
@@ -181,6 +181,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     }
     res.json({ branch: await store.updateBranch(req.auth.company.id, uuid(req.params.branchId, 'branchId'), input, req.auth.user.id) });
   }));
+
+  app.delete('/api/v1/company/branches/:branchId', authenticate(store), permit('company.manage'), asyncRoute(async (req,res)=>{res.json(await store.deleteBranch(req.auth.company.id,uuid(req.params.branchId,'branchId'),req.auth.user.id));}));
 
   app.post('/api/v1/presence/heartbeat', authenticate(store), asyncRoute(async (req, res) => {
     await store.touchSession(req.auth.tokenHash);
@@ -1316,3 +1318,9 @@ async function passwordHashOrValidation(password) {
 
 
 function validateDelivery(value={}) { const mode=value?.mode||'none';if(!['both','services','transport','none','immediate'].includes(mode))throw new AppError(400,'INVALID_DELIVERY','نوع النقل والخدمات غير صالح');const out={mode};if(['both','transport'].includes(mode)&&!value.deliveryAt)throw new AppError(400,'DELIVERY_DATE_REQUIRED','موعد التوصيل مطلوب');if(['both','services'].includes(mode)&&!value.serviceAt)throw new AppError(400,'SERVICE_DATE_REQUIRED','موعد الخدمات مطلوب');for(const key of ['deliveryAt','serviceAt']){if(value?.[key]){if(typeof value[key]!=='string'||!Number.isFinite(Date.parse(value[key])))throw new AppError(400,'INVALID_DELIVERY_DATE','موعد غير صالح');out[key]=new Date(value[key]).toISOString();}}return out;}
+
+function branchContactInput(body) {
+ const limits={managerName:120,managerPhone:40,accountantName:120,accountantPhone:40,phone:40,address:500};const input={};
+ for(const [key,max] of Object.entries(limits))if(body[key]!==undefined){if(typeof body[key]!=='string'||body[key].trim().length>max)throw new AppError(400,'INVALID_BRANCH_CONTACT','بيانات الاتصال للفرع غير صالحة');input[key]=body[key].trim();}
+ return input;
+}
