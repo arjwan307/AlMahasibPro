@@ -414,6 +414,21 @@ export class MemoryStore {
     }));
   }
 
+  async recordPermissionDenied(companyId, actorUserId, metadata = {}) {
+    if (!companyId || !actorUserId) return;
+    this.#audit(companyId, actorUserId, 'security.permission_denied', 'access_attempt', null, {
+      permission: String(metadata.permission || '').slice(0, 80),
+      method: String(metadata.method || '').slice(0, 12),
+      path: String(metadata.path || '').slice(0, 180)
+    });
+  }
+
+  async listPermissionDenials(companyId, limit = 100) {
+    return this.audit.filter(row => row.companyId === companyId && row.action === 'security.permission_denied')
+      .slice(-Math.max(1, Math.min(Number(limit) || 100, 500))).reverse()
+      .map(row => ({ actorUserId: row.actorUserId, occurredAt: row.createdAt, ...(row.metadata || {}) }));
+  }
+
   async updateUser(companyId, userId, input, actorUserId) {
     const user = this.users.get(userId);
     if (!user || user.companyId !== companyId || user.platformAdmin) throw new AppError(404, 'USER_NOT_FOUND', 'المستخدم غير موجود');
@@ -422,7 +437,7 @@ export class MemoryStore {
     if ([...this.users.values()].some(row => row.companyId === companyId && row.id !== userId && row.username === input.username)) throw new AppError(409, 'USERNAME_EXISTS', 'اسم المستخدم مستخدم في الشركة');
     if (!['active', 'disabled'].includes(input.status)) throw new AppError(400, 'INVALID_STATUS', 'حالة الحساب غير صالحة');
     const salesProfile=this.#validatedUserSalesProfile(companyId,input.salesProfile,input.roleCode,userId);
-    const permissions = input.permissions ?? (salesProfile?.salesManager?['catalog.read','customers.read','inventory.read','sales.read','sales.create','sales.approve','sales.return','sync.use']:role.permissions);
+    const permissions = input.permissions ?? (salesProfile?.salesManager?['assistant.use','catalog.read','customers.read','inventory.read','sales.read','sales.create','sales.approve','sales.return','sync.use']:role.permissions);
     if (!Array.isArray(permissions) || permissions.some(value => !PERMISSIONS.includes(value) || value === 'company.approve')) throw new AppError(400, 'INVALID_PERMISSIONS', 'الصلاحيات غير صالحة');
     if (userId === actorUserId && (input.status !== 'active' || !permissions.includes('users.manage'))) throw new AppError(409, 'SELF_LOCKOUT', 'لا يمكنك إيقاف حسابك أو إزالة صلاحية إدارة المستخدمين منه');
     const managers = await this.listUsers(companyId);
