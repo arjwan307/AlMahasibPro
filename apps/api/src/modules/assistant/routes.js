@@ -775,7 +775,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
     if (typeof store?.listChartAccounts !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'دليل الحسابات غير متاح لإعداد مسودة القيد' };
     const chart = (await store.listChartAccounts(companyId)).filter(account => account.active !== false);
     const normalize = value => String(value || '').toLocaleLowerCase('ar').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ًٌٍَُِّْ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-    const normalized = String(assistantQuery || '').replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit))).replace(/٫/g, '.').replace(/٬/g, '');
+    const normalized = String(assistantQuery || '').replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit))).replace(/٫/g, '.').replace(/٬/g, '').replace(/^.*?(?=(?:مدين|دائن)\s)/s, '');
     const segments = normalized.replace(/[,،](?=\s*(?:مدين|دائن)\s)/g, ';').split(/[;؛|]+/).map(value => value.trim()).filter(Boolean);
     const lines = [];
     for (const segment of segments) {
