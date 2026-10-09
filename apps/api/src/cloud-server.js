@@ -14,6 +14,18 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
  origin = new URL(origin).origin;
  await mkdir(dataDirectory, {recursive:true});
  const store=sharedStore||new SQLiteStore(join(dataDirectory,'enterprise.sqlite'));
+ // Bootstrap the first platform administrator only when the Render service owner
+ // explicitly supplies credentials. Never reset or replace an existing admin.
+ if(product==='company'&&process.env.PLATFORM_ADMIN_USERNAME&&process.env.PLATFORM_ADMIN_PASSWORD){
+  const admins=await store.listPlatformAdmins();
+  if(admins.length===0){
+   await store.seedPlatformAdmin({
+    username:normalizeUsername(process.env.PLATFORM_ADMIN_USERNAME),
+    displayName:String(process.env.PLATFORM_ADMIN_NAME||'مدير المنصة').trim().slice(0,120),
+    passwordHash:await hashPassword(process.env.PLATFORM_ADMIN_PASSWORD)
+   });
+  }
+ }
  const app=express();app.disable('x-powered-by');app.set('trust proxy',1);
  app.use((req,res,next)=>{if(req.headers.origin && req.headers.origin!==origin)return res.status(403).json({error:{message:'المصدر غير مسموح'}});next();});
  app.use((req,res,next)=>{if(product==='company'&&!req.path.startsWith('/api/'))res.set('Cache-Control','no-store');next();});
