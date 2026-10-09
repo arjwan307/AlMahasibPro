@@ -9,6 +9,8 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
   const filename=join(dataDirectory,'cloud-connection.json');
   let config={url:defaultCloud,automatic:true},tokens=new Map(),running=false,lastError='',lastSync=null,closed=false,connecting=false,saveQueue=Promise.resolve();
   try{const saved=JSON.parse(await readFile(filename,'utf8'));config=saved.config;if(unprotect&&saved.tokens)tokens=new Map(JSON.parse(await unprotect(Buffer.from(saved.tokens,'base64'))));}catch{}
+  if(config.companyId&&!store.companies.has(config.companyId)){config={url:config.url||defaultCloud,automatic:false};tokens.clear();await writeFile(filename,JSON.stringify({config}));}
+  lastSync=config.lastSuccessfulSync||null;
   function save(){const task=saveQueue.then(async()=>{const saved={config};if(protect)saved.tokens=(await protect(Buffer.from(JSON.stringify([...tokens])))).toString('base64');await writeFile(filename+'.tmp',JSON.stringify(saved));await rename(filename+'.tmp',filename);});saveQueue=task.catch(()=>{});return task;}
   function cloudURL(value){const url=new URL(value||defaultCloud);if(url.username||url.password||url.search||url.hash||url.pathname!=='/'||(url.protocol!=='https:'&&!(allowTestCloud&&url.protocol==='http:'&&url.hostname==='127.0.0.1')))throw Error('استخدم عنوان الخادم الرئيسي عبر HTTPS');return url.origin;}
   async function remote(path,{body,method='GET',token}={}){
@@ -45,7 +47,7 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
       }
       const token=tokens.get(config.directorId);if(!token)throw Error('جلسة المدير مطلوبة لاستقبال بيانات الشركة');
       const bytes=Buffer.from(await (await remote('/api/v1/enterprise/backup',{token})).arrayBuffer());
-      if(await store.importCloudSnapshot(bytes,config.companyId)){lastSync=new Date().toISOString();await save();}
+      if(await store.importCloudSnapshot(bytes,config.companyId)){lastSync=new Date().toISOString();config.lastSuccessfulSync=lastSync;await save();}
       return {state:'complete',...status()};
     }catch(error){lastError=error.message;return {state:'failed',message:lastError,...status()};}
     finally{running=false;}
