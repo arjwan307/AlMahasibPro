@@ -29,7 +29,7 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
  const app=express();app.disable('x-powered-by');app.set('trust proxy',1);
  app.use((req,res,next)=>{if(req.headers.origin && req.headers.origin!==origin)return res.status(403).json({error:{message:'المصدر غير مسموح'}});next();});
  app.use((req,res,next)=>{if(product==='company'&&!req.path.startsWith('/api/'))res.set('Cache-Control','no-store');next();});
- const defaultJsonParser=express.json({limit:'5mb'});const assistantChatJsonParser=express.json({limit:'21mb'});
+ const defaultJsonParser=express.json({limit:'5mb',verify(req,res,bytes){if(req.path==='/api/v1/notifications/webhook')req.rawBody=Buffer.from(bytes);}});const assistantChatJsonParser=express.json({limit:'21mb'});
  app.use((req,res,next)=>(req.path==='/api/v1/assistant/chat'?assistantChatJsonParser:defaultJsonParser)(req,res,next));
  if (basePath) {
   app.use((req,res,next)=>{const redirect=res.redirect.bind(res);res.redirect=target=>redirect(basePath+target);next();});
@@ -63,8 +63,8 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
   }catch(error){res.status(400).json({error:{message:error.message}});}finally{configuring=false;}
  });
  app.use((req,_res,next)=>{req.productScope=product;next();});
- app.use(createApp({store,secureCookies:origin.startsWith('https:'),allowedOrigins:[origin],cookieName:product==='retail'?'almahasib_retail_session':'almahasib_session',cookiePath:basePath?basePath+'/':'/'}));
- return {app,store};
+ const api=createApp({store,notificationSending:product==='company',secureCookies:origin.startsWith('https:'),allowedOrigins:[origin],cookieName:product==='retail'?'almahasib_retail_session':'almahasib_session',cookiePath:basePath?basePath+'/':'/'});app.use(api);
+ return {app,store,stopNotifications:()=>api.stopNotifications?.()};
 }
 
 export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, port = 10000, host = '0.0.0.0' }) {
@@ -81,7 +81,7 @@ export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, 
  app.use('/retail',retail.app);
  app.use(company.app);
  const server=await new Promise((resolve,reject)=>{const server=app.listen(port,host,()=>resolve(server));server.on('error',reject);});
- return {store:company.store,retailStore:retail.store,url:`http://127.0.0.1:${server.address().port}`,close:async()=>{await new Promise(resolve=>server.close(resolve));await company.store.close();}};
+ return {store:company.store,retailStore:retail.store,url:`http://127.0.0.1:${server.address().port}`,close:async()=>{company.stopNotifications();retail.stopNotifications();await new Promise(resolve=>server.close(resolve));await company.store.close();}};
 }
 if(process.argv[1]?.endsWith('cloud-server.js')){
  const runtime=await startEnterpriseCloud({dataDirectory:process.env.ALMAHASIB_DATA_DIR,setupToken:process.env.ALMAHASIB_SETUP_TOKEN,origin:process.env.ALMAHASIB_PUBLIC_ORIGIN,port:Number(process.env.PORT||10000)});
