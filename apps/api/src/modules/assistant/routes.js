@@ -181,7 +181,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
     const filename = String(assistantFile?.name || '').toLowerCase();
     if (!/\.(?:csv|tsv|txt)$/.test(filename)) return { status: 400, code: 'ASSISTANT_FILE_TYPE_UNSUPPORTED', message: 'المعاينة المحلية تدعم ملفات CSV وTSV وTXT فقط حاليًا' };
     const content = String(assistantFile?.content || '');
-    if (!content || content.length > 200000) return { status: 400, code: 'ASSISTANT_FILE_INVALID', message: 'الملف فارغ أو أكبر من الحد المسموح (٢٠٠ كيلوبايت)' };
+    if (!content || Buffer.byteLength(content, 'utf8') > 20 * 1024 * 1024) return { status: 400, code: 'ASSISTANT_FILE_INVALID', message: 'الملف فارغ أو أكبر من الحد المسموح (٢٠ ميغابايت)' };
     if (typeof store?.listMasterData !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'دليل الأصناف غير متاح لتهيئة الملف' };
     const firstLine = content.split(/\r?\n/, 1)[0] || '';
     const choices = [',', ';', '\t'].map(value => [value, (firstLine.match(new RegExp(value === '\t' ? '\\t' : value === ',' ? ',' : ';', 'g')) || []).length]).sort((a,b) => b[1] - a[1]);
