@@ -81,6 +81,7 @@ function error(res, status, code, message) {
 function accountingReadIntent(message) {
   const text = String(message || '');
   const catalogIntentText = text.replace(/(.)\1+/g, '$1');
+  if (/(?:أنشئ|انشئ|جهز|جهّز|حضر|حضّر|اعد|أعد).{0,25}(?:مسودة\s+)?فاتورة(?:\s+(?:مفرد|جملة|بيع|مبيعات|retail|wholesale))?|فاتورة\s+(?:مفرد|جملة)\s+(?:لـ|ل|عن|بـ)?/i.test(catalogIntentText)) return 'sales-invoice-draft';
   if (/(?:سعّر|سعر|تسعير|اقترح\s+(?:لي\s+)?(?:أسعار|اسعار)|تحديد\s+الأسعار|صنّف|صنف|تصنيف).{0,50}(?:جميع|كل|المواد|الأصناف|الاصناف)|(?:جميع|كل)\s+(?:المواد|الأصناف|الاصناف).{0,50}(?:سعّر|سعر|تصنيف|صنّف|صنف)/i.test(catalogIntentText)) return 'bulk-catalog-plan';
   if (/كشف\s+(?:حساب\s+)?(?:الزبون|زبون|العميل|عميل)|(?:طابق|مطابقة)\s+(?:كشف|حساب)\s+(?:الزبون|زبون|العميل|عميل)/i.test(catalogIntentText)) return 'customer-statement';
   if (/(?:الزبائن|العملاء).{0,24}(?:الأعلى|الاعلى|أكثر|الاكثر|اعلى)\s*(?:حركة|نشاط)|(?:الأعلى|الاعلى|أكثر|الاكثر|اعلى)\s+(?:الزبائن|العملاء)\s+(?:حركة|نشاط)|(?:اعلى|اكثر)\s+زبون\s+حركة/i.test(catalogIntentText)) return 'top-customers';
@@ -585,6 +586,76 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
     const totalText=[...byCurrency].sort(([a],[b])=>a.localeCompare(b)).map(([currency,total])=>`${currency}: إيرادات ${decimalString(total.revenue)}، مردودات ${decimalString(total.returns)}، صافي الإيراد ${decimalString(total.revenue-total.returns)}، مصروفات ${decimalString(total.expenses)}`).join('؛ ');
     return localResult(`كشف ${scope} من القيود المرحلة ضمن ${period.label}. ${totalText||'لا توجد حركات مصنفة في الفترة.'} فصلت النتائج حسب العملة؛ ولا تشمل حسابات غير مصنفة كإيراد أو مصروف.`,table('تفصيل الإيرادات والمصروفات',['نوع الحساب','رمز الحساب','الحساب','العملة','مدين خلال الفترة','دائن خلال الفترة','صافي الحركة'],[...detailRows,...totalRows]));
   }
+  if (intent === 'sales-invoice-draft') {
+    const wholesale = /جملة|wholesale/i.test(assistantQuery);
+    if (!has('catalog.read')) return { status: 403, code: 'PERMISSION_DENIED', message: 'تحتاج صلاحية قراءة الأصناف والأسعار لإعداد مسودة الفاتورة' };
+    if (!has('sales.create')) return { status: 403, code: 'PERMISSION_DENIED', message: 'تحتاج صلاحية إنشاء فواتير المبيعات لإعداد المسودة' };
+    if (wholesale && !['sales.wholesale.submit','sales.wholesale.review','sales.wholesale.finalize','sales.approve'].some(has)) return { status: 403, code: 'PERMISSION_DENIED', message: 'تحتاج صلاحية المبيعات بالجملة لإعداد مسودتها' };
+    if (typeof store?.listMasterData !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'دليل الأصناف غير متاح في هذا الخادم بعد' };
+
+    const data = await store.listMasterData(companyId);
+    const text = String(assistantQuery || '').replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+    const channel = wholesale ? 'wholesale' : (store.salesSettings?.get?.('user:' + auth.user?.id)?.channel || 'retail');
+    const activeItems = (data.items || []).filter(item => item.active !== false && (!salesScoped || (() => {
+      const itemChannel = store.salesSettings?.get?.('item:' + item.id)?.channel;
+      return !itemChannel || itemChannel === 'both' || itemChannel === channel;
+    })()));
+    const candidates = activeItems
+      .map(item => ({ item, name: String(item.name || '').trim() }))
+      .filter(row => row.name.length > 1)
+      .sort((a,b) => b.name.length - a.name.length);
+    const matches = [];
+    for (const row of candidates) {
+      const needle = row.name.toLocaleLowerCase('ar');
+      let from = 0;
+      while (needle && (from = text.toLocaleLowerCase('ar').indexOf(needle, from)) >= 0) {
+        const end = from + needle.length;
+        if (!matches.some(match => from < match.end && end > match.start)) {
+          matches.push({ ...row, start: from, end });
+        }
+        from = end;
+      }
+    }
+    matches.sort((a,b) => a.start - b.start);
+    const units = new Map((data.units || []).map(unit => [unit.id, unit.name || unit.code || unit.id]));
+    const priceTypes = wholesale ? ['sale_wholesale','sale'] : ['sale_' + channel,'sale'];
+    const rows = [];
+    const actions = [];
+    for (const match of matches) {
+      const before = text.slice(Math.max(0, match.start - 36), match.start).replace(/20\\d{2}-\\d{2}-\\d{2}/g, ' ');
+      const after = text.slice(match.end, Math.min(text.length, match.end + 36)).replace(/20\\d{2}-\\d{2}-\\d{2}/g, ' ');
+      const beforeMatch = [...before.matchAll(/(?:^|[\\s،,;:×x])([0-9]+(?:[.,][0-9]+)?)\\s*(?:(?:عدد|كمية|وحدة|حبة|قطعة|كغم|كغ|كيلو|كرتون|علبة)\\s*)?$/giu)].at(-1);
+      const afterMatch = after.match(/^\\s*(?:(?:عدد|كمية|×|x|=|:)\\s*)?([0-9]+(?:[.,][0-9]+)?)/iu);
+      const rawQuantity = afterMatch?.[1] || beforeMatch?.[1] || '';
+      const quantity = Number(rawQuantity.replace(',', '.'));
+      const item = match.item;
+      const unit = (item.units || []).find(row => row.isBase) ||
+        (item.units || []).find(row => row.unitId === item.baseUnitId) || (item.units || [])[0];
+      const unitId = unit?.unitId || item.baseUnitId || '';
+      const priceRows = (data.prices || []).filter(price => price.active !== false && price.itemId === item.id &&
+        price.unitId === unitId && priceTypes.includes(price.priceType))
+        .sort((a,b) => String(b.validFrom || '').localeCompare(String(a.validFrom || '')));
+      const price = priceTypes.map(type => priceRows.find(row => row.priceType === type)).find(Boolean);
+      const stock = has('inventory.read') ? (data.stock || []).filter(row => row.itemId === item.id && canSeeWarehouse(row.warehouseId))
+        .reduce((sum,row) => sum + Number(row.quantity || 0), 0) : null;
+      const validQuantity = Number.isFinite(quantity) && quantity > 0 && quantity <= 1000000000;
+      const ready = Boolean(validQuantity && unitId && price && Number(price.amount) > 0);
+      const note = !validQuantity ? 'حدد كمية موجبة بجوار اسم الصنف' : !unitId ? 'وحدة الصنف غير محددة' :
+        !price ? 'لا يوجد سعر بيع مسجل؛ لم أضف الصنف' : 'جاهز لإضافته إلى مسودة المبيعات';
+      rows.push([item.sku || '—',item.name,units.get(unitId) || unit?.name || '—',
+        validQuantity ? String(quantity) : '—',price?.amount || '—',price?.currency || auth.company.currency || '—',
+        stock == null ? 'حسب صلاحية المخزون' : String(stock),note]);
+      actions.push(ready ? { itemId:item.id,unitId,quantity:String(quantity),invoiceType:wholesale?'wholesale':'retail',
+        label:'أضف ' + String(quantity) + ' إلى مسودة الفاتورة' } : null);
+    }
+    const report = table(wholesale ? 'مسودة فاتورة جملة — معاينة' : 'مسودة فاتورة مفرد — معاينة',
+      ['رمز الصنف','الصنف','الوحدة','الكمية','سعر النظام','العملة','المتاح ضمن الصلاحية','الحالة'],
+      rows.length ? rows : [['—','لم أتعرف على صنف مسجل في الطلب','—','—','—','—','—','اكتب اسم الصنف كما يظهر في دليل الأصناف مع الكمية']]);
+    report.actions = actions;
+    const readyCount = actions.filter(Boolean).length;
+    return localResult(`عاينت الطلب محليًا: ${readyCount} من ${rows.length} صنف جاهز للإضافة. اضغط زر الصنف لإضافته إلى مسودة المبيعات؛ لم أحفظ أو أعتمد أو أرحّل فاتورة.`, report);
+  }
+
   if (intent === 'price-audit') {
     if (!has('catalog.read')) return { status: 403, code: 'PERMISSION_DENIED', message: 'تحتاج صلاحية قراءة الأصناف والأسعار' };
     if (typeof store?.listMasterData !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'مصدر الأسعار غير متاح في هذا الخادم بعد' };
