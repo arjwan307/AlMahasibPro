@@ -728,3 +728,58 @@ test('assistant prepares a balanced journal preview locally and requires account
     if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
   }
 });
+
+
+test('assistant previews stock receipt lines locally, honors warehouse scope and purchasing permission', async () => {
+  const oldKey = process.env.GROQ_API_KEY;
+  const originalFetch = globalThis.fetch;
+  try {
+    delete process.env.GROQ_API_KEY;
+    globalThis.fetch = async () => { throw new Error('stock receipt preview must stay local'); };
+    let reads = 0;
+    const store = {
+      warehouses: new Map([
+        ['wh-visible', { id: 'wh-visible', companyId: 'receipt-company', name: 'المخزن المسموح' }],
+        ['wh-hidden', { id: 'wh-hidden', companyId: 'receipt-company', name: 'مخزن آخر' }]
+      ]),
+      listMasterData: async companyId => {
+        assert.equal(companyId, 'receipt-company');
+        reads++;
+        return {
+          items: [{ id: 'sugar', sku: 'S-1', name: 'سكر', active: true, baseUnitId: 'kg', units: [{ unitId: 'kg', isBase: true }] }],
+          units: [{ id: 'kg', name: 'كغم' }],
+          stock: [
+            { itemId: 'sugar', warehouseId: 'wh-visible', quantity: '3' },
+            { itemId: 'sugar', warehouseId: 'wh-hidden', quantity: '99' }
+          ]
+        };
+      }
+    };
+    const routes = setup(undefined, store);
+    const auth = {
+      company: { id: 'receipt-company' }, user: { id: 'warehouse-user' },
+      permissions: ['assistant.use', 'catalog.read', 'purchasing.create', 'inventory.read'],
+      scopes: [{ type: 'warehouse', id: 'wh-visible' }]
+    };
+    const response = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth, body: { messages: [{ role: 'user', content: 'جهز معاينة استلام مخزني: ١٠ سكر' }] }
+    }, response);
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.localOnly, true);
+    assert.match(response.body.answer, /لم أسجل استلامًا أو أغيّر المخزون/);
+    assert.deepEqual(response.body.report.rows[0], ['S-1', 'سكر', '10', 'كغم', '3', 'صنف مطابق؛ راجع الوحدة']);
+    assert.equal(reads, 1);
+
+    const denied = capture();
+    await routes['POST /api/v1/assistant/chat'].handler({
+      auth: { ...auth, permissions: ['assistant.use', 'catalog.read'] },
+      body: { messages: [{ role: 'user', content: 'جهز معاينة استلام مخزني: 10 سكر' }] }
+    }, denied);
+    assert.equal(denied.statusCode, 403);
+    assert.equal(reads, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
+  }
+});
