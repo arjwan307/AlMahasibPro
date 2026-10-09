@@ -776,15 +776,15 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '') {
     const chart = (await store.listChartAccounts(companyId)).filter(account => account.active !== false);
     const normalize = value => String(value || '').toLocaleLowerCase('ar').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ًٌٍَُِّْ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
     const normalized = String(assistantQuery || '').replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit))).replace(/٫/g, '.').replace(/٬/g, '');
-    const segments = normalized.replace(/[,،](?=\s*(?:مدين|دائن)\s)/g, '\\n').split(/[;؛|\\n]+/).map(value => value.trim()).filter(Boolean);
+    const segments = normalized.replace(/[,،](?=\s*(?:مدين|دائن)\s)/g, ';').split(/[;؛|]+/).map(value => value.trim()).filter(Boolean);
     const lines = [];
     for (const segment of segments) {
-      const match = segment.match(/^(مدين|دائن)\\s+(.+?)\\s+([0-9][0-9,.]*)$/);
+      const match = segment.match(/^(مدين|دائن)\s+(.+?)\s+([0-9][0-9,.]*)$/);
       if (!match) continue;
       const side = match[1], accountLabel = match[2].trim();
       let amountText = match[3];
       if (amountText.includes('.') && amountText.includes(',')) amountText = amountText.replace(/,/g, '');
-      else if ((amountText.match(/,/g) || []).length > 1 || /,\\d{3}$/.test(amountText)) amountText = amountText.replace(/,/g, '');
+      else if ((amountText.match(/,/g) || []).length > 1 || /,\d{3}$/.test(amountText)) amountText = amountText.replace(/,/g, '');
       else amountText = amountText.replace(',', '.');
       let amount;
       try { amount = decimal(amountText, { nonNegative: true }); } catch { amount = 0n; }
