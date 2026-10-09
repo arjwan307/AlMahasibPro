@@ -476,6 +476,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     });
     requireCommercePermission(req.auth, operation.payload.documentType);
     assertWarehouseScope(req.auth, store.warehouses.get(operation.payload.warehouseId));
+    if(operation.payload.branchId)assertBranchScope(req.auth,operation.payload.branchId);
+    if(operation.payload.cashboxId){const box=store.cashboxes.get(operation.payload.cashboxId);if(!box||box.companyId!==req.auth.company.id)throw new AppError(404,'CASHBOX_NOT_FOUND','الصندوق غير موجود');if(operation.payload.branchId&&box.branchId&&box.branchId!==operation.payload.branchId)throw new AppError(400,'CASHBOX_BRANCH_MISMATCH','الصندوق لا يتبع فرع الفاتورة');}
     for (const line of operation.payload.lines) if (line.warehouseId) assertWarehouseScope(req.auth, store.warehouses.get(line.warehouseId));
     const [result] = await store.pushOperations(req.auth, [operation]);
     res.status(result.status === 'acknowledged' ? 201 : 409).json({ result });
@@ -483,7 +485,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
 
   app.get('/api/v1/commerce/documents', authenticate(store), permitAny(['sales.read', 'purchasing.read']), asyncRoute(async (req, res) => {
     let documents=await store.listCommerceDocuments(req.auth.company.id);
-    documents=documents.filter(document=>warehouseScopeAllows(req.auth,store.warehouses.get(document.warehouseId)));
+    documents=documents.filter(document=>warehouseScopeAllows(req.auth,store.warehouses.get(document.warehouseId))&&(!document.branchId||branchScopeAllows(req.auth,document.branchId)));
     if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';documents=documents.filter(x=>x.documentType.startsWith('sale')&&x.customerId&&(store.salesSettings.get('customer:'+x.customerId)?.channel||'retail')===channel).map(x=>({...x,lines:x.lines.map(({unitCost,...line})=>line)}));}
     res.json({documents});
   }));
@@ -1087,6 +1089,8 @@ function warehouseScopeAllows(context, warehouse) {
     (!branchScopes.length || branchScopes.some(scope => scope.id === warehouse.branchId));
 }
 
+function branchScopeAllows(context, branchId) { const scopes=(context.scopes||[]).filter(scope=>scope.type==='branch'); return !scopes.length||scopes.some(scope=>scope.id===branchId); }
+function assertBranchScope(context, branchId) { const branch=(context.company.branches||[]).find(row=>row.id===branchId&&row.active!==false); if(!branch)throw new AppError(404,'BRANCH_NOT_FOUND','الفرع غير موجود'); if(!branchScopeAllows(context,branchId))throw new AppError(403,'BRANCH_SCOPE_DENIED','الفرع خارج نطاق حسابك'); }
 function assertWarehouseScope(context, warehouse) {
   if (!warehouse || warehouse.companyId !== context.company.id) throw new AppError(404, 'WAREHOUSE_NOT_FOUND', 'المخزن غير موجود');
   if (!warehouseScopeAllows(context, warehouse)) throw new AppError(403, 'WAREHOUSE_SCOPE_DENIED', 'المخزن خارج نطاق حسابك');
@@ -1124,6 +1128,7 @@ function validateCommercePayload(payload) {
   if (isReturn && !payload.originalDocumentId) throw new AppError(400, 'ORIGINAL_DOCUMENT_REQUIRED', 'المستند الأصلي مطلوب للمرتجع');
   return {
     documentType: payload.documentType, documentNumber: String(payload.documentNumber).trim().slice(0, 64),
+    branchId: payload.branchId ? uuid(payload.branchId,'branchId') : null, cashboxId: payload.cashboxId ? uuid(payload.cashboxId,'cashboxId') : null,
     warehouseId: uuid(payload.warehouseId, 'warehouseId'), partyId: payload.partyId ? uuid(payload.partyId, 'partyId') : null,
     originalDocumentId: isReturn ? uuid(payload.originalDocumentId, 'originalDocumentId') : null,
     currency: currency(payload.currency),
