@@ -5,6 +5,8 @@ const launcher=document.getElementById('assistantLauncher'),panel=document.getEl
 launcher.textContent='المساعد الذكي';document.querySelector('.assistant-head strong')?.replaceChildren('المساعد الذكي');
 const history=[];let ready=false,busy=false,attachedFile=null;
 const filePicker=document.getElementById('assistantFile'),fileStatus=document.getElementById('assistantFileStatus'),attachButton=document.getElementById('assistantAttach');
+const infoButton=document.getElementById('assistantInfoButton'),infoDialog=document.getElementById('assistantInfoDialog'),infoRole=document.getElementById('assistantInfoRole'),infoPermissions=document.getElementById('assistantInfoPermissions');
+const FILE_HELP='حتى ٢٠ ميغابايت؛ XLSX وDOCX وCSV وTSV وTXT. يمكنك لصق النص.';
 const ZIP_LIMIT=20*1024*1024;
 async function zipText(buffer,wantedPath){const view=new DataView(buffer);let end=-1;for(let p=view.byteLength-22;p>=Math.max(0,view.byteLength-65558);p--){if(view.getUint32(p,true)===0x06054b50){end=p;break;}}if(end<0)throw Error('ملف Office غير صالح');const count=view.getUint16(end+10,true);if(count>5000)throw Error('الملف يحتوي عددًا كبيرًا من العناصر');let offset=view.getUint32(end+16,true),entry=null;const decoder=new TextDecoder();for(let n=0;n<count;n++){if(view.getUint32(offset,true)!==0x02014b50)throw Error('فهرس الملف غير صالح');const method=view.getUint16(offset+10,true),compressed=view.getUint32(offset+20,true),expanded=view.getUint32(offset+24,true),nameLength=view.getUint16(offset+28,true),extraLength=view.getUint16(offset+30,true),commentLength=view.getUint16(offset+32,true),localOffset=view.getUint32(offset+42,true),name=decoder.decode(new Uint8Array(buffer,offset+46,nameLength));if(name===wantedPath)entry={method,compressed,expanded,localOffset};offset+=46+nameLength+extraLength+commentLength;}if(!entry)return null;if(entry.expanded>ZIP_LIMIT||entry.compressed>ZIP_LIMIT)throw Error('محتوى الملف بعد فك الضغط أكبر من ٢٠ ميغابايت');const local=entry.localOffset;if(view.getUint32(local,true)!==0x04034b50)throw Error('بيانات الملف الداخلي غير صالحة');const start=local+30+view.getUint16(local+26,true)+view.getUint16(local+28,true),bytes=buffer.slice(start,start+entry.compressed);let output;if(entry.method===0)output=bytes;else if(entry.method===8){if(typeof DecompressionStream==='undefined')throw Error('المتصفح لا يدعم فك ملفات Office محليًا');output=await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();}else throw Error('طريقة ضغط ملف Office غير مدعومة');if(output.byteLength>ZIP_LIMIT||entry.expanded&&output.byteLength!==entry.expanded)throw Error('حجم محتوى الملف غير صالح');return decoder.decode(output);}
 function parseXml(source){const doc=new DOMParser().parseFromString(source,'application/xml');if(doc.getElementsByTagName('parsererror').length)throw Error('تعذر قراءة بنية ملف Office');return doc;}
@@ -14,6 +16,20 @@ function addDocumentPreview(name,content){const section=document.createElement('
 
 async function setAttachedFile(file){attachedFile=null;if(!file){fileStatus.textContent='حتى ٢٠ ميغابايت؛ CSV وTSV وTXT وExcel وWord. يمكنك لصق النص.';return;}if(file.size>20*1024*1024){fileStatus.textContent='الحد الأقصى للملف ٢٠ ميغابايت';filePicker.value='';return;}try{if(/\.docx$/i.test(file.name)){const text=await readDocx(file);addDocumentPreview(file.name,text);fileStatus.textContent='استخرجت نص Word محليًا؛ راجعه ثم انسخه للصقه في المحادثة.';filePicker.value='';return;}if(/\.xlsx$/i.test(file.name)){const workbook=await readXlsx(file);attachedFile={name:file.name.replace(/\.xlsx$/i,'.tsv'),content:workbook.content};fileStatus.textContent='Excel جاهز لمعاينة الأصناف محليًا: '+workbook.sheetName+' · '+file.name;return;}if(!/\.(?:csv|tsv|txt)$/i.test(file.name)){attachedFile={name:file.name,unsupported:true};fileStatus.textContent='يدعم Word بصيغة DOCX وExcel بصيغة XLSX؛ صيغ DOC وXLS القديمة والصور وPDF غير مدعومة بعد.';return;}const content=await file.text();attachedFile={name:file.name,content};fileStatus.textContent='جاهز للمعاينة المحلية: '+file.name+' ('+file.size+' بايت)';}catch(error){attachedFile=null;filePicker.value='';fileStatus.textContent=error.message||'تعذرت قراءة الملف محليًا';}}
 attachButton?.addEventListener('click',()=>filePicker?.click());
+function openAssistantInfo(){
+ const role=document.getElementById('profileRoles')?.textContent?.trim()||'غير محدد';
+ if(infoRole)infoRole.textContent='الدور الحالي: '+role+' · البيانات المعروضة تتبع صلاحيات هذا الحساب ونطاق مخازنه.';
+ if(infoPermissions){
+  infoPermissions.replaceChildren();
+  const entries=[...document.querySelectorAll('#profilePermissions li')].map(node=>node.textContent.trim()).filter(Boolean);
+  for(const entry of entries){const item=document.createElement('li');item.textContent=entry;infoPermissions.append(item);}
+  if(!entries.length){const item=document.createElement('li');item.textContent='لم تظهر الصلاحيات الفعلية هنا؛ راجع زر «عرض الحساب والصلاحيات» أعلى الصفحة.';infoPermissions.append(item);}
+ }
+ if(infoDialog?.showModal)infoDialog.showModal();
+}
+infoButton?.addEventListener('click',openAssistantInfo);
+document.getElementById('assistantInfoClose')?.addEventListener('click',()=>infoDialog?.close());
+infoDialog?.addEventListener('click',event=>{if(event.target===infoDialog)infoDialog.close();});
 filePicker?.addEventListener('change',()=>{void setAttachedFile(filePicker.files?.[0]);});
 input.addEventListener('paste',event=>{const item=[...(event.clipboardData?.items||[])].find(value=>value.kind==='file'&&value.type.startsWith('image/'));const file=item?.getAsFile();if(file){event.preventDefault();void setAttachedFile(file);}});
 const addMessage=(text,role,error=false)=>{const node=document.createElement('div');node.className='assistant-bubble '+(role==='user'?'user':'bot')+(error?' assistant-error':'');node.textContent=text;messagesBox.append(node);messagesBox.scrollTop=messagesBox.scrollHeight;};
@@ -23,12 +39,12 @@ async function checkStatus(){status.textContent='يتحقق من الاتصال 
 function show(){panel.hidden=false;launcher.setAttribute('aria-expanded','true');input.focus();}
 function hide(){panel.hidden=true;launcher.setAttribute('aria-expanded','false');}
 launcher.addEventListener('click',()=>panel.hidden?show():hide());document.getElementById('assistantClose').addEventListener('click',hide);
-form.addEventListener('submit',async event=>{event.preventDefault();const text=input.value.trim();if(busy)return;if(attachedFile?.unsupported){addMessage('هذا النوع من الملفات غير مدعوم؛ لم أرسله. يدعم المساعد DOCX وXLSX وCSV وTSV وTXT.','assistant',true);attachedFile=null;if(filePicker)filePicker.value='';if(fileStatus)fileStatus.textContent='حتى ٢٠ ميغابايت؛ التحليل المحلي حاليًا CSV وTSV وTXT. يمكنك لصق النص.';return;}if(!text&&!attachedFile)return;
+form.addEventListener('submit',async event=>{event.preventDefault();const text=input.value.trim();if(busy)return;if(attachedFile?.unsupported){addMessage('هذا النوع من الملفات غير مدعوم؛ لم أرسله. يدعم المساعد DOCX وXLSX وCSV وTSV وTXT.','assistant',true);attachedFile=null;if(filePicker)filePicker.value='';if(fileStatus)fileStatus.textContent=FILE_HELP;return;}if(!text&&!attachedFile)return;
  const message=text||'هيئ الملف المرفق للمعاينة';const file=attachedFile;
  busy=true;send.disabled=true;input.value='';addMessage(file?'📎 '+file.name+(text?' — '+text:''):message,'user');history.push({role:'user',content:message});
  try{const data=await api('/api/v1/assistant/chat',{method:'POST',body:JSON.stringify({messages:history.slice(-12),...(file?{assistantFile:file}:{})})});if(!data.localOnly)history.push({role:'assistant',content:data.answer});addMessage(data.answer,'assistant');addReport(data.report);}
  catch(error){addMessage(error.message,'assistant',true);}
- finally{attachedFile=null;if(filePicker)filePicker.value='';if(fileStatus)fileStatus.textContent='حتى ٢٠ ميغابايت؛ التحليل المحلي حاليًا CSV وTSV وTXT. يمكنك لصق النص.';busy=false;send.disabled=false;input.focus();}
+ finally{attachedFile=null;if(filePicker)filePicker.value='';if(fileStatus)fileStatus.textContent=FILE_HELP;busy=false;send.disabled=false;input.focus();}
 });
 const observer=new MutationObserver(()=>{if(!workspace.hidden){root.hidden=false;observer.disconnect();checkStatus();}});observer.observe(workspace,{attributes:true,attributeFilter:['hidden']});
 if(!workspace.hidden){root.hidden=false;checkStatus();}else if(sessionStorage.getItem('almahasib_login_success')==='1'){root.hidden=false;checkStatus();}
