@@ -57,4 +57,5 @@
  document.addEventListener('click',async e=>{const button=e.target.closest('[data-item-image]');if(!button)return;const itemId=button.dataset.itemImage;const d=openDialog('<h2>صورة البضاعة</h2><input type="file" accept="image/png,image/jpeg,image/webp"><div class="actions"><button type="button" data-remove>إزالة الصورة</button><button type="button" data-close>إغلاق</button></div>');const save=async image=>{await request('/api/v1/catalog/items/'+itemId+'/image',{image});d.close();await context().refresh();message('تم حفظ صورة البضاعة');};d.querySelector('input').onchange=async event=>{try{await save(await imageFile(event.target.files[0]));}catch(err){message(err.message);}};d.querySelector('[data-remove]').onclick=()=>save('').catch(err=>message(err.message));});
  new MutationObserver(decorate).observe(document.body,{childList:true,subtree:true});decorate();
  window.AlMahasibInvoiceDesign=()=>design;
+ window.AlMahasibPrintHTML=(html,title)=>{const root=document.createElement('div');root.innerHTML=html;printable(root,title||'فاتورة',true);};
 })();
