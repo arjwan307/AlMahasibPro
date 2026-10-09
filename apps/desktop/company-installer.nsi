@@ -4,7 +4,7 @@
 !ifndef VERSION
 !define VERSION "1.0.0"
 !endif
-OutFile "${PROJECT_DIR}/releases/companies/AlMahasibPro-Companies-Setup-${VERSION}-x64.exe"
+OutFile "${PROJECT_DIR}\releases\companies\AlMahasibPro-Companies-Setup-${VERSION}-x64.exe"
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 Name "AlMahasibPro-Companies"
@@ -30,7 +30,7 @@ Function .onVerifyInstDir
 FunctionEnd
 Section "AlMahasibPro-Companies" SEC01
  SetOutPath "$INSTDIR"
- File /r "${PROJECT_DIR}/releases/companies/win-unpacked/*"
+ File /r "${PROJECT_DIR}\releases\companies\win-unpacked\*"
  WriteUninstaller "$INSTDIR\Uninstall.exe"
  CreateDirectory "$SMPROGRAMS\AlMahasibPro-Companies"
  CreateShortcut "$SMPROGRAMS\AlMahasibPro-Companies\AlMahasibPro-Companies.lnk" "$INSTDIR\AlMahasibPro-Companies.exe"
