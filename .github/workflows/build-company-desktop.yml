@@ -8,6 +8,7 @@ on:
       - 'package-lock.json'
       - 'apps/**'
       - 'public/**'
+      - 'tests/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,6 +27,15 @@ jobs:
         run: npm test
       - name: Build company installer
         run: npm run build:windows:company
+      - name: Verify packaged offline runtime
+        shell: pwsh
+        run: |
+          $env:ELECTRON_RUN_AS_NODE = '1'
+          $installerRoot = (Resolve-Path 'releases/companies/win-unpacked').Path
+          $smokeScript = (Resolve-Path 'apps/desktop/packaged-smoke.cjs').Path
+          Set-Location $installerRoot
+          & './AlMahasibPro-Companies.exe' $smokeScript
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: AlMahasibPro-Companies-Windows
