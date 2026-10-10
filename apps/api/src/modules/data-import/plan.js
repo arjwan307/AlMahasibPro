@@ -63,17 +63,20 @@ export function inspectImport(store, context, input) {
   const existing = [...map.values()].filter(row => row.companyId === companyId);
   const seen = new Set(), phones = new Set(), issues = [], totals = {};
   const keyField = input.entity === 'items' ? 'sku' : 'code';
+  const existingCodes = new Set(existing.map(record => String(record[keyField]).normalize('NFKC').toUpperCase()));
+  const existingPhones = new Set(existing.map(record => phoneKey(record.phone)).filter(Boolean));
+  const units = new Map([...store.units.values()].filter(unit => unit.companyId === companyId && unit.active !== false).map(unit => [unit.code.toUpperCase(),unit.id]));
   const rows = input.rows.map((row, index) => {
     const key = row[keyField], phone = phoneKey(row.phone);
-    const duplicate = seen.has(key) || existing.some(record => String(record[keyField]).normalize('NFKC').toUpperCase() === key);
+    const duplicate = seen.has(key) || existingCodes.has(key);
     if (duplicate) issues.push({row:index+2,code:'DUPLICATE_CODE'});
     seen.add(key);
-    if (phone && (phones.has(phone) || existing.some(record => phoneKey(record.phone) === phone))) issues.push({row:index+2,code:'DUPLICATE_PHONE'});
+    if (phone && (phones.has(phone) || existingPhones.has(phone))) issues.push({row:index+2,code:'DUPLICATE_PHONE'});
     if (phone) phones.add(phone);
     if (input.entity === 'items') {
-      const unit = [...store.units.values()].find(unit => unit.companyId === companyId && unit.active !== false && unit.code.toUpperCase() === row.unitCode);
-      if (!unit) issues.push({row:index+2,code:'UNIT_NOT_FOUND'});
-      return {...row,baseUnitId:unit?.id || null};
+      const unitId = units.get(row.unitCode);
+      if (!unitId) issues.push({row:index+2,code:'UNIT_NOT_FOUND'});
+      return {...row,baseUnitId:unitId || null};
     }
     const amount = decimal(row.openingBalance);
     const summary = totals[row.currency] ||= {net:0n,debit:0n,credit:0n};
