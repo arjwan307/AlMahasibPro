@@ -5,6 +5,7 @@ import { AppError } from '../lib/http.js';
 import { decimal, decimalString, divide, multiply, ZERO } from '../lib/decimal.js';
 import { PERMISSIONS, ROLE_TEMPLATES } from '../permissions.js';
 import { receiptNotification } from '../lib/customer-notifications.js';
+import { assertImportScope, inspectImport } from '../modules/data-import/plan.js';
 
 const clone = (value) => structuredClone(value);
 const overlapDates = (start, end, periodStart, periodEnd) => {
@@ -70,11 +71,65 @@ export class MemoryStore {
     this.payrollPayments = new Map(); this.payrollAdjustments = new Map();
     this.cashboxes = new Map(); this.cashboxSessions = new Map(); this.cashboxMovements = new Map();
     this.importShipments = new Map(); this.importCostPostings = new Map();
+    this.dataImportBatches = new Map();
     this.salesSettings = new Map(); this.salesApprovals = new Map(); this.salesReviews = new Map();
     this.changeSequence = 0;
   }
 
   async close() {}
+  async createDataImportPreview(context, input) {
+    const plan = inspectImport(this,context,input);
+    const companyId = context.company.id;
+    // Keep only a bounded number of pending previews, with no uploaded file retained.
+    for (const [id,batch] of this.dataImportBatches) if (batch.status === 'preview' && batch.expiresAt < Date.now()) this.dataImportBatches.delete(id);
+    if ([...this.dataImportBatches.values()].filter(batch => batch.companyId === companyId && batch.status === 'preview').length >= 20) throw new AppError(429,'IMPORT_PREVIEW_LIMIT','يوجد عدد كبير من المعاينات المعلقة');
+    const batch = {id:randomUUID(),companyId,createdBy:context.user.id,status:'preview',expiresAt:Date.now()+30*60*1000,input:clone(input),hash:plan.hash};
+    this.dataImportBatches.set(batch.id,batch);
+    this.#audit(companyId,context.user.id,'data_import.preview','data_import',batch.id,{entity:input.entity,count:plan.rows.length});
+    return {id:batch.id,expiresAt:batch.expiresAt,...plan};
+  }
+  async commitDataImport(context, id, hash) {
+    const batch = this.dataImportBatches.get(id);
+    if (!batch || batch.companyId !== context.company.id || batch.createdBy !== context.user.id) throw new AppError(404,'IMPORT_NOT_FOUND','المعاينة غير موجودة');
+    assertImportScope(this,context,batch.input.entity,batch.input.branchId);
+    if (batch.hash !== hash) throw new AppError(409,'IMPORT_APPROVAL_MISMATCH','بصمة الاعتماد لا تطابق المعاينة');
+    if (batch.status === 'committed') return clone(batch.result);
+    if (batch.expiresAt < Date.now()) throw new AppError(409,'IMPORT_EXPIRED','انتهت صلاحية المعاينة');
+    const plan = inspectImport(this,context,batch.input);
+    if (plan.hash !== hash || !plan.canCommit) throw new AppError(409,'IMPORT_CONFLICT','تغيرت البيانات أو فشل التحقق؛ أنشئ معاينة جديدة');
+    const companyId = context.company.id, entity = batch.input.entity, occurredAt = batch.input.openingDate+'T00:00:00.000Z';
+    const ids = [], journals = [];
+    for (const [index,row] of plan.rows.entries()) {
+      if (entity === 'items') {
+        ids.push((await this.createItem(companyId,row,context.user.id)).id);
+        continue;
+      }
+      const type = entity === 'customers' ? 'customer' : 'supplier';
+      const party = await this.createParty(companyId,type,row,context.user.id);
+      ids.push(party.id);
+      const amount = decimal(row.openingBalance);
+      if (amount !== ZERO) {
+        const operationId = `${id}:${index}`, absolute = amount < ZERO ? -amount : amount;
+        const account = type === 'customer' ? '1100-AR' : '2100-AP';
+        const debitParty = type === 'customer' ? amount > ZERO : amount < ZERO;
+        const journal = this.#simpleJournal(context,{operationId,occurredAt},`IMP-${id}-${index}`,row.currency,
+          debitParty ? [[account,absolute,ZERO],['3000-EQUITY',ZERO,absolute]] : [['3000-EQUITY',absolute,ZERO],[account,ZERO,absolute]],
+          {branchId:batch.input.branchId});
+        // Retain the party link for reconciliation without manufacturing an invoice.
+        const linked = {...journal,importBatchId:id,partyId:party.id,partyType:type};
+        this.journalEntries.set(journal.id,Object.freeze(linked)); journals.push(journal.id);
+        this.#change(companyId,'journal_entry',journal.id,'upsert',linked);
+        if (type === 'customer') this.#recordDebt(companyId,party.id,null,null,{operationId,occurredAt},'opening_balance',amount,row.currency);
+      }
+      this[entity].set(party.id,{...party,importBatchId:id,openingBranchId:batch.input.branchId,openingBalances:[{currency:row.currency,amount:row.openingBalance,occurredAt}]});
+      this.#change(companyId,type,party.id,'upsert',this[entity].get(party.id));
+    }
+    batch.status = 'committed'; batch.committedAt = new Date().toISOString();
+    batch.result = {batchId:id,created:ids.length,ids,journalIds:journals,balances:plan.balances};
+    this.#audit(companyId,context.user.id,'data_import.committed','data_import',id,{entity,count:ids.length,hash,branchId:batch.input.branchId});
+    batch.input = {entity,branchId:batch.input.branchId};
+    return clone(batch.result);
+  }
   async prepareCustomerNotification(companyId,input,actor){
     const customer=input.customerId?this.customers.get(input.customerId):null;
     if(input.customerId&&(!customer||customer.companyId!==companyId))throw new AppError(404,'CUSTOMER_NOT_FOUND','الزبون غير موجود');
@@ -628,7 +683,9 @@ export class MemoryStore {
     const customer = this.customers.get(customerId);
     if (!customer || customer.companyId !== companyId) throw new AppError(404, 'CUSTOMER_NOT_FOUND', 'الزبون غير موجود');
     const linked = [...this.commerceDocuments.values()].some(d => d.companyId === companyId && (d.customerId === customerId || d.partyId === customerId))
-      || [...this.representativeCustomers.values()].some(r => r.companyId === companyId && (r.customerId === customerId || r.partyId === customerId));
+      || [...this.representativeCustomers.values()].some(r => r.companyId === companyId && (r.customerId === customerId || r.partyId === customerId))
+      || [...this.debtMovements.values()].some(row => row.companyId === companyId && row.customerId === customerId)
+      || [...this.journalEntries.values()].some(row => row.companyId === companyId && row.partyType === 'customer' && row.partyId === customerId);
     if (linked) throw new AppError(409, 'CUSTOMER_HAS_HISTORY', 'الزبون مرتبط بسجلات؛ لا يمكن حذفه. استخدم تعطيل الزبون.');
     this.customers.delete(customerId);
     this.#audit(companyId, actorUserId, 'customer.deleted', 'customer', customerId, {});
@@ -658,7 +715,8 @@ export class MemoryStore {
   async deleteSupplier(companyId, supplierId, actorUserId) {
     const supplier = this.suppliers.get(supplierId);
     if (!supplier || supplier.companyId !== companyId) throw new AppError(404, 'SUPPLIER_NOT_FOUND', 'المورد غير موجود');
-    const referenced = [...this.commerceDocuments.values()].some(row => row.companyId === companyId && row.supplierId === supplierId);
+    const referenced = [...this.commerceDocuments.values()].some(row => row.companyId === companyId && row.supplierId === supplierId)
+      || [...this.journalEntries.values()].some(row => row.companyId === companyId && row.partyType === 'supplier' && row.partyId === supplierId);
     if (referenced) throw new AppError(409, 'SUPPLIER_HAS_DOCUMENTS', 'لا يمكن حذف مورد مرتبط بفواتير؛ ألغِ مستنداته محاسبيًا أولًا');
     this.suppliers.delete(supplierId);
     this.#audit(companyId, actorUserId, 'supplier.deleted', 'supplier', supplierId, {});
@@ -845,6 +903,7 @@ export class MemoryStore {
   async reverseJournal(context, id, input) {
     const original = this.journalEntries.get(id);
     if (!original || original.companyId !== context.company.id) throw new AppError(404, 'JOURNAL_NOT_FOUND', 'القيد غير موجود');
+    if (original.importBatchId) throw new AppError(409,'IMPORT_REVERSAL_REQUIRED','لا يمكن عكس قيد افتتاحي مستورد منفردًا دون تسوية رصيد الطرف');
     if (original.reversedByJournalId) {
       const reversal = this.journalEntries.get(original.reversedByJournalId);
       if (reversal?.operationId === input.operationId && reversal.entryNumber === input.entryNumber && reversal.occurredAt === input.occurredAt) {

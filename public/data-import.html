@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>استيراد البيانات</title>
+<style>body{font-family:Tahoma,sans-serif;background:#102136;color:#e9f2ff;margin:0;padding:24px}main{max-width:1050px;margin:auto}section{background:#192f49;border-radius:12px;padding:20px;margin:20px 0}input,select,button{font:inherit;padding:10px;border-radius:6px;border:1px solid #577393;margin:4px}label{display:block;margin:12px 0}button,a{color:white;background:#24619b}a{padding:10px;display:inline-block}button:disabled{opacity:.5}table{width:100%;border-collapse:collapse}td,th{padding:10px;border-bottom:1px solid #405877;text-align:right}.scroll{overflow:auto}#status{color:#ffd491}fieldset{margin:12px 0}input[type=number]{max-width:150px}</style></head>
+<body><main><a href="/enterprise.html">العودة إلى الشركة</a><h1>استيراد البيانات</h1><p>معاينة وفحص قبل الحفظ. تُضاف سجلات جديدة فقط. العملاء والموردون والمواد مشتركون على مستوى الشركة، والأرصدة تُسجل في الفرع المختار.</p><p id="status" role="status" aria-live="polite"></p>
+<section><form id="importForm">
+<label>البيانات <select id="entity"><option value="customers">العملاء</option><option value="suppliers">الموردون</option><option value="items">المواد</option></select></label>
+<label>الفرع <select id="branch" required></select></label><label>تاريخ الأرصدة <input id="openingDate" type="date" required></label>
+<label>المصدر <select id="format"><option value="csv">CSV · UTF-8</option><option value="xlsx">Excel · XLSX</option><option value="sqlite">SQLite</option><option value="postgres">PostgreSQL</option><option value="mysql">MySQL</option></select></label>
+<label id="fileLabel">الملف <input id="file" type="file" accept=".csv,.xlsx,.sqlite,.db"></label>
+<label id="tableLabel" hidden>اسم جدول SQLite <input id="table" maxlength="64"></label><label id="sheetLabel" hidden>اسم ورقة Excel (اختياري) <input id="sheet" maxlength="64"></label><label id="sourceLabel" hidden>اسم المصدر المهيأ <input id="sourceName" maxlength="64"></label>
+<fieldset><legend>أسماء الأعمدة في المصدر</legend><div id="mapping"></div></fieldset>
+<div id="balanceFields"><p>المبلغ الموجب: دين مستحق من العميل، أو دين مستحق للمورد. السالب: رصيد معاكس. أدخل المجاميع المستقلة من تقرير المصدر لكل عملة موجودة، دون فواصل آلاف.</p><div id="expected"></div></div>
+<button id="previewButton">فحص ومعاينة</button></form></section>
+<section id="previewSection" hidden><h2>نتيجة الفحص</h2><p id="summary"></p><div id="balances"></div><ul id="issues"></ul><div class="scroll"><table><thead id="headers"></thead><tbody id="rows"></tbody></table></div><p id="rowNote"></p><label><input id="approval" type="checkbox">راجعت السجلات والمجاميع وأوافق على إضافتها وإثبات الأرصدة.</label><button id="commit" disabled>اعتماد الاستيراد</button></section>
+</main><script src="/data-import.js"></script></body></html>

@@ -13,6 +13,7 @@ import { hashPassword, hashToken, newSessionToken, payloadHash, verifyPassword }
 import { installPayrollRoutes } from './modules/payroll/routes.js';
 import { installTreasuryRoutes } from './modules/treasury/routes.js';
 import { installImportRoutes } from './modules/imports/routes.js';
+import { installDataImportRoutes } from './modules/data-import/routes.js';
 import { installAssistantRoutes } from './modules/assistant/routes.js';
 import { imageData, invoiceDesign, invoiceAttachment } from './lib/company-media.js';
 import { installDesktopSync } from './lib/desktop-sync.js';
@@ -41,6 +42,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   installPayrollRoutes(app,{store,authenticate,permit});
   installTreasuryRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency});
   installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
+  installDataImportRoutes(app,{store,authenticate,permit,uuid});
   installAssistantRoutes(app,{authenticate:authenticate(store),store});
   installNotificationRoutes(app,{store,authenticate,permit,sending:notificationSending});
   installDesktopSync(app,{store,authenticate,permit});
