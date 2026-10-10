@@ -15,7 +15,8 @@
  function csv(root,title){const list=tables(root);if(!list.length)return message('لا توجد بيانات جدولية للتصدير');const rows=[];for(const t of list){rows.push([t.closest('.panel')?.querySelector('h2')?.textContent||title]);for(const tr of cleanTable(t).rows)rows.push([...tr.cells].map(c=>safeCell(c.innerText.trim())));rows.push([]);}download('\uFEFF'+rows.map(r=>r.map(v=>'"'+v.replaceAll('"','""')+'"').join(',')).join('\r\n'),title+'.csv','text/csv;charset=utf-8');}
  function printable(root,title,invoice=false){
   const c=context(),company=c?.account?.company||{},copy=root.cloneNode(true);
-  copy.querySelectorAll('[data-ui-filtered]').forEach(x=>x.remove());\n  copy.querySelectorAll('form,button,input,select,textarea,.output-actions,.toolbar,dialog,.assistant-root,.ui-help,.ui-list-tools,.ui-list-empty').forEach(x=>x.remove());
+  copy.querySelectorAll('[data-ui-filtered]').forEach(x=>x.remove());
+  copy.querySelectorAll('form,button,input,select,textarea,.output-actions,.toolbar,dialog,.assistant-root,.ui-help,.ui-list-tools,.ui-list-empty').forEach(x=>x.remove());
   for(const t of copy.querySelectorAll('table'))t.replaceWith(cleanTable(t));
   copy.querySelectorAll('details').forEach(x=>x.open=true);
   if(invoice)copy.querySelector('h1')?.remove();
