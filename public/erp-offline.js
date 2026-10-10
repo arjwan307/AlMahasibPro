@@ -31,12 +31,13 @@
  // Removes only the deleted company's local footprint (IndexedDB databases and
  // scoped localStorage keys) so other companies cached on this device survive.
  async function purgeCompanyScope(companyId){const id=String(companyId||'');if(!id)return false;
-  if(account?.company?.id===id)reset();else{db?.close();db=null;}
-  try{localStorage.removeItem(ACTIVE);localStorage.removeItem('almahasib_cached_bootstrap');for(const key of Object.keys(localStorage))if(key.includes(id))localStorage.removeItem(key);}catch{}
-  try{if(indexedDB.databases)for(const database of await indexedDB.databases()){if(database.name&&String(database.name).includes(id))await new Promise(resolve=>{const request=indexedDB.deleteDatabase(database.name);request.onsuccess=resolve;request.onerror=resolve;request.onblocked=resolve;});}}catch{}
+  if(account?.company?.id===id)reset();
+  try{const active=JSON.parse(localStorage.getItem(ACTIVE)||'null');if(active?.company?.id===id){localStorage.removeItem(ACTIVE);localStorage.removeItem('almahasib_cached_bootstrap');}}catch{}
+  try{for(const key of Object.keys(localStorage))if(key.startsWith('almahasib-erp-'+id+'-'))localStorage.removeItem(key);}catch{}
+  try{if(indexedDB.databases)for(const database of await indexedDB.databases()){if(database.name&&String(database.name).startsWith('almahasib-erp-'+id+'-'))await new Promise(resolve=>{const request=indexedDB.deleteDatabase(database.name);request.onsuccess=resolve;request.onerror=resolve;request.onblocked=resolve;});}}catch{}
   return true;
  }
- async function confirmCompanyDeletion(companyId){if(!companyId)return;try{const r=await rawFetch('/api/v1/company/deletion-notice?companyId='+encodeURIComponent(companyId),{credentials:'same-origin',signal:AbortSignal.timeout(3000)});if(r.ok){const d=await r.json();if(d.deleted)await purgeCompanyScope(companyId);}}catch{}}
+ async function confirmCompanyDeletion(companyId){if(!companyId)return false;try{const r=await rawFetch('/api/v1/company/deletion-notice?companyId='+encodeURIComponent(companyId),{credentials:'same-origin',signal:AbortSignal.timeout(3000)});if(r.ok){const d=await r.json();if(d.deleted){await purgeCompanyScope(companyId);return true;}}}catch{}return false;}
  ready=(async()=>{
   try {
    const response=await rawFetch('/api/local/status',{credentials:'same-origin',signal:AbortSignal.timeout(2000)});
@@ -142,8 +143,11 @@
  async function flush(){
   await ready;if(!valid()||flushing)return;flushing=true;
   try{
+   // Check deletion before uploading any locally queued operation.
+   const activeCompanyId=account?.company?.id;
+   if(activeCompanyId&&await confirmCompanyDeletion(activeCompanyId))return;
    const auth=await transport('/api/v1/bootstrap',{credentials:'same-origin'});
-   if(auth.status===401){reset();return;}if(!auth.ok)throw Error('تعذر التحقق من الجلسة');
+   if(auth.status===401||auth.status===410){if(activeCompanyId&&await confirmCompanyDeletion(activeCompanyId))return;reset();return;}if(!auth.ok)throw Error('تعذر التحقق من الجلسة');
    const fresh=await auth.json();if(fresh.company.id!==account.company.id||fresh.user.id!==account.user.id)throw Error('تغير الحساب؛ سجّل الدخول قبل مزامنة العمليات');
    await open(fresh);reachable=true;
    try{const local=await transport('/api/local/status');if(local.ok)localServer=(await local.json()).local===true;
@@ -156,6 +160,7 @@
     row.state='sending';await put('outbox',row);
     const response=await transport(row.path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(row.body)});
     const result=await response.json();
+    if(response.status===410||result?.error?.code==='COMPANY_DELETED'){await purgeCompanyScope(activeCompanyId);return;}
     if(response.status===401){row.state='pending';await put('outbox',row);reset();break;}
     if(response.status>=500){row.state='pending';await put('outbox',row);break;}
     const rejected=!response.ok||result.result?.status==='rejected';
