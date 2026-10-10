@@ -17,13 +17,14 @@ import { installDataImportRoutes } from './modules/data-import/routes.js';
 import { installAssistantRoutes } from './modules/assistant/routes.js';
 import { imageData, invoiceDesign, invoiceAttachment } from './lib/company-media.js';
 import { installDesktopSync } from './lib/desktop-sync.js';
+import { deleteTenantEverywhere } from './lib/tenant-deletion.js';
 import { installNotificationRoutes } from './modules/notifications/routes.js';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, '../../../public');
 const loginAttempts = new Map();
 
-export function createApp({ store, sessionDays = 14, secureCookies = false, allowedOrigins = [], cookieName = 'almahasib_session', platformCookieName = null, cookiePath = '/', notificationSending = false }) {
+export function createApp({ store, localDeletionStore = null, sessionDays = 14, secureCookies = false, allowedOrigins = [], cookieName = 'almahasib_session', platformCookieName = null, cookiePath = '/', notificationSending = false }) {
   // Company accounts and platform developers keep independent cookies so that
   // signing into a company never replaces an active developer session and vice
   // versa, on the web and inside the Electron shell alike.
@@ -274,9 +275,9 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   app.delete('/api/v1/platform/companies/:companyId', authenticate(store), asyncRoute(async (req,res)=>{
     requirePlatform(req.auth);
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const result = await store.deletePlatformCompany(req.params.companyId, req.auth.user.id, {
-      confirm: body.confirm === true, code: body.code
-    });
+    const result = await deleteTenantEverywhere({ cloudStore: store, localStore: localDeletionStore,
+      companyId: req.params.companyId, actorUserId: req.auth.user.id,
+      confirm: body.confirm === true, companyCode: body.code });
     res.json(result);
   }));
   app.get('/api/v1/platform/companies/:companyId/deletion', authenticate(store), asyncRoute(async (req,res)=>{
@@ -290,7 +291,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     const companyId = String(req.query.companyId || '').trim();
     if (!companyId) throw new AppError(400, 'VALIDATION_ERROR', 'معرف الشركة مطلوب');
     const deletion = store.companyDeletionTombstone ? store.companyDeletionTombstone(companyId) : null;
-    res.json({ companyId, deleted: Boolean(deletion), deletion: deletion || null });
+    res.json({ companyId, deleted: Boolean(deletion) });
   }));
 
   app.get('/api/v1/platform/companies/pending', authenticate(store), permit('company.approve'), asyncRoute(async (req, res) => {
