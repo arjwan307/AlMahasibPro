@@ -62,6 +62,6 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             Write-Output 'This version is already published; bump the version for a new release.'
           } else {
-            gh release create $releaseTag $installerPath $hashPath --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "AlMahasibPro Companies $releaseVersion" --notes-file 'docs/company-desktop-1.2.0.md'
+            gh release create $releaseTag $installerPath $hashPath --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "AlMahasibPro Companies $releaseVersion" --notes-file 'docs/company-desktop-1.2.1.md'
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }

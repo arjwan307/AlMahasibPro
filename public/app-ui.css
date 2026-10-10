@@ -32,6 +32,7 @@ body aside nav button{padding:10px 13px!important;font-size:14px!important;text-
 body .ui-help-toggle{border:1px solid #b9d4d1;background:#edf7f6;color:var(--ui-accent);font-size:12px!important;border-radius:50%!important;padding:0!important;width:24px!important;height:24px;min-height:24px;font-weight:700}
 .ui-help-text{position:relative;display:block;max-width:540px;background:#f3f9f9;border:1px solid #c9e0dd;border-radius:9px;padding:12px;margin-top:8px;color:#365b63;font-size:13px;white-space:normal}.ui-help-text[hidden]{display:none}
 [data-ui-filtered]{display:none!important}
+#notice{display:flex;align-items:center;gap:12px}body #notice .notice-close{background:transparent;color:inherit;font-size:22px!important;padding:2px 8px!important;min-width:32px;min-height:32px;flex:none}
 body.ui-dark .ui-list{background:#10213a;border-color:#29415f;color:#eef2ff}body.ui-dark th{background:#172e48;color:#bcd9e7}body.ui-dark .ui-list-count{color:#adc4d3}
 @media(max-width:1024px){body .line-editor>button{grid-column:auto!important}body .panel{padding:16px}}
 @media(max-width:600px){body button,body .btn{min-height:42px;padding:8px 12px!important}body input:not([type=checkbox]):not([type=radio]),body select,body textarea{font-size:16px}body .panel{padding:14px}body h1{font-size:20px}body h2{font-size:17px}.ui-list-tools select{max-width:100%}.ui-list>summary{min-height:42px;padding:8px 12px}body .ui-help-toggle{width:34px!important;height:34px;min-height:34px}body .form-grid>button{justify-self:start;width:auto!important}}
