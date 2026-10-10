@@ -1,0 +1,7 @@
+(() => {'use strict';
+ const form=document.getElementById('login'),notice=document.getElementById('notice');let localMode=false;
+ async function request(path,body){const response=await fetch(path,{credentials:'same-origin',...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});const data=await response.json();if(!response.ok)throw Error(data.error?.message||'تعذر الاتصال');return data;}
+ function route(account){if(!account?.company)throw Error('سجّل الدخول بحساب الشركة');localStorage.setItem('almahasib_company_context',JSON.stringify({id:account.company.id,code:account.company.code,name:account.company.legalName}));location.replace(account.company.product==='retail'?(localMode?'/retail.html':'/retail/retail.html'):'/enterprise.html');}
+ form.onsubmit=async event=>{event.preventDefault();const button=form.querySelector(':scope > button');button.disabled=true;notice.hidden=true;try{const result=await request('/api/v1/auth/login',Object.fromEntries(new FormData(form)));route(result.account);}catch(error){notice.textContent=error.message;notice.hidden=false;}finally{button.disabled=false;}};
+ (async()=>{try{const status=await request('/api/local/status');localMode=Boolean(status.local);if(localMode&&status.companyCode)form.elements.companyCode.value=status.companyCode;}catch{}try{route(await request('/api/v1/bootstrap'));}catch{}})();
+})();

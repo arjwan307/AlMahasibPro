@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head><script src="/erp-offline.js"></script>
+    <style>[hidden]{display:none!important}</style>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>المطاعم والمجمعات | لوحة التحكم - المحاسب برو</title>
@@ -102,6 +103,6 @@
         <!-- الأقسام الفرعية (الأدوات المشتركة) - تم تحديث الروابط -->
         <p>المحاسب برو للمطاعم والمجمعات</p><button id="retailLogout" style="padding:12px">تسجيل الخروج وتبديل الحساب</button>
     </div><script>
-fetch('/api/v1/bootstrap',{credentials:'same-origin'}).then(response=>{if(!response.ok)location.replace('/retail-login.html');});
+fetch('/api/v1/bootstrap',{credentials:'same-origin'}).then(async response=>{if(!response.ok){location.replace('/login.html');return;}const account=await response.json();const restaurant=account.company.businessType==='restaurant';document.querySelector('.card-restaurant').hidden=!restaurant;document.querySelector('.card-market').hidden=restaurant;document.querySelector('.header p').textContent=account.company.legalName;});
 document.getElementById('retailLogout').onclick=async()=>{const response=await fetch('/api/v1/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(response.ok||response.status===401)location.replace('/retail-login.html');else alert('تعذر تسجيل الخروج؛ أعد المحاولة');};
 </script><script src="/app-ui.js?v=1.2.0" defer></script></body></html>

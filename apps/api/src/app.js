@@ -1,4 +1,5 @@
 import { requireMarketPermission, requireCompanyMarketScope, validateMarketCatalog } from './lib/market-security.js';
+import { approvedCompanyCode } from './lib/company-code.js';
 import { installSalesRoutes, salesRep, salesScoped } from './sales-workspace.js';
 import express from 'express';
 import { PERMISSIONS } from './permissions.js';
@@ -112,10 +113,13 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
 
   app.post('/api/v1/companies/register', asyncRoute(async (req, res) => {
     requireFields(req.body, ['legalName', 'ownerName', 'phone', 'username', 'password']);
+    const businessType=req.body.businessType||(req.productScope==='retail'?'restaurant':'company');
+    if(!['company','restaurant','complex'].includes(businessType))throw new AppError(400,'INVALID_BUSINESS_TYPE','اختر شركة أو مطعمًا أو مجمعًا');
     const passwordHash = await passwordHashOrValidation(req.body.password);
     const company = await store.registerCompany({
       code: `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`,
-      product: req.productScope || 'company',
+      product: businessType==='company'?'company':'retail',
+      businessType,
       legalName: req.body.legalName.trim(),
       timezone: req.body.timezone || 'Asia/Baghdad',
       currency: ['IQD','USD'].includes(String(req.body.currency||'IQD').toUpperCase()) ? String(req.body.currency||'IQD').toUpperCase() : 'IQD',
@@ -253,7 +257,9 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   }));
 
   app.patch('/api/v1/platform/companies/:companyId', authenticate(store), asyncRoute(async (req,res)=>{
-    requirePlatform(req.auth); res.json({company:await store.updatePlatformCompany(req.params.companyId,req.body||{},req.auth.user.id)});
+    requirePlatform(req.auth);const company=store.companies.get(req.params.companyId);if(!company)throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
+    const input={...req.body};if(input.code)input.code=approvedCompanyCode(company,input.code);
+    res.json({company:await store.updatePlatformCompany(req.params.companyId,input,req.auth.user.id)});
   }));
   app.delete('/api/v1/platform/companies/:companyId', authenticate(store), asyncRoute(async (req,res)=>{
     requirePlatform(req.auth); res.json(await store.deletePlatformCompany(req.params.companyId,req.auth.user.id));
@@ -266,7 +272,9 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
 
   app.post('/api/v1/platform/companies/:companyId/approve', authenticate(store), permit('company.approve'), asyncRoute(async (req, res) => {
     requirePlatform(req.auth);
-    res.json({ company: await store.approveCompany(req.params.companyId, req.auth.user.id, req.body?.code) });
+    const company=store.companies.get(req.params.companyId);
+    if(!company)throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
+    res.json({ company: await store.approveCompany(req.params.companyId, req.auth.user.id, approvedCompanyCode(company,req.body?.code)) });
   }));
 
   app.get('/api/v1/roles', authenticate(store), permit('roles.manage'), asyncRoute(async (req, res) => {

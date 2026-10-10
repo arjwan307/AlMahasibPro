@@ -207,7 +207,7 @@ export class MemoryStore {
     return this.#publicCompany(company);
   }
 
-  async registerCompany({ code, legalName, timezone, currency, phone, address, owner, product = null }) {
+  async registerCompany({ code, legalName, timezone, currency, phone, address, owner, product = null, businessType = null }) {
     if ([...this.companies.values()].some((company) => company.code === code)) {
       throw new AppError(409, 'COMPANY_CODE_EXISTS', 'رمز الشركة مستخدم');
     }
@@ -215,7 +215,7 @@ export class MemoryStore {
     const now = new Date().toISOString();
     const branchId = randomUUID();
     const company = {
-      id: companyId, code, legalName, timezone, currency, phone, address, product, status: 'pending',
+      id: companyId, code, legalName, timezone, currency, phone, address, product, businessType:businessType||(product==='retail'?'restaurant':'company'), status: 'pending',
       createdAt: now, approvedAt: null, ownerUserId: null,
       branches: [{ id: branchId, name: 'الفرع الرئيسي', code: 'main', active: true }]
     };
@@ -334,7 +334,7 @@ export class MemoryStore {
     if(input.phone!==undefined) company.phone=String(input.phone).trim().slice(0,32);
     if(input.address!==undefined) company.address=String(input.address).trim().slice(0,240);
     if(input.code) {
-      const code=String(input.code).trim().toUpperCase();
+      const code=String(input.code).trim().toLowerCase();
       if([...this.companies.values()].some(x=>x.id!==companyId&&x.code===code)) throw new AppError(409,'COMPANY_CODE_EXISTS','رمز الشركة مستخدم');
       company.code=code;
     }

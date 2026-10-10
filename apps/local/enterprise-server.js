@@ -1,4 +1,5 @@
 import { startBackupService } from '../api/src/lib/backup-service.js';
+import { resetInstallationOnce } from '../api/src/lib/clean-install.js';
 import { installLocalCloud } from './cloud-sync.js';
 import { productPages } from '../api/src/product-pages.js';
 import express from 'express';
@@ -11,12 +12,13 @@ import { hashPassword } from '../api/src/lib/security.js';
 import { normalizeUsername } from '../api/src/lib/http.js';
 import { createServer as createHttpsServer } from 'node:https';
 
-export async function startEnterpriseLocal({ dataDirectory, port = 3211, product = 'company', protect, unprotect, allowTestCloud = false, bindHost='127.0.0.1', lanHost, tlsKey, tlsCert,clientOrigins=[] }) {
+export async function startEnterpriseLocal({ dataDirectory, port = 3211, product = 'company', protect, unprotect, allowTestCloud = false, cloudOrigin, resetGeneration, bindHost='127.0.0.1', lanHost, tlsKey, tlsCert,clientOrigins=[] }) {
   if(bindHost!=='127.0.0.1'&&(!lanHost||!tlsKey||!tlsCert))throw new Error('مشاركة خادم الفرع تحتاج اسم شبكة وشهادة HTTPS ومفتاحها');
   if(lanHost&&!/^[A-Za-z0-9.-]+$/.test(lanHost))throw new Error('اسم خادم الشبكة غير صالح');
   const tls=tlsKey&&tlsCert?{key:await readFile(tlsKey),cert:await readFile(tlsCert)}:null,protocol=tls?'https':'http';
   await mkdir(dataDirectory, { recursive: true });
   const store = new SQLiteStore(join(dataDirectory, 'enterprise.sqlite'));
+  const cleanInstallation=await resetInstallationOnce(store,dataDirectory,resetGeneration);
   const backups=startBackupService({store,directory:process.env.ALMAHASIB_BACKUP_DIR||join(dataDirectory,'backups')});
   store.backupService=backups;
   const app = express();
@@ -33,8 +35,8 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211, product
   // Shared cloud retail clients use /retail/api; the same local engine serves both interfaces.
   if(product==='unified')app.use((req,_res,next)=>{if(req.path.startsWith('/retail/api/')){req.url=req.url.slice(7);req.originalUrl=req.originalUrl.slice(7);}next();});
   app.get('/desktop-cloud.html',(req,res)=>res.sendFile(fileURLToPath(new URL('../../public/desktop-cloud.html',import.meta.url))));
-  const cloud=await installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud});
-  if(product==='unified')app.get(['/', '/index.html'],async(req,res,next)=>{try{const html=await readFile(fileURLToPath(new URL('../../public/index.html',import.meta.url)),'utf8');res.type('html').send(html.replace('اختر التطبيق الذي تريد الدخول إليه','اختر واجهة العمل').replace('لكل تطبيق حساباته وصلاحياته وبياناته المستقلة.','المحاسب برو').replaceAll('/retail/retail-login.html','/retail-login.html').replaceAll('/retail/register.html','/register.html'));}catch(error){next(error);}});
+  const cloud=await installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud,cloudOrigin});
+  if(product==='unified')app.get(['/', '/index.html'],(_req,res)=>res.redirect('/login.html'));
   app.use(productPages(product));
   if (product === 'retail'||product==='unified') {
     const html = new Set(['/pos.html','/market-cashier.html','/market-admin.html']);
@@ -51,9 +53,10 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211, product
     });
   }
 
-  app.get('/api/local/status', (req, res) => res.json({ local: true, initialized: store.companies.size > 0, companyCode: [...store.companies.values()][0]?.code,lanUrl:lanHost?`${protocol}://${lanHost}:${port}`:null }));
+  app.get('/api/local/status', (req, res) => res.json({ local: true, initialized: store.companies.size > 0, companyCode: [...store.companies.values()][0]?.code,generation:store.installationGeneration||null,lanUrl:lanHost?`${protocol}://${lanHost}:${port}`:null }));
   let configuring = false;
   app.post('/api/local/setup', async (req, res) => {
+    if(product==='unified')return res.status(409).json({error:{message:'أدخل رمز الشركة المعتمد واسم المستخدم وكلمة المرور؛ إنشاء الحساب يتم عبر المطور.'}});
     if (store.companies.size || configuring) return res.status(409).json({ error: { message: 'تم إعداد الشركة سابقًا' } });
     configuring = true;
     try {
@@ -67,7 +70,7 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211, product
   });
   app.use(createApp({ store, allowedOrigins: origins,secureCookies:Boolean(tls) }));
   const server = await new Promise((resolve, reject) => { const server = tls?createHttpsServer(tls,app):app;const listening=server.listen(port,bindHost,()=>resolve(listening));listening.on('error',reject); });
-  return { url: `${protocol}://127.0.0.1:${port}`, lanUrl:lanHost?`${protocol}://${lanHost}:${port}`:null, store, close: async () => { cloud?.close(); await backups.close(); await new Promise(resolve => server.close(resolve)); await store.close(); } };
+  return { url: `${protocol}://127.0.0.1:${port}`, lanUrl:lanHost?`${protocol}://${lanHost}:${port}`:null, cleanInstallation, store, close: async () => { cloud?.close(); await backups.close(); await new Promise(resolve => server.close(resolve)); await store.close(); } };
 }
 if (process.argv[1]?.endsWith('enterprise-server.js')) {
   const { homedir } = await import('node:os');

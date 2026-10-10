@@ -5,14 +5,15 @@ import { hashToken } from '../api/src/lib/security.js';
 import { commandPathAllowed } from '../api/src/lib/desktop-sync.js';
 
 const defaultCloud='https://shenoo-menoo-tak-tak.onrender.com';
-export async function installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud=false}){
+export async function installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud=false,cloudOrigin=defaultCloud}){
   const filename=join(dataDirectory,'cloud-connection.json');
-  let config={url:defaultCloud,automatic:true},tokens=new Map(),running=false,lastError='',lastSync=null,closed=false,connecting=false,saveQueue=Promise.resolve();
+  let config={url:cloudOrigin,automatic:true},tokens=new Map(),running=false,lastError='',lastSync=null,closed=false,connecting=false,saveQueue=Promise.resolve();
   try{const saved=JSON.parse(await readFile(filename,'utf8'));config=saved.config;if(unprotect&&saved.tokens)tokens=new Map(JSON.parse(await unprotect(Buffer.from(saved.tokens,'base64'))));}catch{}
   if(config.companyId&&!store.companies.has(config.companyId)){config={url:config.url||defaultCloud,automatic:false};tokens.clear();await writeFile(filename,JSON.stringify({config}));}
   lastSync=config.lastSuccessfulSync||null;
   function save(){const task=saveQueue.then(async()=>{const saved={config};if(protect)saved.tokens=(await protect(Buffer.from(JSON.stringify([...tokens])))).toString('base64');await writeFile(filename+'.tmp',JSON.stringify(saved));await rename(filename+'.tmp',filename);});saveQueue=task.catch(()=>{});return task;}
   function cloudURL(value){const url=new URL(value||defaultCloud);if(url.username||url.password||url.search||url.hash||!['/','/retail','/retail/'].includes(url.pathname)||(url.protocol!=='https:'&&!(allowTestCloud&&url.protocol==='http:'&&url.hostname==='127.0.0.1')))throw Error('استخدم عنوان الخادم عبر HTTPS؛ مسار /retail متاح للمطاعم');return url.origin+(url.pathname.startsWith('/retail')?'/retail':'');}
+  config.url=cloudURL(config.url);
   async function remote(path,{body,method='GET',token}={}){
     const response=await fetch(config.url+path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(45000)});
     if(!response.ok){let message;try{message=(await response.json()).error?.message;}catch{}throw Error(message||'تعذر الاتصال بالخادم: '+response.status);}
@@ -65,7 +66,7 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
       await store.importCloudSnapshot(bytes,config.companyId,{initial:true});lastSync=new Date().toISOString();res.json({saved:true,backupName});
     }catch(error){res.status(400).json({error:{message:error.message}});}finally{if(ownsLock)connecting=false;}
   });
-  app.post('/api/local/cloud/connect',async(req,res)=>{
+  async function connectAccount(req,res){
     let ownsLock=false;try{
       if(store.companies.size&&!await authorized(req,res,'company.manage'))return;
       if(connecting||running)throw Error('عملية ربط أو مزامنة قيد التنفيذ');
@@ -83,6 +84,25 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
       await store.importCloudSnapshot(bytes,account.company.id,{initial:true});
       config={...config,companyId:account.company.id,companyCode:account.company.code,directorId:account.user.id};tokens=new Map([[account.user.id,token]]);await save();res.json({connected:true,companyCode:account.company.code});
     }catch(error){res.status(400).json({error:{message:error.message}});}finally{if(ownsLock)connecting=false;}
+  }
+  app.post('/api/local/cloud/connect',connectAccount);
+  // An empty company device is provisioned from the approved central account.
+  // Existing databases are never replaced by an ordinary login.
+  app.post('/api/v1/auth/login',async(req,res,next)=>{
+    if(req.body.platform===true)return res.status(403).json({error:{message:'دخول المطور متاح من لوحة السحابة'}});
+    if(store.companies.size)return next();
+    let statusCode=200,result;
+    const reply={status(code){statusCode=code;return this;},json(value){result=value;}};
+    await connectAccount({...req,body:{...req.body,url:config.url,adopt:true}},reply);
+    if(statusCode>=400||!result?.connected)return res.status(statusCode>=400?statusCode:503).json(result||{error:{message:'تعذر تجهيز حساب الشركة'}});
+    next();
+  });
+  app.post('/api/v1/companies/register',async(req,res)=>{
+    try{
+      const base=cloudURL(config.url).replace(/\/retail$/,'');
+      const response=await fetch(base+'/api/v1/companies/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req.body),signal:AbortSignal.timeout(20000)});
+      const result=await response.json();res.status(response.status).json(result);
+    }catch{res.status(503).json({error:{message:'لم يصل طلب الإنشاء إلى السحابة؛ تحقق من الاتصال وأعد المحاولة'}});}
   });
   const idsIn=(value,ids=new Set())=>{if(typeof value==='string'&&/^[0-9a-f-]{36}$/i.test(value))ids.add(value);else if(value instanceof Map)for(const [key,row] of value){idsIn(key,ids);idsIn(row,ids);}else if(Array.isArray(value))for(const row of value)idsIn(row,ids);else if(value&&typeof value==='object')for(const row of Object.values(value))idsIn(row,ids);return ids;};
   // Commit the domain mutation and its replay command together before releasing

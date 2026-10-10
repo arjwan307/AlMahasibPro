@@ -1,4 +1,5 @@
 import { startBackupService } from './lib/backup-service.js';
+import { resetInstallationOnce } from './lib/clean-install.js';
 import { productPages } from './product-pages.js';
 import express from 'express';
 import { join } from 'node:path';
@@ -49,7 +50,7 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
  app.get('/api/health',(_req,res)=>res.json({ok:true,storage:'sqlite',service:'AlMahasibPro'}));
  const belongsToProduct=company=>(company.product||'company')===product;
  const productCompany=()=>[...store.companies.values()].find(belongsToProduct);
- app.get('/api/local/status',(_req,res)=>{const company=productCompany();res.json({local:false,initialized:Boolean(company),setupRequired:!company,companyCode:company?.code});});
+ app.get('/api/local/status',(_req,res)=>{const company=productCompany();res.json({local:false,initialized:Boolean(company),setupRequired:!company,companyCode:company?.code,generation:store.installationGeneration||null});});
  let configuring=false;
  app.post('/api/local/setup',async(req,res)=>{
   if(productCompany()||configuring)return res.status(409).json({error:{message:'تم إعداد المنشأة سابقًا'}});
@@ -63,19 +64,21 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
    await store.approveCompany(company.id,company.ownerUserId);res.status(201).json({companyCode:company.code});
   }catch(error){res.status(400).json({error:{message:error.message}});}finally{configuring=false;}
  });
- app.use((req,_res,next)=>{req.productScope=product;next();});
- const api=createApp({store,notificationSending:product==='company',secureCookies:origin.startsWith('https:'),allowedOrigins:[origin],cookieName:product==='retail'?'almahasib_retail_session':'almahasib_session',cookiePath:basePath?basePath+'/':'/'});app.use(api);
+ app.use((req,_res,next)=>{if(req.method==='POST'&&req.path==='/api/v1/companies/register')req.productScope=req.body.product==='retail'||product==='retail'?'retail':'company';next();});
+ const api=createApp({store,notificationSending:product==='company',secureCookies:origin.startsWith('https:'),allowedOrigins:[origin],cookieName:'almahasib_session',cookiePath:'/'});app.use(api);
  return {app,store,stopNotifications:()=>api.stopNotifications?.()};
 }
 
-export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, port = 10000, host = '0.0.0.0' }) {
+export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, port = 10000, host = '0.0.0.0', resetGeneration = process.env.ALMAHASIB_RESET_COMPANIES_ONCE }) {
  const store=new SQLiteStore(join(dataDirectory,'enterprise.sqlite'));
  const legacyRetailFile=join(dataDirectory,'retail','enterprise.sqlite');
  try{await access(legacyRetailFile);const legacyRetail=new SQLiteStore(legacyRetailFile);try{await store.mergeFrom(legacyRetail,'retail');}finally{await legacyRetail.close();}}catch(error){if(error.code!=='ENOENT')throw error;}
+ if(await resetInstallationOnce(store,dataDirectory,resetGeneration))console.log('AlMahasibPro clean installation completed: company data cleared; platform administrators preserved.');
  const backups=startBackupService({store,directory:process.env.ALMAHASIB_BACKUP_DIR||join(dataDirectory,'backups')});store.backupService=backups;
  const company=await createProductCloud({dataDirectory,setupToken,origin,sharedStore:store});
  const retail=await createProductCloud({dataDirectory,setupToken,origin,sharedStore:store,product:'retail',basePath:'/retail'});
  const app=express();app.set('trust proxy',1);
+ app.get(['/', '/index.html'],(_req,res)=>res.redirect('/login.html'));
  app.get('/companies',(_req,res)=>res.redirect('/enterprise.html'));
  app.get('/companies/',(_req,res)=>res.redirect('/enterprise.html'));
  app.get('/restaurants',(_req,res)=>res.redirect('/retail/retail-login.html'));

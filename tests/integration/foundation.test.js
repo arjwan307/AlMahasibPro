@@ -74,9 +74,10 @@ test('platform administrator approves companies', async () => {
   assert.equal(pending.status, 200);
   assert.deepEqual(new Set(pending.data.companies.map((company) => company.code)), new Set([companies.tenant_a.code, companies.tenant_b.code]));
   for (const code of ['tenant_a', 'tenant_b']) {
-    const approved = await api(`/api/v1/platform/companies/${companies[code].id}/approve`, { method: 'POST', token: platformToken });
+    const approved = await api(`/api/v1/platform/companies/${companies[code].id}/approve`, { method: 'POST', token: platformToken,body:JSON.stringify({code:code==='tenant_a'?'co1':'co2'}) });
     assert.equal(approved.status, 200);
     assert.equal(approved.data.company.status, 'active');
+    companies[code]=approved.data.company;
   }
 });
 

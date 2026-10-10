@@ -13,12 +13,10 @@ test('LAN sharing requires explicit HTTPS configuration before opening the datab
 test('unified desktop serves both business interfaces and their shared source assets',async t=>{
  const probe=createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));
  const directory=await mkdtemp(join(tmpdir(),'mahasib-unified-')),runtime=await startEnterpriseLocal({dataDirectory:directory,port,product:'unified'});t.after(()=>runtime.close());
- const start=await(await fetch(runtime.url+'/')).text();assert(start.includes('href="/retail-login.html"'));assert(start.includes('href="/enterprise.html"'));assert(!start.includes('href="/retail/retail-login.html"'));
+ const startResponse=await fetch(runtime.url+'/');assert.equal(startResponse.url,runtime.url+'/login.html');const start=await startResponse.text();assert(start.includes('name="companyCode"'));assert(start.includes('name="username"'));assert(start.includes('name="password"'));
  assert.equal((await fetch(runtime.url+'/retail/api/local/status')).status,200);
  for(const file of ['enterprise.html','retail-login.html','pos.html','market-cashier.html','company-output.css','company-sync-ui.js','restaurant-pos.js'])assert.equal((await fetch(runtime.url+'/'+file)).status,200,file);
- const response=await fetch(runtime.url+'/api/local/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({legalName:'Local unified',ownerName:'Owner',username:'owner',password:'offline-password'})});assert.equal(response.status,201);
- const login=await fetch(runtime.url+'/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({companyCode:'local',username:'owner',password:'offline-password'})});assert.equal(login.status,200);
- const token=(await login.json()).token;const bootstrap=await fetch(runtime.url+'/api/v1/bootstrap',{headers:{Authorization:'Bearer '+token}});assert.equal(bootstrap.status,200);assert.equal((await bootstrap.json()).company.legalName,'Local unified');
+ const response=await fetch(runtime.url+'/api/local/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({legalName:'Local unified',ownerName:'Owner',username:'owner',password:'offline-password'})});assert.equal(response.status,409);assert.equal(runtime.store.companies.size,0);
 });
 test('retail serves ERP offline assets and allows reaching local SQLite without internet',async t=>{
  const probe=createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));

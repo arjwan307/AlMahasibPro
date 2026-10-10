@@ -1,6 +1,6 @@
 {
   "name": "almahaseb-pro",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

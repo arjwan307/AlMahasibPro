@@ -7,13 +7,23 @@ app.on('second-instance',()=>{const current=BrowserWindow.getAllWindows()[0];if(
 if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async () => {
   try {
     const { startEnterpriseLocal } = await import('../local/enterprise-server.js');
-    runtime = await startEnterpriseLocal({ dataDirectory: app.getPath('userData'), port: Number(process.env.ALMAHASIB_PORT || 3211), product: 'unified', bindHost:process.env.ALMAHASIB_BIND_HOST||'127.0.0.1',lanHost:process.env.ALMAHASIB_LAN_HOST,tlsKey:process.env.ALMAHASIB_TLS_KEY,tlsCert:process.env.ALMAHASIB_TLS_CERT, protect: bytes => { if(!safeStorage.isEncryptionAvailable()) throw Error('تعذر حماية جلسة السحابة على الجهاز'); return safeStorage.encryptString(bytes.toString()); }, unprotect: bytes => Buffer.from(safeStorage.decryptString(bytes)) });
-    const window = new BrowserWindow({ show: process.env.ALMAHASIB_SMOKE_TEST !== '1', width: 1440, height: 950, minWidth: 960, minHeight: 640, title: 'المحاسب برو — الشركات والمؤسسات', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
+    runtime = await startEnterpriseLocal({ dataDirectory: app.getPath('userData'), port: Number(process.env.ALMAHASIB_PORT || 3211), product: 'unified', resetGeneration:'clean_20261010_125', bindHost:process.env.ALMAHASIB_BIND_HOST||'127.0.0.1',lanHost:process.env.ALMAHASIB_LAN_HOST,tlsKey:process.env.ALMAHASIB_TLS_KEY,tlsCert:process.env.ALMAHASIB_TLS_CERT, protect: bytes => { if(!safeStorage.isEncryptionAvailable()) throw Error('تعذر حماية جلسة السحابة على الجهاز'); return safeStorage.encryptString(bytes.toString()); }, unprotect: bytes => Buffer.from(safeStorage.decryptString(bytes)) });
+    const window = new BrowserWindow({ show: process.env.ALMAHASIB_SMOKE_TEST !== '1', width: 1440, height: 950, minWidth: 960, minHeight: 640, title: 'المحاسب برو', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
+    if(runtime.cleanInstallation)await window.webContents.session.clearStorageData();
     window.webContents.setWindowOpenHandler(({url}) => {
       try{const target=new URL(url);if(target.protocol==='https:'&&target.hostname==='wa.me'&&/^\/\d{8,15}$/.test(target.pathname))shell.openExternal(target.href).catch(()=>dialog.showErrorBox('واتساب','تعذر فتح واتساب على هذا الجهاز'));}catch{}
       return {action:'deny'};
     });
-    window.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(runtime.url + '/')) event.preventDefault(); });
+    window.webContents.on('will-navigate', (event, url) => {
+      if(url===runtime.url+'/developer.html'){
+        event.preventDefault();
+        const origin='https://shenoo-menoo-tak-tak.onrender.com';
+        const developer=new BrowserWindow({parent:window,width:1100,height:800,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});
+        developer.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+        developer.webContents.on('will-navigate',(navigation,target)=>{try{if(new URL(target).origin!==origin)navigation.preventDefault();}catch{navigation.preventDefault();}});
+        void developer.loadURL(origin+'/developer.html').catch(error=>dialog.showErrorBox('لوحة المطور',error.message));
+      }else if(!url.startsWith(runtime.url+'/'))event.preventDefault();
+    });
     Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'الملف', submenu: [{ label: 'ربط الشركة بالسحابة', click: () => window.loadURL(runtime.url+'/desktop-cloud.html') }, { label: 'أخذ نسخة احتياطية', click: createBackup }, { label: 'استعادة نسخة احتياطية', click: restoreBackup }, { role: 'quit', label: 'خروج' }] }, { label: 'عرض', submenu: [{ role: 'reload', label: 'تحديث' }, { role: 'togglefullscreen', label: 'ملء الشاشة' }] }]));
     await window.loadURL(runtime.url + '/index.html');
   } catch (error) { dialog.showErrorBox('تعذر تشغيل المحاسب برو', error.message); app.quit(); }

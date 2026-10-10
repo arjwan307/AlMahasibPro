@@ -19,9 +19,9 @@ test('cloud setup, manager and representative access persist securely after rest
   }
   assert.equal((await request('/api/health')).data.storage,'sqlite');
   const selector=await fetch(runtime.url+'/');
-  assert.equal(selector.url,runtime.url+'/');
+  assert.equal(selector.url,runtime.url+'/login.html');
   assert.equal(selector.status,200);
-  assert.match(await selector.text(),/اختيار التطبيق/);
+  assert.match(await selector.text(),/رمز الشركة/);
   assert.equal((await request('/api/v1/companies/register',{})).status,400);
   const owner={legalName:'شركة اختبار',ownerName:'مدير',username:'owner',password:'Strong-Password-123',setupToken};
   assert.equal((await request('/api/local/setup',{...owner,setupToken:'wrong'})).status,403);

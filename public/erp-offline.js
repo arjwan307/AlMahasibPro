@@ -28,7 +28,17 @@
  async function status(){const queue=await rows('outbox');return{reachable,localServer,cloud,pending:queue.filter(x=>['pending','sending'].includes(x.state)).length,conflicts:queue.filter(x=>x.state==='conflict').length,connection:connectionText()};}
  async function render(){const el=document.getElementById('erpOfflineStatus');if(!el)return;const button=document.getElementById('erpConnectionButton');if(button)button.hidden=!valid();const s=await status();el.textContent=s.connection+' · بانتظار الإرسال: '+s.pending+' · تحتاج مراجعة: '+s.conflicts+(localServer?' · السحابة: '+(cloud?.connected?'مرتبطة؛ آخر مزامنة: '+(cloud.lastSuccessfulSync||'لم تتم بعد'):'لم يُؤكد الربط'):'');window.dispatchEvent(new CustomEvent('almahasib:connection',{detail:s}));}
  function reset(){account=null;db?.close();db=null;lan=null;localStorage.removeItem(ACTIVE);localStorage.removeItem('almahasib_cached_bootstrap');reachable=false;}
- ready=(async()=>{try{const saved=JSON.parse(localStorage.getItem(ACTIVE)||'null');if(saved&&Date.parse(saved.offlineSessionExpiresAt)>Date.now())await open(saved);}catch{reset();}})();
+ ready=(async()=>{
+  try {
+   const response=await rawFetch('/api/local/status',{credentials:'same-origin',signal:AbortSignal.timeout(2000)});
+   if(response.ok){const status=await response.json();if(status.generation&&localStorage.getItem('almahasib_clean_generation')!==status.generation){
+    localStorage.clear();sessionStorage.clear();
+    if(indexedDB.databases)for(const database of await indexedDB.databases())if(database.name?.startsWith('almahasib-'))await new Promise((resolve,reject)=>{const request=indexedDB.deleteDatabase(database.name);request.onsuccess=resolve;request.onerror=()=>reject(request.error);request.onblocked=()=>reject(Error('أغلق النوافذ القديمة لإكمال التصفير'));});
+    localStorage.setItem('almahasib_clean_generation',status.generation);
+   }}
+  }catch{}
+  try{const saved=JSON.parse(localStorage.getItem(ACTIVE)||'null');if(saved&&Date.parse(saved.offlineSessionExpiresAt)>Date.now())await open(saved);}catch{reset();}
+ })();
  async function queue(path,body){const save=()=>saveQueue(path,body);return navigator.locks?navigator.locks.request('erp-queue-'+account?.company.id+'-'+account?.user.id,save):save();}
  async function saveQueue(path,body){
   if(!valid())return error('يلزم تسجيل الدخول عبر الخادم أولًا؛ انتهت صلاحية جلسة العمل دون اتصال',401);

@@ -1,5 +1,5 @@
 importScripts('/erp-shell-manifest.js');
-const CACHE='almahasib-erp-shell-1.2.4';
+const CACHE='almahasib-erp-shell-1.2.5';
 self.addEventListener('install',event=>event.waitUntil((async()=>{
  const cache=await caches.open(CACHE);
  await Promise.allSettled(self.ERP_SHELL.map(async path=>{const r=await fetch(path,{cache:'reload',signal:AbortSignal.timeout(8000)});if(r.ok)await cache.put(path,r);}));
