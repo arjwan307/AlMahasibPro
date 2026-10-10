@@ -6,7 +6,7 @@
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:Cairo,Tahoma,sans-serif;background:linear-gradient(135deg,#5f55b7,#7652ad);color:#fff;min-height:100vh}.wrap{max-width:1200px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}.card{background:#ffffff18;border:1px solid #ffffff35;backdrop-filter:blur(12px);border-radius:22px;padding:20px;box-shadow:0 12px 35px #241b5d33}.login{max-width:480px;margin:10vh auto}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}.stat b{font-size:30px;display:block;margin-top:8px}.companies{margin-top:20px}.company{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:15px 0;border-bottom:1px solid #ffffff25}.company:last-child{border:0}input,button{font:inherit;border:0;border-radius:14px;padding:13px 15px}input{width:100%;margin:7px 0;background:#fff;color:#222}button{cursor:pointer;background:#ffeb3b;color:#332a70;font-weight:700}.secondary{background:#ffffff24;color:#fff}.actions{display:flex;gap:8px;flex-wrap:wrap}.muted{opacity:.75;font-size:14px}.error{background:#b91c4c;padding:12px;border-radius:12px;margin-top:12px}.hidden{display:none}@media(max-width:600px){.company{grid-template-columns:1fr}.top{align-items:flex-start;gap:10px;flex-direction:column}}
 </style>
-<script src="/password-visibility.js" defer></script><link rel="stylesheet" href="/company-responsive.css?v=20261010-mobile"></head><body>
+<script src="/password-visibility.js" defer></script><link rel="stylesheet" href="/company-responsive.css?v=20261010-mobile"><link rel="stylesheet" href="/app-ui.css?v=1.2.0"></head><body>
 <div class="wrap">
 <section id="login" class="card login">
 <h1>🛠️ لوحة المطور</h1><p class="muted">دخول إدارة منصة المحاسب برو</p><p><a href="/" style="color:#ffeb3b">العودة لاختيار التطبيق</a></p>
@@ -40,4 +40,4 @@ async function logout(){try{await api('/api/v1/auth/logout',{method:'POST',body:
 function showLogin(){$('panel').classList.add('hidden');$('login').classList.remove('hidden')}
 function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 (async()=>{try{await loadPending();if(!$('panel').classList.contains('hidden'))return}catch{} })();
-</script></body></html>
+</script><script src="/app-ui.js?v=1.2.0" defer></script></body></html>

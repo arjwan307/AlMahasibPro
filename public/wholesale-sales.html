@@ -10,7 +10,7 @@
 .template-modern .invoice-head{border-color:#3567a0}.template-trade .invoice-head{border-color:#a97824}.template-minimal .invoice-head{border-width:1px}.template-luxury .invoice-head{border-color:#ab8543;border-bottom-width:5px}
 @media(max-width:900px){.layout{grid-template-columns:1fr}.customer-info{grid-template-columns:repeat(2,1fr)}}@media(max-width:600px){.shell{padding:12px}.top{align-items:flex-start;flex-direction:column}.grid2{grid-template-columns:1fr}.customer-info{grid-template-columns:1fr 1fr}.cartline{grid-template-columns:1fr 1fr}.invoice{width:100%;min-height:0;padding:7mm}.invoice-head{align-items:flex-start}.meta{font-size:11px}}
 @media print{@page{size:A4;margin:0}body{background:white}.shell,.modalbox>*:not(#printTarget){display:none!important}.modal{display:block!important;position:static;background:none;padding:0}.modalbox{display:block!important;position:static;width:100%;max-height:none;overflow:visible;padding:0;border-radius:0}.invoice{width:210mm;min-height:297mm;margin:0;padding:15mm;box-shadow:none;print-color-adjust:exact;-webkit-print-color-adjust:exact}.no-print{display:none!important}}
-</style></head>
+</style><link rel="stylesheet" href="/app-ui.css?v=1.2.0"></head>
 <body>
 <main class="shell">
 <header class="top"><div><h1>مبيعات الجملة والمفرد</h1><p>مسار موحد لمندوب الجملة والمفرد — يُرحّل المخزون بعد الاعتماد النهائي فقط</p></div><div class="actions"><button class="btn alt" onclick="location.href='/dashboard.html'">العودة للوحة</button><button id="customersLink" class="btn alt" onclick="location.href='/customers.html'">إدارة العملاء</button><button id="designLink" class="btn gold hidden" onclick="showPane('design')">تصميم الفاتورة</button></div></header>
@@ -41,4 +41,4 @@
 </main>
 <div id="invoiceModal" class="modal"><div class="modalbox"><div class="actions no-print"><button id="printBtn" class="btn">طباعة A4</button><button class="btn alt" onclick="closePreview()">إغلاق المعاينة</button></div><div id="printTarget"></div></div></div>
 <script src="/wholesale-invoice.js" defer></script>
-</body></html>
+<script src="/app-ui.js?v=1.2.0" defer></script></body></html>

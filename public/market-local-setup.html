@@ -1,5 +1,5 @@
 <!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>المحاسب برو المحلي</title>
-<style>body{background:#081423;color:#eaf1fa;font:18px Tahoma;max-width:700px;margin:50px auto;padding:20px}button,a{display:block;background:#17604e;color:white;padding:16px;margin:16px 0;border:0;border-radius:10px;text-decoration:none}input{padding:16px}small{color:#aebed0}</style>
+<style>body{background:#081423;color:#eaf1fa;font:18px Tahoma;max-width:700px;margin:50px auto;padding:20px}button,a{display:block;background:#17604e;color:white;padding:16px;margin:16px 0;border:0;border-radius:10px;text-decoration:none}input{padding:16px}small{color:#aebed0}</style><link rel="stylesheet" href="/app-ui.css?v=1.2.0">
 <h1>المحاسب برو — تشغيل محلي</h1><p>واجهة الكاشير والحسابات تُحمّل من جهازك، حتى بدون إنترنت.</p>
 <section id="newCompany"><h2>إنشاء محل محلي</h2><input id="companyName" maxlength="120" placeholder="اسم المحل"><label><input id="sampleCatalog" type="checkbox"> إضافة مواد تجريبية متنوعة</label><button id="createCompany">إنشاء وفتح الكاشير</button></section>
 <p>لأول تشغيل: اختر نسخة الكاشير الاحتياطية المحفوظة من حساب شركتك. لا تُنقل البيانات تلقائيًا بين عنوان الموقع وهذا التطبيق.</p>
@@ -32,3 +32,4 @@ for(const src of ['/market-offline.js','/market-cashier-ledger.js']){await new P
 await window.MarketCashierLedger.restoreBackup(data);status.textContent='تمت استعادة البيانات محليًا';document.getElementById('open').hidden=false;
 }catch(e){status.textContent=e.message}};
 </script></html>
+<script src="/app-ui.js?v=1.2.0" defer></script>

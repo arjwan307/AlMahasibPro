@@ -4,6 +4,7 @@ const retailFiles = new Set(['retail.html','retail-login.html','retail-login.js'
 export function productPages(product = 'company') {
  if(product==='company'){companyFiles.add('company-output.js');companyFiles.add('company-output.css');companyFiles.add('company-messages.js');companyFiles.add('company-responsive.css');companyFiles.add('company-responsive.js');companyFiles.add('company-sync-ui.js');}
  retailFiles.add('company-responsive.css');
+ for(const set of [companyFiles,retailFiles]){set.add('app-ui.css');set.add('app-ui.js');}
  const files = product === 'retail' ? retailFiles : companyFiles;
  const login = product === 'retail' ? '/retail-login.html' : '/enterprise.html';
  const home = product === 'retail' ? '/retail.html' : login;

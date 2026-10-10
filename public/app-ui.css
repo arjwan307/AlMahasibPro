@@ -1,0 +1,38 @@
+/* Shared company and retail presentation; system fonts also work offline. */
+:root{--ui-ink:#173343;--ui-accent:#14756f;--ui-line:#dde7ed;--ui-muted:#687f8e}
+body{font-family:"Segoe UI",Tahoma,Arial,sans-serif;line-height:1.65}
+button,.btn,input,select,textarea{font-family:inherit}
+body :where(p,h1,h2,h3,h4,th,td,label,summary,a,span,div){font-family:inherit}
+body .main-card{border-radius:20px;padding:24px}
+body .grid-main{gap:16px;margin-block:24px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+body .main-icon-card{padding:20px 16px;border-radius:14px;gap:10px}
+body .main-icon-card i{font-size:32px}body .main-icon-card h3{font-size:17px}
+body .main-icon-card:hover,body .sub-icon-card:hover{transform:translateY(-3px)}
+body .grid-sub{gap:12px;margin-top:20px}body .sub-icon-card{padding:16px 12px;border-radius:12px}body .sub-icon-card i{font-size:24px}
+body .sub-icon-card h4{font-size:14px}
+body button,body .btn{font-size:13px!important;font-weight:600;line-height:1.45;padding:8px 14px!important;min-height:36px;border-radius:9px!important;box-shadow:none;transition:background .15s,box-shadow .15s;max-width:100%;white-space:normal}
+body button:focus-visible,summary:focus-visible{outline:3px solid #60b9b0;outline-offset:3px}
+body button:hover,body .btn:hover{filter:brightness(.97);box-shadow:0 2px 7px #17334312}
+body .form-grid>button,body .line-editor>button{width:auto!important;justify-self:start;align-self:end;grid-column:auto!important}
+body .actions{gap:8px;align-items:center;flex-wrap:wrap}
+body .actions>button,body .page-heading .output-actions button{flex:0 1 auto!important;width:auto!important}
+body input:not([type=checkbox]):not([type=radio]),body select,body textarea{border-radius:9px;border-color:var(--ui-line);padding:9px 11px;min-height:38px;font-size:14px;max-width:100%;box-sizing:border-box}
+body h1{font-size:23px;line-height:1.4}body h2{font-size:18px;line-height:1.5;margin-block:0 16px}body h3{font-size:16px}
+body .panel,body .card{border-radius:14px;border-color:var(--ui-line);box-shadow:0 3px 14px #17334305}
+body .panel{padding:20px;margin-bottom:18px}body .metric{padding:14px 18px;border-radius:12px}body .metric strong{font-size:25px;margin-block:5px}
+body table{font-size:13px}body th{background:#f3f7f9;color:#526f80;font-weight:600}body th,body td{padding:11px 12px}body td button{margin:2px}
+body aside nav button{padding:10px 13px!important;font-size:14px!important;text-align:start}
+.ui-list{border:1px solid var(--ui-line);border-radius:11px;background:#fff;min-width:0;margin-block:8px}
+.ui-list>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:12px 14px;font-weight:600;user-select:none}
+.ui-list>summary::-webkit-details-marker{display:none}.ui-list>summary:before{content:'▾';color:var(--ui-accent);transform:rotate(90deg)}.ui-list[open]>summary:before{transform:none}
+.ui-list-count{margin-inline-start:auto;color:var(--ui-muted);font-size:12px;font-weight:400}
+.ui-list-tools{display:flex;gap:9px;flex-wrap:wrap;padding:0 12px 12px}.ui-list-tools input{flex:1 1 180px;min-width:0}.ui-list-tools select{flex:1 1 145px;min-width:0;max-width:250px}
+.ui-list .table-wrap{margin:0;border-top:1px solid var(--ui-line);overflow:auto}.ui-list-empty{padding:12px;color:var(--ui-muted);margin:0}
+.ui-help{position:relative;display:inline-block;margin:0 5px 8px;vertical-align:middle}
+body .ui-help-toggle{border:1px solid #b9d4d1;background:#edf7f6;color:var(--ui-accent);font-size:12px!important;border-radius:50%!important;padding:0!important;width:24px!important;height:24px;min-height:24px;font-weight:700}
+.ui-help-text{position:relative;display:block;max-width:540px;background:#f3f9f9;border:1px solid #c9e0dd;border-radius:9px;padding:12px;margin-top:8px;color:#365b63;font-size:13px;white-space:normal}.ui-help-text[hidden]{display:none}
+[data-ui-filtered]{display:none!important}
+body.ui-dark .ui-list{background:#10213a;border-color:#29415f;color:#eef2ff}body.ui-dark th{background:#172e48;color:#bcd9e7}body.ui-dark .ui-list-count{color:#adc4d3}
+@media(max-width:1024px){body .line-editor>button{grid-column:auto!important}body .panel{padding:16px}}
+@media(max-width:600px){body button,body .btn{min-height:42px;padding:8px 12px!important}body input:not([type=checkbox]):not([type=radio]),body select,body textarea{font-size:16px}body .panel{padding:14px}body h1{font-size:20px}body h2{font-size:17px}.ui-list-tools select{max-width:100%}.ui-list>summary{min-height:42px;padding:8px 12px}body .ui-help-toggle{width:34px!important;height:34px;min-height:34px}body .form-grid>button{justify-self:start;width:auto!important}}
+@media print{.ui-list-tools,.ui-help{display:none!important}.ui-list{border:0}.ui-list>summary{display:none}.ui-list:not([open])>*{display:block}.ui-list .table-wrap{overflow:visible}body button{display:none}}

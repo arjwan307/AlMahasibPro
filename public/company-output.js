@@ -10,13 +10,14 @@
  function message(text){const n=el('notice');n.textContent=text;n.hidden=false;setTimeout(()=>n.hidden=true,7000);}
  function download(data,name,type){const url=URL.createObjectURL(new Blob([data],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
  function safeCell(value){const text=String(value??'');return /^[\s\uFEFF]*[=+@-]/.test(text)?"'"+text:text;}
- function tables(root){return [...root.querySelectorAll('table')].filter(t=>!t.closest('[hidden]')&&t.getClientRects().length);}
- function cleanTable(t){const copy=t.cloneNode(true);copy.querySelectorAll('button,input,select,.output-actions').forEach(x=>x.remove());const heads=[...copy.querySelectorAll('thead th')];for(let i=heads.length-1;i>=0;i--)if(/^(الإجراء|الإجراءات|إجراء)$/.test(heads[i].textContent.trim()))copy.querySelectorAll('tr').forEach(r=>r.children[i]?.remove());return copy;}
+ function tables(root){return [...root.querySelectorAll('table')].filter(t=>!t.closest('[hidden]')&&(t.closest('.ui-list')||t.getClientRects().length));}
+ function cleanTable(t){const copy=t.cloneNode(true);copy.querySelectorAll('[data-ui-filtered]').forEach(x=>x.remove());copy.querySelectorAll('button,input,select,.output-actions').forEach(x=>x.remove());const heads=[...copy.querySelectorAll('thead th')];for(let i=heads.length-1;i>=0;i--)if(/^(الإجراء|الإجراءات|إجراء)$/.test(heads[i].textContent.trim()))copy.querySelectorAll('tr').forEach(r=>r.children[i]?.remove());return copy;}
  function csv(root,title){const list=tables(root);if(!list.length)return message('لا توجد بيانات جدولية للتصدير');const rows=[];for(const t of list){rows.push([t.closest('.panel')?.querySelector('h2')?.textContent||title]);for(const tr of cleanTable(t).rows)rows.push([...tr.cells].map(c=>safeCell(c.innerText.trim())));rows.push([]);}download('\uFEFF'+rows.map(r=>r.map(v=>'"'+v.replaceAll('"','""')+'"').join(',')).join('\r\n'),title+'.csv','text/csv;charset=utf-8');}
  function printable(root,title,invoice=false){
   const c=context(),company=c?.account?.company||{},copy=root.cloneNode(true);
-  copy.querySelectorAll('form,button,input,select,textarea,.output-actions,.toolbar,dialog,.assistant-root').forEach(x=>x.remove());
+  copy.querySelectorAll('form,button,input,select,textarea,.output-actions,.toolbar,dialog,.assistant-root,.ui-help,.ui-list-tools,.ui-list-empty').forEach(x=>x.remove());
   for(const t of copy.querySelectorAll('table'))t.replaceWith(cleanTable(t));
+  copy.querySelectorAll('details').forEach(x=>x.open=true);
   if(invoice)copy.querySelector('h1')?.remove();
   copy.querySelectorAll('.panel').forEach(p=>{if(!p.querySelector('table,p,img'))p.remove();});
   const holder=document.createElement('div');holder.className='print-output';holder.dir='rtl';
