@@ -632,7 +632,8 @@
        if(!local.lanUrl)throw Error('خادم الجهاز غير متاح للهاتف. فعّل عنوان فرع HTTPS يمكن للهاتف الوصول إليه قبل إنشاء رمز الربط');
        origin=local.lanUrl;
       }
-      const url=origin+'/market-scanner.html#'+encodeURIComponent(marketScannerToken);
+      const scannerBase=location.pathname.startsWith('/retail/')?'/retail':'';
+      const url=origin+scannerBase+'/market-scanner.html#'+encodeURIComponent(marketScannerToken);
       document.getElementById('scannerPairDialog')?.remove();
       const dialog=document.createElement('dialog');dialog.id='scannerPairDialog';
       dialog.style.cssText='max-width:420px;width:95%;border:0;border-radius:18px;padding:24px;text-align:center;background:white;color:#152238';

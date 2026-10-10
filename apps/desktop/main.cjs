@@ -25,7 +25,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async (
       }else if(!url.startsWith(runtime.url+'/'))event.preventDefault();
     });
     Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'الملف', submenu: [{ label: 'ربط الشركة بالسحابة', click: () => window.loadURL(runtime.url+'/desktop-cloud.html') }, { label: 'أخذ نسخة احتياطية', click: createBackup }, { label: 'استعادة نسخة احتياطية', click: restoreBackup }, { role: 'quit', label: 'خروج' }] }, { label: 'عرض', submenu: [{ role: 'reload', label: 'تحديث' }, { role: 'togglefullscreen', label: 'ملء الشاشة' }] }]));
-    await window.loadURL(runtime.url + '/index.html');
+    await window.loadURL(runtime.url + '/login.html');
   } catch (error) { dialog.showErrorBox('تعذر تشغيل المحاسب برو', error.message); app.quit(); }
 });
 app.on('window-all-closed', () => app.quit());

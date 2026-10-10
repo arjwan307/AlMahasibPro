@@ -1,5 +1,8 @@
 importScripts('/erp-shell-manifest.js');
-const CACHE='almahasib-erp-shell-1.2.5';
+const CACHE='almahasib-erp-shell-1.2.7';
+// Cached redirected responses cannot satisfy Chromium navigation requests.
+// Preserve their content while removing the redirected response metadata.
+const shellResponse=response=>response.redirected?new Response(response.clone().body,{status:response.status,statusText:response.statusText,headers:response.headers}):response;
 self.addEventListener('install',event=>event.waitUntil((async()=>{
  const cache=await caches.open(CACHE);
  await Promise.allSettled(self.ERP_SHELL.map(async path=>{const r=await fetch(path,{cache:'reload',signal:AbortSignal.timeout(8000)});if(r.ok)await cache.put(path,r);}));
@@ -16,8 +19,8 @@ self.addEventListener('fetch',event=>{
  event.respondWith((async()=>{
   const cache=await caches.open(CACHE),path=url.pathname==='/'?'/index.html':url.pathname;
   if(request.mode==='navigate'){
-   const page=await cache.match(path);if(page)return page;
-   try{const response=await fetch(request,{signal:AbortSignal.timeout(5000)});if(response.ok)await cache.put(path,response.clone());return response;}catch{return new Response('افتح هذه الصفحة مرة مع الاتصال لتجهيز العمل دون إنترنت',{status:503,headers:{'Content-Type':'text/plain;charset=utf-8'}});}
+   const page=await cache.match(path);if(page)return shellResponse(page);
+   try{const response=await fetch(request,{signal:AbortSignal.timeout(5000)});if(response.ok)await cache.put(path,shellResponse(response).clone());return shellResponse(response);}catch{return new Response('افتح هذه الصفحة مرة مع الاتصال لتجهيز العمل دون إنترنت',{status:503,headers:{'Content-Type':'text/plain;charset=utf-8'}});}
   }
   const cached=await cache.match(path);if(cached)return cached;
   const response=await fetch(request);if(response.ok)await cache.put(path,response.clone());return response;
