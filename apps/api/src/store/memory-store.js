@@ -442,18 +442,21 @@ export class MemoryStore {
   // offline device cannot re-upload the deleted company after a later sync.
   async deletePlatformCompany(companyId, actorUserId, options = {}) {
     if (typeof options === 'string') options = { code: options };
+    // Enforce confirmation at the storage boundary, not only at the HTTP route.
+    // This also applies to retries against a previously deleted company.
+    if (options.confirm !== true) throw new AppError(400, 'CONFIRMATION_REQUIRED', 'أكد الحذف صراحة');
+    const suppliedCode = String(options.code ?? '').trim().toLowerCase();
+    if (!suppliedCode) throw new AppError(400, 'CONFIRMATION_REQUIRED', 'اكتب رمز الشركة لتأكيد الحذف');
     const existingTombstone = this.deletedCompanies.get(companyId);
     if (!this.companies.has(companyId)) {
-      if (existingTombstone) return { id: companyId, code: existingTombstone.code, alreadyDeleted: true, deletion: clone(existingTombstone) };
+      if (existingTombstone) {
+        if (suppliedCode !== String(existingTombstone.code || '').trim().toLowerCase()) throw new AppError(400, 'CONFIRMATION_REQUIRED', 'رمز الشركة غير صحيح');
+        return { id: companyId, code: existingTombstone.code, alreadyDeleted: true, deletion: clone(existingTombstone) };
+      }
       throw new AppError(404, 'COMPANY_NOT_FOUND', 'الشركة غير موجودة');
     }
     const company = this.companies.get(companyId);
-    if (options.confirm === true || options.code !== undefined) {
-      const expected = String(company.code || '').trim().toLowerCase();
-      const supplied = String(options.code ?? '').trim().toLowerCase();
-      if (!supplied || supplied !== expected) throw new AppError(400, 'CONFIRMATION_REQUIRED', 'اكتب رمز الشركة لتأكيد الحذف');
-      if (options.confirm !== true) throw new AppError(400, 'CONFIRMATION_REQUIRED', 'أكد الحذف صراحة');
-    }
+    if (suppliedCode !== String(company.code || '').trim().toLowerCase()) throw new AppError(400, 'CONFIRMATION_REQUIRED', 'رمز الشركة غير صحيح');
     const purge = () => {
       const ownedUserIds = new Set();
       for (const [id, user] of this.users) {
