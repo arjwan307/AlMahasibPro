@@ -11,7 +11,7 @@ const MAP_FIELDS = [
   'representativeCollections','custodyMovements','representativeHandovers','syncConflicts','departments',
   'employees','employeeContracts','employeeComponents','employeeAdvances','workShifts','employeeShiftAssignments',
   'attendanceEvents','overtimeRequests','leaveRequests','payrollSettings','payrollCycles','payrollPayments',
-  'payrollAdjustments'
+  'payrollAdjustments','deletedCompanies'
 ];
 const ARRAY_FIELDS = ['changes','audit','serverOutbox'];
 const WRITE_METHODS = [

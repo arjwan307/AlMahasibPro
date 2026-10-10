@@ -53,6 +53,7 @@ export class SQLiteStore extends MemoryStore {
     };
     for (const name of Object.getOwnPropertyNames(MemoryStore.prototype)) {
       if (name === 'constructor' || name === 'close' || typeof this[name] !== 'function') continue;
+      if (name === 'isCompanyTombstoned' || name === 'companyDeletionTombstone' || name === 'listCompanyDeletions') continue;
       const method = this[name].bind(this);
       this[name] = (...args) => scope.getStore() ? method(...args) : this.transaction(() => method(...args));
     }
@@ -136,6 +137,7 @@ export class SQLiteStore extends MemoryStore {
     this.queue=task.catch(()=>{});return task;
   }
   async importCloudSnapshot(bytes, companyId, {initial = false} = {}) {
+    if (this.deletedCompanies?.has(companyId)) throw new Error('تم حذف الشركة نهائيًا؛ لا يمكن استيراد نسخة سحابية قديمة');
     const filename = this.filename + '.' + randomUUID() + '.incoming';
     const {writeFileSync} = await import('node:fs');
     writeFileSync(filename,bytes);

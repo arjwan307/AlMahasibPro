@@ -28,6 +28,15 @@
  async function status(){const queue=await rows('outbox');return{reachable,localServer,cloud,pending:queue.filter(x=>['pending','sending'].includes(x.state)).length,conflicts:queue.filter(x=>x.state==='conflict').length,connection:connectionText()};}
  async function render(){const el=document.getElementById('erpOfflineStatus');if(!el)return;const button=document.getElementById('erpConnectionButton');if(button)button.hidden=!valid();const s=await status();el.textContent=s.connection+' · بانتظار الإرسال: '+s.pending+' · تحتاج مراجعة: '+s.conflicts+(localServer?' · السحابة: '+(cloud?.connected?'مرتبطة؛ آخر مزامنة: '+(cloud.lastSuccessfulSync||'لم تتم بعد'):'لم يُؤكد الربط'):'');window.dispatchEvent(new CustomEvent('almahasib:connection',{detail:s}));}
  function reset(){account=null;db?.close();db=null;lan=null;localStorage.removeItem(ACTIVE);localStorage.removeItem('almahasib_cached_bootstrap');reachable=false;}
+ // Removes only the deleted company's local footprint (IndexedDB databases and
+ // scoped localStorage keys) so other companies cached on this device survive.
+ async function purgeCompanyScope(companyId){const id=String(companyId||'');if(!id)return false;
+  if(account?.company?.id===id)reset();else{db?.close();db=null;}
+  try{localStorage.removeItem(ACTIVE);localStorage.removeItem('almahasib_cached_bootstrap');for(const key of Object.keys(localStorage))if(key.includes(id))localStorage.removeItem(key);}catch{}
+  try{if(indexedDB.databases)for(const database of await indexedDB.databases()){if(database.name&&String(database.name).includes(id))await new Promise(resolve=>{const request=indexedDB.deleteDatabase(database.name);request.onsuccess=resolve;request.onerror=resolve;request.onblocked=resolve;});}}catch{}
+  return true;
+ }
+ async function confirmCompanyDeletion(companyId){if(!companyId)return;try{const r=await rawFetch('/api/v1/company/deletion-notice?companyId='+encodeURIComponent(companyId),{credentials:'same-origin',signal:AbortSignal.timeout(3000)});if(r.ok){const d=await r.json();if(d.deleted)await purgeCompanyScope(companyId);}}catch{}}
  ready=(async()=>{
   try {
    const response=await rawFetch('/api/local/status',{credentials:'same-origin',signal:AbortSignal.timeout(2000)});
@@ -104,7 +113,7 @@
    reachable=true;
    if(url.pathname==='/api/v1/auth/login'&&response.ok){reset();reachable=true;}
    if(url.pathname==='/api/v1/auth/logout'&&response.ok)reset();
-   if(response.status===401&&url.pathname!=='/api/v1/auth/login'){reset();void render();return response;}
+   if(response.status===401&&url.pathname!=='/api/v1/auth/login'){const activeCompanyId=account?.company?.id;reset();void render();if(activeCompanyId)void confirmCompanyDeletion(activeCompanyId);return response;}
    if(response.ok&&method==='GET'&&readPaths.has(url.pathname)){
     const data=await response.clone().json();
     if(url.pathname==='/api/v1/bootstrap')await open(data);
@@ -178,7 +187,7 @@
    lan={url:url.origin,token:login.token};await put('reads',{path:'@lan',data:lan});dialog.close();void synchronize();
   }catch(e){note.textContent=e.message;}finally{save.disabled=false;}};dialog.showModal();
  }
- window.AlMahasibERP={status,synchronize,review,connectionText,configureLAN};
+ window.AlMahasibERP={status,synchronize,review,connectionText,configureLAN,purgeCompany:purgeCompanyScope};
  document.addEventListener('DOMContentLoaded',()=>{
   const launcher=document.createElement('button');launcher.type='button';launcher.textContent='⇄';launcher.title='الاتصال والمزامنة';launcher.setAttribute('aria-label','الاتصال والمزامنة');launcher.style.cssText='position:fixed;bottom:18px;left:18px;z-index:50;width:42px;height:42px;border-radius:50%;border:1px solid #dce5eb;background:#fff;color:#126b65;padding:0;box-shadow:0 4px 16px #102a4320';
   const panel=document.createElement('dialog');panel.style.cssText='padding:24px;direction:rtl;width:min(480px,90vw);max-height:80vh;overflow:auto;border:1px solid #dce5eb;border-radius:18px;background:white;color:#163c39';

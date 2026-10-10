@@ -23,11 +23,15 @@ const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, '../../../public');
 const loginAttempts = new Map();
 
-export function createApp({ store, sessionDays = 14, secureCookies = false, allowedOrigins = [], cookieName = 'almahasib_session', cookiePath = '/', notificationSending = false }) {
+export function createApp({ store, sessionDays = 14, secureCookies = false, allowedOrigins = [], cookieName = 'almahasib_session', platformCookieName = null, cookiePath = '/', notificationSending = false }) {
+  // Company accounts and platform developers keep independent cookies so that
+  // signing into a company never replaces an active developer session and vice
+  // versa, on the web and inside the Electron shell alike.
+  const developerCookieName = platformCookieName || `${cookieName}_dev`;
   const app = express();
   app.disable('x-powered-by');
   app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('X-Frame-Options','DENY');res.set('Referrer-Policy','same-origin');res.set('Content-Security-Policy',"frame-ancestors 'none'; object-src 'none'; base-uri 'self'");if(secureCookies)res.set('Strict-Transport-Security','max-age=31536000');if(req.path.startsWith('/api/'))res.set('Cache-Control','private, no-store');next();});
-  app.use((req, res, next) => { req.sessionCookieName = cookieName; next(); });
+  app.use((req, res, next) => { req.sessionCookieName = cookieName; req.developerCookieName = developerCookieName; next(); });
   app.use(cors({
     origin(origin, callback) {
       if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
@@ -177,14 +181,18 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
       tokenHash: hashToken(token), userId: login.user.id,
       deviceId: String(req.body.deviceId || 'web-browser').slice(0, 128), expiresAt
     });
-    setSessionCookie(res, token, sessionDays, secureCookies, cookieName, cookiePath);
+    setSessionCookie(res, token, sessionDays, secureCookies, platform ? developerCookieName : cookieName, cookiePath);
     const context = await store.getSessionContext(hashToken(token));
     res.json({ token, expiresAt, account: publicContext(context) });
   }));
 
   app.post('/api/v1/auth/logout', authenticate(store), asyncRoute(async (req, res) => {
     await store.revokeSession(req.auth.tokenHash, req.auth.user.id);
-    res.setHeader('Set-Cookie', `${cookieName}=; Path=${cookiePath}; HttpOnly; SameSite=Strict; Max-Age=0${secureCookies ? '; Secure' : ''}`);
+    // Only expire the cookie that backs the session being revoked so that a
+    // company logout never drops an independent developer session.
+    const isDeveloper = req.auth.user.platformAdmin && !req.auth.company;
+    const cleared = isDeveloper ? [developerCookieName] : [cookieName];
+    res.setHeader('Set-Cookie', cleared.map((name) => `${name}=; Path=${cookiePath}; HttpOnly; SameSite=Strict; Max-Age=0${secureCookies ? '; Secure' : ''}`));
     res.status(204).end();
   }));
 
@@ -264,7 +272,25 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({company:await store.updatePlatformCompany(req.params.companyId,input,req.auth.user.id)});
   }));
   app.delete('/api/v1/platform/companies/:companyId', authenticate(store), asyncRoute(async (req,res)=>{
-    requirePlatform(req.auth); res.json(await store.deletePlatformCompany(req.params.companyId,req.auth.user.id));
+    requirePlatform(req.auth);
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const result = await store.deletePlatformCompany(req.params.companyId, req.auth.user.id, {
+      confirm: body.confirm === true, code: body.code
+    });
+    res.json(result);
+  }));
+  app.get('/api/v1/platform/companies/:companyId/deletion', authenticate(store), asyncRoute(async (req,res)=>{
+    requirePlatform(req.auth);
+    res.json({ deletion: store.companyDeletionTombstone ? store.companyDeletionTombstone(req.params.companyId) : null });
+  }));
+  // Public probe used by a local device to detect that its active company was
+  // removed on the platform, so it can invalidate its own cache without waiting
+  // for a failed login.
+  app.get('/api/v1/company/deletion-notice', asyncRoute(async (req,res)=>{
+    const companyId = String(req.query.companyId || '').trim();
+    if (!companyId) throw new AppError(400, 'VALIDATION_ERROR', 'معرف الشركة مطلوب');
+    const deletion = store.companyDeletionTombstone ? store.companyDeletionTombstone(companyId) : null;
+    res.json({ companyId, deleted: Boolean(deletion), deletion: deletion || null });
   }));
 
   app.get('/api/v1/platform/companies/pending', authenticate(store), permit('company.approve'), asyncRoute(async (req, res) => {
@@ -1064,11 +1090,21 @@ function authenticate(store) {
   return asyncRoute(async (req, res, next) => {
     const authorization = req.get('authorization');
     const bearer = authorization?.startsWith('Bearer ') ? authorization.slice(7) : null;
-    const token = bearer || parseCookies(req.get('cookie'))[req.sessionCookieName || 'almahasib_session'];
-    if (!token) throw new AppError(401, 'AUTH_REQUIRED', 'تسجيل الدخول مطلوب');
-    const tokenHash = hashToken(token);
-    const context = await store.getSessionContext(tokenHash);
+    const cookies = parseCookies(req.get('cookie'));
+    const companyToken = cookies[req.sessionCookieName || 'almahasib_session'];
+    const developerToken = cookies[req.developerCookieName || 'almahasib_session_dev'];
+    const prefersDeveloper = String(req.path || '').startsWith('/api/v1/platform/');
+    const candidates = bearer ? [bearer] : (prefersDeveloper ? [developerToken, companyToken] : [companyToken, developerToken]);
+    let token = null;
+    let context = null;
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const found = await store.getSessionContext(hashToken(candidate));
+      if (found) { token = candidate; context = found; break; }
+    }
+    if (!context && !candidates.some(Boolean)) throw new AppError(401, 'AUTH_REQUIRED', 'تسجيل الدخول مطلوب');
     if (!context) throw new AppError(401, 'SESSION_INVALID', 'الجلسة منتهية أو ملغاة');
+    const tokenHash = hashToken(token);
     if (req.productScope && (context.company?.product || 'company') !== req.productScope) throw new AppError(401, 'PRODUCT_SESSION_SCOPE', 'جلسة الدخول لا تخص هذا المنتج');
     req.auth = { ...context, tokenHash };
     next();

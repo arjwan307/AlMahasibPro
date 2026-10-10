@@ -73,6 +73,9 @@ export class MemoryStore {
     this.importShipments = new Map(); this.importCostPostings = new Map();
     this.dataImportBatches = new Map();
     this.salesSettings = new Map(); this.salesApprovals = new Map(); this.salesReviews = new Map();
+    // Deletion tombstones survive across restarts and prevent a stale device or a
+    // delayed sync payload from resurrecting a company that was intentionally removed.
+    this.deletedCompanies = new Map();
     this.changeSequence = 0;
   }
 
@@ -397,14 +400,92 @@ export class MemoryStore {
     return this.#publicCompany(company);
   }
 
-  async deletePlatformCompany(companyId, actorUserId) {
-    const company=this.companies.get(companyId);
-    if(!company) throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
-    for(const [id,user] of this.users) if(user.companyId===companyId) this.users.delete(id);
-    for(const [id,role] of this.roles) if(role.companyId===companyId) this.roles.delete(id);
-    this.companies.delete(companyId);
-    this.#audit(null,actorUserId,'company.deleted','company',companyId,{});
-    return {id:companyId};
+  isCompanyTombstoned(companyId) {
+    return this.deletedCompanies?.has(companyId) === true;
+  }
+
+  companyDeletionTombstone(companyId) {
+    const tombstone = this.deletedCompanies?.get(companyId);
+    return tombstone ? clone(tombstone) : null;
+  }
+
+  listCompanyDeletions() {
+    return [...(this.deletedCompanies?.values() || [])].map(clone);
+  }
+
+  // Every identifier that belongs to the company, gathered from all tenant-scoped
+  // maps. Used to prune secondary caches (sales settings, sync bookkeeping) that
+  // are keyed by a child id rather than by the company id itself.
+  #companyOwnedIds(companyId) {
+    const owned = new Set([companyId]);
+    for (const [field, value] of Object.entries(this)) {
+      if (!(value instanceof Map) || field === 'deletedCompanies' || field === 'auditStateBefore') continue;
+      for (const [id, row] of value) {
+        if (row && typeof row === 'object' && row.companyId === companyId) owned.add(String(id));
+      }
+    }
+    return owned;
+  }
+
+  #salesSettingBelongsToCompany(row, key, companyId, ownedIds) {
+    if (row && typeof row === 'object' && row.companyId === companyId) return true;
+    const parts = String(key).split(':');
+    if (parts.includes(companyId)) return true;
+    return parts.some((part) => ownedIds.has(part));
+  }
+
+  // Atomic, tenant-scoped platform deletion. Removes the company record and every
+  // dependent row (users, sessions, roles, branches, warehouses, catalog, parties,
+  // documents, financial entries, cashboxes, payroll, devices, sync bookkeeping and
+  // the change/audit streams) without touching any other tenant or platform admin.
+  // A tombstone with a monotonically increasing generation is written so a stale
+  // offline device cannot re-upload the deleted company after a later sync.
+  async deletePlatformCompany(companyId, actorUserId, options = {}) {
+    if (typeof options === 'string') options = { code: options };
+    const existingTombstone = this.deletedCompanies.get(companyId);
+    if (!this.companies.has(companyId)) {
+      if (existingTombstone) return { id: companyId, code: existingTombstone.code, alreadyDeleted: true, deletion: clone(existingTombstone) };
+      throw new AppError(404, 'COMPANY_NOT_FOUND', 'الشركة غير موجودة');
+    }
+    const company = this.companies.get(companyId);
+    if (options.confirm === true || options.code !== undefined) {
+      const expected = String(company.code || '').trim().toLowerCase();
+      const supplied = String(options.code ?? '').trim().toLowerCase();
+      if (!supplied || supplied !== expected) throw new AppError(400, 'CONFIRMATION_REQUIRED', 'اكتب رمز الشركة لتأكيد الحذف');
+      if (options.confirm !== true) throw new AppError(400, 'CONFIRMATION_REQUIRED', 'أكد الحذف صراحة');
+    }
+    const purge = () => {
+      const ownedUserIds = new Set();
+      for (const [id, user] of this.users) {
+        if (user.companyId === companyId && !user.platformAdmin) ownedUserIds.add(id);
+      }
+      const ownedIds = this.#companyOwnedIds(companyId);
+      for (const field of Object.keys(this)) {
+        const value = this[field];
+        if (value instanceof Map) {
+          if (field === 'deletedCompanies' || field === 'auditStateBefore') continue;
+          for (const [id, row] of [...value]) {
+            if (field === 'companies') { if (id === companyId) value.delete(id); continue; }
+            if (field === 'users') { if (row && row.companyId === companyId && !row.platformAdmin) value.delete(id); continue; }
+            if (field === 'sessions') { if (row && ownedUserIds.has(row.userId)) value.delete(id); continue; }
+            if (field === 'salesSettings') { if (this.#salesSettingBelongsToCompany(row, id, companyId, ownedIds)) value.delete(id); continue; }
+            const keyOwner = String(id).split(':')[0];
+            if ((row && typeof row === 'object' && row.companyId === companyId) || keyOwner === companyId) value.delete(id);
+          }
+        } else if (Array.isArray(value)) {
+          this[field] = value.filter((row) => !(row && typeof row === 'object' && row.companyId === companyId));
+        }
+      }
+      const generation = [...this.deletedCompanies.values()].reduce((max, row) => Math.max(max, Number(row.generation) || 0), 0) + 1;
+      const tombstone = {
+        companyId, code: company.code, product: company.product || 'company', businessType: company.businessType || null,
+        generation, status: 'completed', deletedAt: new Date().toISOString(), deletedBy: actorUserId || null
+      };
+      this.deletedCompanies.set(companyId, tombstone);
+      this.#audit(null, actorUserId, 'company.deleted', 'company', companyId, { code: company.code, generation, status: 'completed' });
+      return { id: companyId, code: company.code, generation, status: 'completed', deletion: clone(tombstone) };
+    };
+    return typeof this.transaction === 'function' ? this.transaction(purge) : purge();
   }
 
   async findLogin({ companyCode, username, platform }) {
@@ -1368,6 +1449,7 @@ export class MemoryStore {
   }
 
   async pushOperations(context, operations) {
+    if (this.isCompanyTombstoned(context.company.id)) throw new AppError(410, 'COMPANY_DELETED', 'تم حذف الشركة نهائيًا؛ لا يمكن قبول عمليات مزامنة قديمة');
     for (const operation of operations) {
       if(operation.type.startsWith('market.')) requireMarketPermission(context,operation.type);
       if(operation.type==='market.snapshot') validateMarketCatalog(operation.payload?.catalog);
