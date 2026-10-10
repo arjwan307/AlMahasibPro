@@ -1,0 +1,37 @@
+{
+  "extends": null,
+  "win": {
+    "target": [
+      "nsis"
+    ],
+    "signAndEditExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "deleteAppDataOnUninstall": false,
+    "script": "apps/desktop/unified-installer.nsi",
+    "installerLanguages": [
+      "en_US",
+      "ar"
+    ]
+  },
+  "files": [
+    "apps/local/**",
+    "apps/api/**",
+    "apps/desktop/**",
+    "public/**",
+    "package.json",
+    "apps/retail/**"
+  ],
+  "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
+  "appId": "com.almahasibpro.enterprise",
+  "productName": "AlMahasibPro",
+  "directories": {
+    "output": "releases/unified"
+  },
+  "extraMetadata": {
+    "main": "apps/desktop/main.cjs"
+  }
+}

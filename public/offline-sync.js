@@ -21,6 +21,7 @@
       error.status = response.status;
       throw error;
     }
+    if(response.headers.get('X-AlMahasib-Offline')==='true'&&data)data._offline=true;
     return data;
   }
 
@@ -202,6 +203,7 @@
   async function initializePos(mode) {
     const id = posDeviceId(mode);
     const snapshot = await request(`/api/v1/pos/bootstrap?deviceId=${encodeURIComponent(id)}`);
+    if(snapshot._offline){const existing=await getPosState();if(existing)return existing;}
     const state = { ...snapshot, deviceId: id, refreshedAt: new Date().toISOString() };
     await setMetadata('posState', state);
     return state;
@@ -394,7 +396,7 @@
         localStorage.setItem('almahasib_cached_bootstrap', JSON.stringify(account));
       } catch (error) {
         const cached = localStorage.getItem('almahasib_cached_bootstrap');
-        if (navigator.onLine || !cached || error.status === 401) throw error;
+        if (!cached || error.status !== undefined) throw error;
         account = JSON.parse(cached);
         if (!account.offlineSessionExpiresAt || Date.parse(account.offlineSessionExpiresAt) <= Date.now()) throw error;
       }

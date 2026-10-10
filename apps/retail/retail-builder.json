@@ -14,17 +14,11 @@
     "script": "apps/retail/installer.nsi"
   },
   "files": [
-    "apps/local/enterprise-server.js",
+    "apps/local/**",
     "apps/api/**",
-    "package.json",
-    "apps/retail/main.cjs",
-    "public/retail*",
-    "public/enterprise.css",
-    "public/pos*",
-    "public/offline-sync.js",
-    "public/restaurant*",
-    "public/market*",
-    "public/scanner-qrcode.js"
+    "apps/retail/**",
+    "public/**",
+    "package.json"
   ],
   "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
   "appId": "com.almahasibpro.retail",

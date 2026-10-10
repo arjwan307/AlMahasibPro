@@ -1,3 +1,4 @@
+import { requireMarketPermission, validateMarketCatalog } from '../lib/market-security.js';
 import { checkSales, salesRep, assignedSalesManager } from '../sales-workspace.js';
 import { randomUUID } from 'node:crypto';
 import { AppError } from '../lib/http.js';
@@ -18,6 +19,7 @@ const overlapDates = (start, end, periodStart, periodEnd) => {
 export class MemoryStore {
   constructor() {
     this.companies = new Map();
+    this.financialPeriods = new Map();
     this.users = new Map();
     this.roles = new Map();
     this.sessions = new Map();
@@ -91,7 +93,7 @@ export class MemoryStore {
     const row=this.customerNotifications.get(id);if(!row||row.companyId!==companyId)throw new AppError(404,'NOTIFICATION_NOT_FOUND','الرسالة غير موجودة');
     const updated={...row,openedAt:new Date().toISOString(),openedBy:actor};this.customerNotifications.set(id,updated);return clone(updated);
   }
-  async saveSalesSetting(key,value,actor) { this.salesSettings.set(key,clone(value));this.#audit(value.companyId,actor,'sales.setting.updated','sales_setting',key,{});return clone(value); }
+  async saveSalesSetting(key,value,actor) { const before=clone(this.salesSettings.get(key)||null);this.salesSettings.set(key,clone(value));this.#audit(value.companyId,actor,'sales.setting.updated','sales_setting',key,{before,after:clone(value)});return clone(value); }
   async saveSalesApproval(row) { this.salesApprovals.set(row.id,clone(row));this.#audit(row.companyId,row.reviewedBy||row.userId,'sales.approval.'+row.status,'sales_approval',row.id,{});return clone(row); }
   async deleteSalesApproval(id,companyId,actorUserId,reason='manual') { const row=this.salesApprovals.get(id);if(!row||row.companyId!==companyId)return false;this.salesApprovals.delete(id);this.#audit(companyId,actorUserId,reason==='expired'?'sales.approval.expired':'sales.approval.deleted','sales_approval',id,{reason});return true; }
   async saveSalesReview(row) { this.salesReviews.set(row.id,clone(row));return clone(row); }
@@ -693,11 +695,58 @@ export class MemoryStore {
     };
   }
 
-  async listEnterpriseData(companyId) {
-    const belongs = row => row.companyId === companyId;
-    return { representatives: [...this.representatives.values()].filter(belongs).map(clone), journals: [...this.journalEntries.values()].filter(belongs).map(clone), chartAccounts: this.listChartAccounts(companyId), trialBalance: this.trialBalance(companyId),
+  async listFinancialPeriods(companyId){return [...this.financialPeriods.values()].filter(x=>x.companyId===companyId).map(clone);}
+  #financialDate(companyId,occurredAt){
+    const stamp=String(occurredAt||''),raw=stamp.slice(0,10),time=Date.parse(stamp);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(raw)||!Number.isFinite(time)||new Date(raw).toISOString().slice(0,10)!==raw)throw new AppError(400,'INVALID_POSTING_DATE','تاريخ الترحيل غير صالح');
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:this.companies.get(companyId)?.timezone||'Asia/Baghdad',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(time));
+    const value=type=>parts.find(x=>x.type===type).value;return value('year')+'-'+value('month')+'-'+value('day');
+  }
+  assertFinancialPeriod(companyId, occurredAt){
+    const date=this.#financialDate(companyId,occurredAt);
+    if([...this.financialPeriods.values()].some(x=>x.companyId===companyId&&x.status==='closed'&&date>=x.startDate&&date<=x.endDate))throw new AppError(409,'FINANCIAL_PERIOD_CLOSED','الفترة المالية مقفلة؛ لم تُحفظ العملية');
+  }
+  async closeFinancialPeriod(context,input){
+    if(!context.permissions.includes('company.manage'))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية لإقفال الفترة');
+    if((context.scopes||[]).some(x=>['branch','warehouse'].includes(x.type)))throw new AppError(403,'COMPANY_SCOPE_REQUIRED','إقفال الفترة يتطلب نطاق الشركة');
+    const valid=date=>typeof date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(Date.parse(date))&&new Date(date).toISOString().slice(0,10)===date;
+    if(!valid(input.startDate)||!valid(input.endDate)||input.startDate>input.endDate||!String(input.reason||'').trim())throw new AppError(400,'INVALID_PERIOD','أدخل تاريخي الفترة وسبب الإقفال');
+    const companyId=context.company.id;
+    if([...this.financialPeriods.values()].some(x=>x.companyId===companyId&&x.status==='closed'&&x.startDate<=input.endDate&&x.endDate>=input.startDate))throw new AppError(409,'PERIOD_OVERLAP','الفترة تتداخل مع فترة مقفلة');
+    const journals=[...this.journalEntries.values()].filter(x=>x.companyId===companyId&&this.#financialDate(companyId,x.occurredAt)>=input.startDate&&this.#financialDate(companyId,x.occurredAt)<=input.endDate);
+    for(const journal of journals)if(journal.lines.reduce((sum,x)=>sum+decimal(x.debit||'0')-decimal(x.credit||'0'),ZERO)!==ZERO)throw new AppError(409,'UNBALANCED_JOURNAL','لا يمكن إقفال فترة تحتوي قيدًا غير متوازن');
+    const row={id:randomUUID(),companyId,startDate:input.startDate,endDate:input.endDate,status:'closed',reason:String(input.reason).trim().slice(0,1000),closedAt:new Date().toISOString(),closedBy:context.user.id,journalIds:journals.map(x=>x.id),trialBalance:this.trialBalance(companyId,[...this.journalEntries.values()].filter(x=>x.companyId===companyId&&this.#financialDate(companyId,x.occurredAt)<=input.endDate))};
+    this.financialPeriods.set(row.id,Object.freeze(row));this.#audit(companyId,context.user.id,'financial.period.closed','financial_period',row.id,{after:row});this.#change(companyId,'financial_period',row.id,'upsert',row);return clone(row);
+  }
+  async reopenFinancialPeriod(context,id,reason){
+    if(!context.permissions.includes('company.manage')||(context.scopes||[]).some(x=>['branch','warehouse'].includes(x.type)))throw new AppError(403,'PERMISSION_DENIED','إعادة الفتح تتطلب إدارة الشركة بنطاق كامل');
+    const before=this.financialPeriods.get(id);if(!before||before.companyId!==context.company.id)throw new AppError(404,'PERIOD_NOT_FOUND','الفترة غير موجودة');
+    if(!String(reason||'').trim())throw new AppError(400,'REASON_REQUIRED','سبب إعادة الفتح إلزامي');
+    if(before.status!=='closed')throw new AppError(409,'PERIOD_ALREADY_OPEN','الفترة مفتوحة');
+    const after={...before,status:'open',reopenedAt:new Date().toISOString(),reopenedBy:context.user.id,reopenReason:String(reason).trim().slice(0,1000)};
+    this.financialPeriods.set(id,Object.freeze(after));this.#audit(context.company.id,context.user.id,'financial.period.reopened','financial_period',id,{before,after});this.#change(context.company.id,'financial_period',id,'upsert',after);return clone(after);
+  }
+  async listAudit(companyId,query={}){
+    const limit=Math.min(500,Math.max(1,Number(query.limit)||100)),offset=Math.max(0,Number(query.offset)||0),needle=String(query.search||'').toLowerCase();
+    const rows=this.audit.filter(x=>x.companyId===companyId&&(!query.actor||x.actorUserId===query.actor)&&(!query.action||x.action===query.action)&&(!query.from||x.createdAt>=query.from)&&(!query.to||x.createdAt.slice(0,10)<=query.to)&&(!needle||JSON.stringify(x).toLowerCase().includes(needle))).slice().reverse();
+    return {rows:clone(rows.slice(offset,offset+limit)),total:rows.length,offset,limit};
+  }
+
+  async listEnterpriseData(companyId, context = null) {
+    const branches=(context?.scopes||[]).filter(x=>x.type==='branch').map(x=>x.id);
+    const warehouses=(context?.scopes||[]).filter(x=>x.type==='warehouse').map(x=>x.id);
+    const scoped=branches.length||warehouses.length;
+    const allowed = row => {
+      const warehouse=this.warehouses.get(row.warehouseId);
+      const document=row.documentId?this.commerceDocuments.get(row.documentId):null;
+      const warehouseId=row.warehouseId||document?.warehouseId;
+      const branchId=row.branchId||document?.branchId||warehouse?.branchId||this.warehouses.get(warehouseId)?.branchId;
+      return (!branches.length||branches.includes(branchId))&&(!warehouses.length||warehouses.includes(warehouseId));
+    };
+    const belongs = row => row.companyId === companyId && (!scoped||allowed(row));
+    return { representatives: [...this.representatives.values()].filter(belongs).map(clone), journals: [...this.journalEntries.values()].filter(belongs).map(clone), chartAccounts: this.listChartAccounts(companyId), trialBalance: this.trialBalance(companyId, [...this.journalEntries.values()].filter(belongs)),
       transfers: [...this.stockTransfers.values()].filter(belongs).map(clone),
-      settlements: [...this.financialRecords.values()].filter(row => belongs(row) && ['enterprise_settlement','enterprise_credit_application'].includes(row.kind)).map(clone),
+      settlements: [...this.financialRecords.values()].filter(row => row.companyId===companyId && (!scoped||allowed(this.commerceDocuments.get(row.documentId)||row)) && ['enterprise_settlement','enterprise_credit_application'].includes(row.kind)).map(clone),
       users: [...this.users.values()].filter(belongs).map(row => this.#publicUser(row)) };
   }
 
@@ -716,12 +765,12 @@ export class MemoryStore {
     return defaults.map(([code,name,type])=>({companyId,code,name,type,system:true,active:true})).concat(custom).map(clone);
   }
 
-  trialBalance(companyId) {
+  trialBalance(companyId, journals = this.journalEntries.values()) {
     const baseCurrency=this.companies.get(companyId)?.currency||'IQD',accounts=new Map(this.listChartAccounts(companyId).map(a=>[a.code,a]));
     const rows=new Map();
     const rowFor=(code,currency)=>{const key=`${code}:${currency}`;if(!rows.has(key)){const account=accounts.get(code);rows.set(key,{accountCode:code,name:account?.name||code,type:account?.type||'unknown',currency,debit:ZERO,credit:ZERO});}return rows.get(key);};
     for(const account of accounts.values())rowFor(account.code,baseCurrency);
-    for(const journal of this.journalEntries.values())if(journal.companyId===companyId&&journal.status==='posted')for(const line of journal.lines){const row=rowFor(line.accountCode||line.account,journal.currency||baseCurrency);row.debit+=decimal(line.debit||'0');row.credit+=decimal(line.credit||'0');}
+    for(const journal of journals)if(journal.companyId===companyId&&journal.status==='posted')for(const line of journal.lines){const row=rowFor(line.accountCode||line.account,journal.currency||baseCurrency);row.debit+=decimal(line.debit||'0');row.credit+=decimal(line.credit||'0');}
     return [...rows.values()].map(row=>({accountCode:row.accountCode,name:row.name,type:row.type,currency:row.currency,debit:decimalString(row.debit),credit:decimalString(row.credit),balance:decimalString(row.debit-row.credit)}));
   }
 
@@ -737,6 +786,11 @@ export class MemoryStore {
 
   async postManualJournal(context, input) {
     const companyId = context.company.id;
+    const branchScopes=(context.scopes||[]).filter(x=>x.type==='branch');
+    const branchId=input.branchId||(branchScopes.length===1?branchScopes[0].id:null);
+    if((context.scopes||[]).some(x=>x.type==='warehouse'))throw new AppError(403,'COMPANY_SCOPE_REQUIRED','القيد اليدوي يتطلب نطاق الشركة أو الفرع');
+    if(branchScopes.length&&!branchScopes.some(x=>x.id===branchId))throw new AppError(403,'BRANCH_SCOPE_DENIED','الفرع خارج نطاق حسابك');
+    if(branchId&&!(context.company.branches||[]).some(x=>x.id===branchId))throw new AppError(400,'INVALID_BRANCH','الفرع غير موجود');
     const operationId = String(input.operationId || '').trim();
     if (!operationId) throw new AppError(400, 'OPERATION_ID_REQUIRED', 'معرف العملية مطلوب');
     const currency = String(input.currency || context.company.currency).toUpperCase();
@@ -779,8 +833,9 @@ export class MemoryStore {
     }
     const row = {
       id: randomUUID(), companyId, entryNumber, operationId, status: 'posted', currency,
-      description, occurredAt, createdBy: context.user.id, lines
+      description, occurredAt, createdBy: context.user.id, branchId, lines
     };
+    this.assertFinancialPeriod(companyId,occurredAt);
     this.journalEntries.set(row.id, Object.freeze(row));
     this.#audit(companyId, context.user.id, 'journal.posted', 'journal_entry', row.id, {});
     this.#change(companyId, 'journal_entry', row.id, 'upsert', row);
@@ -798,7 +853,8 @@ export class MemoryStore {
       if (reversal?.operationId === input.operationId) throw new AppError(409, 'OPERATION_ID_REUSED', 'معرف العملية مستخدم لبيانات أخرى');
       throw new AppError(409, 'JOURNAL_ALREADY_REVERSED', 'القيد معكوس سابقًا');
     }
-    const reversal = await this.postManualJournal(context, {
+    const branches=(context.scopes||[]).filter(x=>x.type==='branch');if(branches.length&&!branches.some(x=>x.id===original.branchId))throw new AppError(403,'BRANCH_SCOPE_DENIED','القيد خارج نطاق حسابك');
+    const reversal = await this.postManualJournal(context, {branchId:original.branchId,
       operationId: input.operationId, entryNumber: input.entryNumber, currency: original.currency,
       description: `عكس ${original.entryNumber || original.id}`, occurredAt: input.occurredAt,
       lines: original.lines.map(line => ({ accountCode: line.accountCode || line.account, debit: line.credit, credit: line.debit, note: 'عكس القيد' }))
@@ -1207,7 +1263,56 @@ export class MemoryStore {
     return { representative: clone(rep), customers: assignments.map((a) => ({ ...clone(this.customers.get(a.customerId)), assignment: clone(a), debt: decimalString(debt(a.customerId)) })), routes: [...this.representativeRoutes.values()].filter((r) => r.companyId === companyId && r.representativeId === rep.id).map(clone), stock: [...this.stockBalances.values()].filter((s) => s.companyId === companyId && s.warehouseId === rep.vehicleWarehouseId).map(clone), warehouses:[...this.warehouses.values()].filter(w=>w.companyId===companyId&&w.active).map(clone), catalog, custody: decimalString(custody), orders: [...this.representativeOrders.values()].filter((o) => o.companyId === companyId && o.representativeId === rep.id).map(clone), handovers: [...this.representativeHandovers.values()].filter((h) => h.companyId === companyId && h.representativeId === rep.id).map(clone), conflicts: [...this.syncConflicts.values()].filter((c) => c.companyId === companyId && c.userId === context.user.id).map(clone) };
   }
 
+  #marketStock(context,operation){
+    const p=operation.payload,companyId=context.company.id;
+    if(operation.type!=='market.transaction.'+p.kind)throw new AppError(400,'MARKET_KIND_MISMATCH','نوع العملية غير مطابق');
+    for(const field of ['net','gross','discount','cash','due','amount','opening','counted','received','change'])if(p[field]!=null){if(String(p[field]).length>32||decimal(p[field],{nonNegative:true})>decimal('1000000000000'))throw new AppError(400,'MARKET_VALUE_LIMIT','مبلغ غير صالح أو يتجاوز الحد');}
+    if(['sale','return','cancel','expense','cash_in','collection'].includes(p.kind))this.assertFinancialPeriod(companyId,operation.occurredAt);
+    if(!['sale','return','cancel'].includes(p.kind))return;
+    const records=this.changes.filter(x=>x.companyId===companyId&&x.entityType==='market.transaction').map(x=>x.payload);
+    const previous=records.find(x=>x.id===p.id&&x.kind===p.kind);
+    if(previous){
+      const relevant=x=>JSON.stringify([x.kind,x.invoice,x.lines,x.net,x.cash,x.amount]);
+      if(relevant(previous)!==relevant(p))throw new AppError(409,'MARKET_TRANSACTION_REUSED','معرف العملية مستخدم لمحتوى مختلف');
+      return {duplicate:true};
+    }
+    const snapshot=this.changes.filter(x=>x.companyId===companyId&&x.entityType==='market.snapshot').at(-1)?.payload;
+    if(!snapshot)throw new AppError(409,'MARKET_CATALOG_NOT_SYNCED','مخزون الماركت غير متاح');
+    if(!Array.isArray(p.lines)||!p.lines.length||p.lines.length>500)throw new AppError(400,'INVALID_MARKET_LINES','بنود العملية غير صالحة');
+    const catalog=clone(snapshot.catalog),seen=new Set();let gross=ZERO;
+    const sale=records.find(x=>x.kind==='sale'&&x.invoice===p.invoice);
+    if(p.kind!=='sale'&&(!sale||records.some(x=>x.kind==='cancel'&&x.invoice===p.invoice)))throw new AppError(409,'MARKET_INVOICE_NOT_RETURNABLE','الفاتورة غير موجودة أو ملغاة');
+    if(p.kind==='cancel'&&records.some(x=>x.kind==='return'&&x.invoice===p.invoice))throw new AppError(409,'MARKET_INVOICE_HAS_RETURN','الفاتورة عليها مرتجع');
+    if(p.kind==='sale'&&sale)throw new AppError(409,'MARKET_INVOICE_EXISTS','رقم الفاتورة مستخدم');
+    for(const line of p.lines){
+      const id=String(line.itemId),item=catalog.find(x=>String(x.id)===id),quantity=decimal(line.quantity,{positive:true}),price=decimal(line.unitPrice,{nonNegative:true});
+      if(!item||seen.has(id))throw new AppError(400,'INVALID_MARKET_ITEM','صنف غير موجود أو مكرر');seen.add(id);
+      if(quantity>decimal('1000000000000')||price>decimal('1000000000000'))throw new AppError(400,'MARKET_VALUE_LIMIT','القيمة تتجاوز الحد');
+      if(p.kind==='sale'&&!context.permissions.includes('sales.discount.override')&&price!==decimal(item.price))throw new AppError(403,'MARKET_PRICE_OVERRIDE_FORBIDDEN','تغيير سعر البيع يحتاج صلاحية تجاوز السعر');
+      gross+=multiply(quantity,price);const stock=decimal(item.qty);
+      if(p.kind==='sale'){if(stock<quantity)throw new AppError(409,'MARKET_STOCK_INSUFFICIENT','الرصيد غير كافٍ');item.qty=Number(decimalString(stock-quantity));}
+      else {
+        const original=sale.lines.find(x=>String(x.itemId)===id);if(!original||decimal(original.unitPrice)!==price)throw new AppError(409,'INVALID_MARKET_RETURN_LINE','الصنف أو سعر المرتجع غير مطابق للفواتير');
+        const returned=records.filter(x=>x.kind==='return'&&x.invoice===p.invoice).flatMap(x=>x.lines||[]).filter(x=>String(x.itemId)===id).reduce((sum,x)=>sum+decimal(x.quantity),ZERO);
+        if(quantity>decimal(original.quantity)-returned||(p.kind==='cancel'&&quantity!==decimal(original.quantity)))throw new AppError(409,'MARKET_RETURN_EXCEEDS_SALE','كمية المرتجع تتجاوز المبيعات');
+        item.qty=Number(decimalString(stock+quantity));
+      }
+    }
+    if(p.kind==='cancel'&&p.lines.length!==sale.lines.length)throw new AppError(409,'INCOMPLETE_MARKET_CANCEL','الإلغاء يجب أن يشمل كامل الفاتورة');
+    if(p.kind==='sale'){
+      const discount=decimal(p.discount||'0',{nonNegative:true}),net=decimal(p.net,{nonNegative:true}),cash=decimal(p.cash??p.net,{nonNegative:true});
+      if(discount>ZERO&&!context.permissions.includes('sales.discount.override'))throw new AppError(403,'MARKET_DISCOUNT_FORBIDDEN','الخصم يحتاج صلاحية تجاوز السعر');
+      if(discount>gross||net!==gross-discount||cash>net||(p.gross!=null&&decimal(p.gross)!==gross)||(p.due!=null&&decimal(p.due)!==net-cash))throw new AppError(400,'INVALID_MARKET_TOTAL','مبالغ الفاتورة غير مطابقة لبنودها');
+    }else if(p.amount!=null&&decimal(p.amount)>gross)throw new AppError(400,'INVALID_MARKET_RETURN_AMOUNT','مبلغ المرتجع يتجاوز قيمة المواد');
+    validateMarketCatalog(catalog);
+    return {catalog};
+  }
+
   async pushOperations(context, operations) {
+    for (const operation of operations) {
+      if(operation.type.startsWith('market.')) requireMarketPermission(context,operation.type);
+      if(operation.type==='market.snapshot') validateMarketCatalog(operation.payload?.catalog);
+    }
     const results = [];
     for (const operation of operations) {
       const key = `${context.company.id}:${operation.operationId}`;
@@ -1271,7 +1376,9 @@ export class MemoryStore {
           result.message = error.message;
         }
       } else if (operation.type === 'financial.record') {
-        if (typeof operation.payload.kind !== 'string' || !/^-?\d+(\.\d{1,6})?$/.test(String(operation.payload.amount)) || !/^[A-Z]{3}$/.test(operation.payload.currency || '')) {
+        if(!context.permissions?.includes('accounting.post'))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية لتسجيل البيانات المالية');
+        this.assertFinancialPeriod(context.company.id,operation.occurredAt);
+        if (typeof operation.payload.kind !== 'string' || !/^\d+(\.\d{1,6})?$/.test(String(operation.payload.amount)) || !/^[A-Z]{3}$/.test(operation.payload.currency || '')) {
           result.status = 'rejected';
           result.code = 'INVALID_FINANCIAL_PAYLOAD';
         } else {
@@ -1291,7 +1398,8 @@ export class MemoryStore {
       } else if (operation.type.startsWith('market.transaction.')) {
         const p = operation.payload || {}, entityId = String(p.id || operation.operationId);
         let marketError=null;
-        if(['cash_in','collection'].includes(p.kind)){
+        let stockResult;try{stockResult=this.#marketStock(context,operation);}catch(error){if(error instanceof AppError)marketError=error.code;else if(/^(INVALID_DECIMAL|DECIMAL_)/.test(error.message))marketError='INVALID_MARKET_NUMBER';else throw error;}
+        if(!marketError&&['cash_in','collection'].includes(p.kind)){
           const amount=Number(p.amount);
           if(!Number.isFinite(amount)||amount<=0||!p.shiftId)marketError='INVALID_MARKET_CASH';
           if(p.kind==='collection'){
@@ -1300,27 +1408,28 @@ export class MemoryStore {
             if(!sale||records.some(x=>x.kind==='cancel'&&x.invoice===p.invoice)||amount>Math.max(0,Number(sale.net||0)-Number(sale.cash??sale.net??0)-paid-returns)+0.0000001)marketError='MARKET_COLLECTION_EXCEEDS_BALANCE';
           }
         }
-        if(marketError){result.status='rejected';result.code=marketError;}
+        if(marketError){result.status='rejected';result.code=marketError;this.#audit(context.company.id,context.user.id,'market.transaction.rejected','market_transaction',entityId,{code:marketError,operationId:operation.operationId});}
         else if (!['sale','return','cancel','shift_open','shift_close','expense','cash_in','collection','waiting_update','waiting_close','drawer_open','drawer_result'].includes(String(p.kind || ''))) {
           result.status = 'rejected'; result.code = 'INVALID_MARKET_TRANSACTION';
         } else {
           result.entityId = entityId;
-          this.#change(context.company.id, 'market.transaction', entityId, 'upsert', {
+          if(stockResult?.catalog)this.#change(context.company.id,'market.snapshot','catalog','upsert',{catalog:stockResult.catalog,updatedAt:new Date(Math.max(Date.now(),Date.parse(this.changes.filter(x=>x.companyId===context.company.id&&x.entityType==='market.snapshot').at(-1)?.payload?.updatedAt||'')+1||0)).toISOString()});
+          if(!stockResult?.duplicate)this.#change(context.company.id, 'market.transaction', entityId, 'upsert', {
             ...clone(p), id: entityId, kind: String(p.kind), cashier: String(p.cashier || ''), cashierCode: String(p.cashierCode || ''),
             occurredAt: p.occurredAt || operation.occurredAt
           });
         }
       } else if (operation.type === 'market.snapshot') {
-        const catalog = Array.isArray(operation.payload?.catalog) ? operation.payload.catalog : null;
+        const catalog = validateMarketCatalog(operation.payload?.catalog);
         if (!catalog) {
           result.status = 'rejected';
           result.code = 'INVALID_MARKET_CATALOG';
         } else {
           const entityId = 'catalog';
           result.entityId = entityId;
-          this.#change(context.company.id, 'market.snapshot', entityId, 'upsert', {
-            catalog: clone(catalog), updatedAt: operation.payload.updatedAt || operation.occurredAt
-          });
+          const latest=this.changes.filter(x=>x.companyId===context.company.id&&x.entityType==='market.snapshot').at(-1)?.payload;
+          if(latest&&(operation.payload.baseUpdatedAt??null)!==latest.updatedAt){result.status='rejected';result.code='MARKET_SNAPSHOT_CONFLICT';}
+          else {const now=new Date(Math.max(Date.now(),Date.parse(latest?.updatedAt||'')+1||0)).toISOString();this.#change(context.company.id,'market.snapshot',entityId,'upsert',{catalog:clone(catalog),updatedAt:now});}
         }
       } else if (operation.type.startsWith('draft.')) {
         const entityId = operation.payload.entityId || randomUUID();
@@ -1424,6 +1533,7 @@ export class MemoryStore {
   #recordDebt(companyId, customerId, representativeId, documentId, operation, type, amount, currency) { const row = { id: randomUUID(), companyId, customerId, representativeId, documentId, operationId: operation.operationId, movementType: type, amount: decimalString(amount), currency, occurredAt: operation.occurredAt }; this.debtMovements.set(row.id, Object.freeze(row)); }
   #recordCustody(companyId, representativeId, operation, type, amount, currency, referenceType, referenceId) { const row = { id: randomUUID(), companyId, representativeId, operationId: operation.operationId, movementType: type, amount: decimalString(amount), currency, referenceType, referenceId, occurredAt: operation.occurredAt }; this.custodyMovements.set(row.id, Object.freeze(row)); }
   #simpleJournal(context, operation, number, currency, lines, dimensions = {}) {
+    this.assertFinancialPeriod(context.company.id,operation.occurredAt);
     const normalized = lines.filter(([,debit,credit]) => debit || credit).map(([accountCode,debit,credit]) => ({ accountCode, debit: decimalString(debit), credit: decimalString(credit),...(dimensions.branchId?{branchId:dimensions.branchId}:{}),...(dimensions.cashboxId?{cashboxId:dimensions.cashboxId}:{}) }));
     const companyId = context.company.id;
     const existing = operation.operationId ? [...this.journalEntries.values()].find(row => row.companyId === companyId && row.operationId === operation.operationId) : null;
@@ -1543,6 +1653,7 @@ export class MemoryStore {
   }
 
   #commitCommerce(context, operation) {
+    this.assertFinancialPeriod(context.company.id,operation.occurredAt);
     const companyId = context.company.id;
     const payload = operation.payload;
     const assignedManager = payload.documentType==='sale'&&salesRep(context)?assignedSalesManager(this,context):null;
@@ -1708,6 +1819,15 @@ export class MemoryStore {
   }
 
   #audit(companyId, actorUserId, action, entityType, entityId, metadata) {
+    const maps={user:'users',role:'roles',item:'items',warehouse:'warehouses',chart_account:'chartAccounts',journal_entry:'journalEntries',commerce_document:'commerceDocuments',price:'prices',cashbox:'cashboxes',financial_period:'financialPeriods'};
+    const field=maps[entityType];
+    const clean=value=>{
+      if(Array.isArray(value))return value.map(clean);
+      if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).filter(([key])=>!/(password|token|secret|credential)/i.test(key)).map(([key,v])=>[key,typeof v==='string'&&v.startsWith('data:')?'[ملف مرفق]':clean(v)]));
+      return value;
+    };
+    if(field){const before=this.auditStateBefore?.get(field)?.get(entityId);const after=this[field]?.get(entityId);metadata={...metadata,...(before!==undefined&&!('before' in metadata)?{before:clean(before)}:{}),...(after!==undefined&&!('after' in metadata)?{after:clean(after)}:{})};}
+    metadata=clean(metadata);
     this.audit.push(Object.freeze({ id: randomUUID(), companyId, actorUserId, action, entityType, entityId, metadata: clone(metadata), createdAt: new Date().toISOString() }));
   }
 

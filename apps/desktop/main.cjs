@@ -1,20 +1,21 @@
 const { app, BrowserWindow, dialog, Menu, net, shell, safeStorage } = require('electron');
 const path = require('node:path');
 // Preserve existing company data when installing the independently named product.
-app.setPath('userData', path.join(app.getPath('appData'), 'AlMahasibPro'));
+app.setPath('userData', process.env.ALMAHASIB_DATA_DIR ? path.resolve(process.env.ALMAHASIB_DATA_DIR) : path.join(app.getPath('appData'), 'AlMahasibPro'));
 let runtime;
-app.whenReady().then(async () => {
+app.on('second-instance',()=>{const current=BrowserWindow.getAllWindows()[0];if(current){if(current.isMinimized())current.restore();current.show();current.focus();}});
+if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async () => {
   try {
     const { startEnterpriseLocal } = await import('../local/enterprise-server.js');
-    runtime = await startEnterpriseLocal({ dataDirectory: app.getPath('userData'), port: 3211, protect: bytes => { if(!safeStorage.isEncryptionAvailable()) throw Error('تعذر حماية جلسة السحابة على الجهاز'); return safeStorage.encryptString(bytes.toString()); }, unprotect: bytes => Buffer.from(safeStorage.decryptString(bytes)) });
-    const window = new BrowserWindow({ width: 1440, height: 950, minWidth: 960, minHeight: 640, title: 'المحاسب برو — الشركات والمؤسسات', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
+    runtime = await startEnterpriseLocal({ dataDirectory: app.getPath('userData'), port: Number(process.env.ALMAHASIB_PORT || 3211), product: 'unified', bindHost:process.env.ALMAHASIB_BIND_HOST||'127.0.0.1',lanHost:process.env.ALMAHASIB_LAN_HOST,tlsKey:process.env.ALMAHASIB_TLS_KEY,tlsCert:process.env.ALMAHASIB_TLS_CERT, protect: bytes => { if(!safeStorage.isEncryptionAvailable()) throw Error('تعذر حماية جلسة السحابة على الجهاز'); return safeStorage.encryptString(bytes.toString()); }, unprotect: bytes => Buffer.from(safeStorage.decryptString(bytes)) });
+    const window = new BrowserWindow({ show: process.env.ALMAHASIB_SMOKE_TEST !== '1', width: 1440, height: 950, minWidth: 960, minHeight: 640, title: 'المحاسب برو — الشركات والمؤسسات', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
     window.webContents.setWindowOpenHandler(({url}) => {
       try{const target=new URL(url);if(target.protocol==='https:'&&target.hostname==='wa.me'&&/^\/\d{8,15}$/.test(target.pathname))shell.openExternal(target.href).catch(()=>dialog.showErrorBox('واتساب','تعذر فتح واتساب على هذا الجهاز'));}catch{}
       return {action:'deny'};
     });
     window.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(runtime.url + '/')) event.preventDefault(); });
     Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'الملف', submenu: [{ label: 'ربط الشركة بالسحابة', click: () => window.loadURL(runtime.url+'/desktop-cloud.html') }, { label: 'أخذ نسخة احتياطية', click: createBackup }, { label: 'استعادة نسخة احتياطية', click: restoreBackup }, { role: 'quit', label: 'خروج' }] }, { label: 'عرض', submenu: [{ role: 'reload', label: 'تحديث' }, { role: 'togglefullscreen', label: 'ملء الشاشة' }] }]));
-    await window.loadURL(runtime.url + '/enterprise.html');
+    await window.loadURL(runtime.url + '/index.html');
   } catch (error) { dialog.showErrorBox('تعذر تشغيل المحاسب برو', error.message); app.quit(); }
 });
 app.on('window-all-closed', () => app.quit());
@@ -65,3 +66,5 @@ async function restoreBackup() {
   app.relaunch(); app.exit(0);
  } catch (error) { dialog.showErrorBox('تعذر الاستعادة', error.message); }
 }
+
+

@@ -1312,3 +1312,4 @@ function mapRepresentativeOrder(row){return{id:row.id,companyId:row.company_id,r
 function mapRepresentativeHandover(row){return{id:row.id,companyId:row.company_id,representativeId:row.representative_id,destinationWarehouseId:row.destination_warehouse_id,handoverNumber:row.handover_number,expectedCash:decimalString(decimal(row.expected_cash)),submittedCash:decimalString(decimal(row.submitted_cash)),reviewedCash:row.reviewed_cash==null?null:decimalString(decimal(row.reviewed_cash)),cashVariance:row.cash_variance==null?null:decimalString(decimal(row.cash_variance)),currency:row.currency,status:row.status,submittedAt:row.submitted_at,reviewedAt:row.reviewed_at};}
 function mapConflict(row){return{id:row.id,operationId:row.operation_id,deviceId:row.device_id,code:row.code,message:row.message,createdAt:row.created_at};}
 
+

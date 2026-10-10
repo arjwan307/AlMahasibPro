@@ -1,10 +1,10 @@
 !ifndef PROJECT_DIR
-!define PROJECT_DIR "${__FILEDIR__}/../.."
+!define PROJECT_DIR "${__FILEDIR__}\..\.."
 !endif
 !ifndef VERSION
 !define VERSION "1.0.0"
 !endif
-OutFile "${PROJECT_DIR}/releases/retail/AlMahasibPro-Retail-Setup-${VERSION}-x64.exe"
+OutFile "${PROJECT_DIR}\releases\retail\AlMahasibPro-Retail-Setup-${VERSION}-x64.exe"
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 Name "AlMahasibPro-Retail"
@@ -30,7 +30,7 @@ Function .onVerifyInstDir
 FunctionEnd
 Section "AlMahasibPro-Retail" SEC01
  SetOutPath "$INSTDIR"
- File /r "${PROJECT_DIR}/releases/retail/win-unpacked/*"
+ File /r "${PROJECT_DIR}\releases\retail\win-unpacked\*"
  WriteUninstaller "$INSTDIR\Uninstall.exe"
  CreateDirectory "$SMPROGRAMS\AlMahasibPro-Retail"
  CreateShortcut "$SMPROGRAMS\AlMahasibPro-Retail\AlMahasibPro-Retail.lnk" "$INSTDIR\AlMahasibPro-Retail.exe"

@@ -37,6 +37,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView status;
     private Button connect;
     private String pairingToken = "", lastBarcode = "";
+    private volatile String serverOrigin = "https://almahasibpro.onrender.com";
     private long lastScanAt;
     private volatile boolean sending, destroyed, pairMode, validating;
 
@@ -44,6 +45,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(state);
         setContentView(R.layout.activity_main);
         tokenInput = findViewById(R.id.tokenInput);
+        serverOrigin = getPreferences(MODE_PRIVATE).getString("serverOrigin", serverOrigin);
         status = findViewById(R.id.statusText);
         connect = findViewById(R.id.connectButton);
         scanner = BarcodeScanning.getClient();
@@ -75,13 +77,14 @@ public class MainActivity extends AppCompatActivity {
         networkExecutor.execute(() -> {
             HttpURLConnection connection = null;
             try {
-                connection = (HttpURLConnection)new URL("https://almahasibpro.onrender.com/api/v1/market/scanner/" + token + "/status").openConnection();
+                connection = (HttpURLConnection)new URL(serverOrigin + "/api/v1/market/scanner/" + token + "/status").openConnection();
                 connection.setConnectTimeout(15000); connection.setReadTimeout(20000);
                 int code = connection.getResponseCode();
                 runOnUiThread(() -> {
                     if (destroyed) return;
                     if (code == 200) {
                         pairingToken = token; tokenInput.setText(token); pairMode = false;
+                        getPreferences(MODE_PRIVATE).edit().putString("serverOrigin", serverOrigin).apply();
                         lastBarcode = ""; lastScanAt = 0;
                         openCamera();
                     } else if (code == 410) show("رمز الربط انتهى. أنشئ QR جديدًا من الكاشير.");
@@ -93,13 +96,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String pairingQrToken(String value) {
-        try {
-            android.net.Uri uri = android.net.Uri.parse(value);
-            if (!"https".equals(uri.getScheme()) || !"almahasibpro.onrender.com".equals(uri.getHost())
-                || uri.getPort() != -1 || !"/market-scanner.html".equals(uri.getPath())) return null;
-            String token = uri.getFragment();
-            return token != null && token.matches("[a-fA-F0-9]{32}") ? token : null;
-        } catch (Exception e) { return null; }
+        PairingTarget target = PairingTarget.parse(value);
+        if (target == null) return null;
+        if (pairMode) serverOrigin = target.origin;
+        return target.token;
     }
 
     @Override public void onRequestPermissionsResult(int request, @NonNull String[] permissions, @NonNull int[] results) {
@@ -161,7 +161,7 @@ public class MainActivity extends AppCompatActivity {
         networkExecutor.execute(() -> {
             HttpURLConnection connection = null;
             try {
-                URL url = new URL("https://almahasibpro.onrender.com/api/v1/market/scanner/" + URLEncoder.encode(token, "UTF-8") + "/scan");
+                URL url = new URL(serverOrigin + "/api/v1/market/scanner/" + URLEncoder.encode(token, "UTF-8") + "/scan");
                 connection = (HttpURLConnection) url.openConnection();
                 connection.setConnectTimeout(15000); connection.setReadTimeout(20000);
                 connection.setRequestMethod("POST"); connection.setDoOutput(true);

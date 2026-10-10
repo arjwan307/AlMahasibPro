@@ -3,7 +3,7 @@ import { Duplex } from 'node:stream';
 import { createHash } from 'node:crypto';
 import { AppError, asyncRoute } from './http.js';
 
-export const commandPathAllowed = path => path === '/api/v1/sync/push' || typeof path === 'string' && /^\/api\/v1\/[a-z0-9/_?=&.%:-]+$/i.test(path) && !/^\/api\/v1\/(auth|sync|desktop|assistant|platform|companies)(\/|\?|$)/.test(path);
+export const commandPathAllowed = path => !/^\/api\/v1\/enterprise\/backup/.test(path||'') && (path === '/api/v1/sync/push' || typeof path === 'string' && /^\/api\/v1\/[a-z0-9/_?=&.%:-]+$/i.test(path) && !/^\/api\/v1\/(auth|sync|desktop|assistant|platform|companies)(\/|\?|$)/.test(path));
 export function dispatchCommand(app, command, token) {
   return new Promise((resolve,reject)=>{
     const socket=new Duplex({read(){},write(chunk,encoding,done){done();}});

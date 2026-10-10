@@ -1,3 +1,4 @@
+import { startBackupService } from './lib/backup-service.js';
 import { productPages } from './product-pages.js';
 import express from 'express';
 import { join } from 'node:path';
@@ -71,6 +72,7 @@ export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, 
  const store=new SQLiteStore(join(dataDirectory,'enterprise.sqlite'));
  const legacyRetailFile=join(dataDirectory,'retail','enterprise.sqlite');
  try{await access(legacyRetailFile);const legacyRetail=new SQLiteStore(legacyRetailFile);try{await store.mergeFrom(legacyRetail,'retail');}finally{await legacyRetail.close();}}catch(error){if(error.code!=='ENOENT')throw error;}
+ const backups=startBackupService({store,directory:process.env.ALMAHASIB_BACKUP_DIR||join(dataDirectory,'backups')});store.backupService=backups;
  const company=await createProductCloud({dataDirectory,setupToken,origin,sharedStore:store});
  const retail=await createProductCloud({dataDirectory,setupToken,origin,sharedStore:store,product:'retail',basePath:'/retail'});
  const app=express();app.set('trust proxy',1);
@@ -81,7 +83,7 @@ export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, 
  app.use('/retail',retail.app);
  app.use(company.app);
  const server=await new Promise((resolve,reject)=>{const server=app.listen(port,host,()=>resolve(server));server.on('error',reject);});
- return {store:company.store,retailStore:retail.store,url:`http://127.0.0.1:${server.address().port}`,close:async()=>{company.stopNotifications();retail.stopNotifications();await new Promise(resolve=>server.close(resolve));await company.store.close();}};
+ return {store:company.store,retailStore:retail.store,url:`http://127.0.0.1:${server.address().port}`,close:async()=>{company.stopNotifications();retail.stopNotifications();await backups.close();await new Promise(resolve=>server.close(resolve));await company.store.close();}};
 }
 if(process.argv[1]?.endsWith('cloud-server.js')){
  const runtime=await startEnterpriseCloud({dataDirectory:process.env.ALMAHASIB_DATA_DIR,setupToken:process.env.ALMAHASIB_SETUP_TOKEN,origin:process.env.ALMAHASIB_PUBLIC_ORIGIN,port:Number(process.env.PORT||10000)});

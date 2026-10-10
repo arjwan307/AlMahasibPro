@@ -30,8 +30,12 @@ export class SQLiteStore extends MemoryStore {
       if (scope.getStore()) return Promise.resolve().then(callback);
       const task = this.queue.then(() => scope.run(true, async () => {
         const before = snapshot();
+        this.auditStateBefore=new Map(before.map(([key,bytes])=>[key,deserialize(bytes)]));
         try {
           const result = await callback();
+          // Check every newly persisted financial posting, including module routes.
+          const previousJournals=deserialize(before.find(([key])=>key==='journalEntries')[1]);
+          if(!this.importingCloudSnapshot)for(const [id,row] of this.journalEntries)if(!previousJournals.has(id))this.assertFinancialPeriod(row.companyId,row.occurredAt);
           const changed = snapshot().filter(([key, bytes], index) => !bytes.equals(before[index][1]));
           if (changed.length) {
             this.sqlite.exec('BEGIN IMMEDIATE');
@@ -42,7 +46,7 @@ export class SQLiteStore extends MemoryStore {
         } catch (error) {
           if (this.sqlite.isTransaction) this.sqlite.exec('ROLLBACK');
           restore(before); throw error;
-        }
+        } finally { this.auditStateBefore=null;this.importingCloudSnapshot=false; }
       }));
       this.queue = task.catch(() => {});
       return task;
@@ -144,6 +148,8 @@ export class SQLiteStore extends MemoryStore {
       if(!(companies instanceof Map)||companies.size!==1||!companies.has(companyId))throw Error('النسخة لا تخص الشركة المحددة');
       return await this.transaction(()=>{
         if(!initial&&[...this.desktopCommands.values()].some(x=>x.local&&x.status!=='acknowledged'))return false;
+        // A verified backup restores historical postings; it does not post new transactions.
+        this.importingCloudSnapshot=true;
         for(const row of rows){
           if(['sessions','desktopCommands','desktopIdMappings'].includes(row.field))continue;
           if(this[row.field] instanceof Map||Array.isArray(this[row.field])||row.field==='changeSequence')this[row.field]=deserialize(Buffer.from(row.data));
@@ -151,7 +157,7 @@ export class SQLiteStore extends MemoryStore {
         if(initial){this.sessions.clear();this.desktopCommands.clear();this.desktopIdMappings.clear();}
         return true;
       });
-    } finally {incoming?.close();try{unlinkSync(filename);}catch{}}
+    } finally {this.importingCloudSnapshot=false;incoming?.close();try{unlinkSync(filename);}catch{}}
   }
   async close() { await this.queue; this.sqlite.close(); }
 }

@@ -629,7 +629,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
   }
   if (intent === 'journal-search') {
     if (!has('accounting.read')) return { status: 403, code: 'PERMISSION_DENIED', message: 'تحتاج صلاحية قراءة القيود' };
-    const data = typeof store?.listEnterpriseData === 'function' ? await store.listEnterpriseData(companyId) : null;
+    const data = typeof store?.listEnterpriseData === 'function' ? await store.listEnterpriseData(companyId,auth) : null;
     if (!data) return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'مصدر القيود غير متاح في هذا الخادم بعد' };
     const period=reportPeriod(assistantQuery);if(period.error)return localResult(period.error,table('بحث القيود',['الحالة'],[[period.error]]));
     const needle=reportSearchTerm(assistantQuery,new Set(['ابحث','بحث','دور','جد','لي','عن','القيد','قيد','رقم','برقم','من','الى','إلى']));
@@ -643,7 +643,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
     if (!has('sales.read')&&!has('purchasing.read')) return { status: 403, code: 'PERMISSION_DENIED', message: 'تحتاج صلاحية قراءة المبيعات أو المشتريات لمطابقة القيود بالمستندات' };
     if (typeof store?.listEnterpriseData !== 'function' || typeof store?.listCommerceDocuments !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'مصادر القيود والمستندات غير متاحة في هذا الخادم بعد' };
     const period=reportPeriod(assistantQuery);if(period.error)return localResult(period.error,table('مطابقة القيود',['الحالة'],[[period.error]]));
-    const [data,allDocs]=await Promise.all([store.listEnterpriseData(companyId),store.listCommerceDocuments(companyId)]);
+    const [data,allDocs]=await Promise.all([store.listEnterpriseData(companyId,auth),store.listCommerceDocuments(companyId)]);
     const journals=(data.journals||[]).filter(journal=>journal.status==='posted'),byId=new Map(journals.map(journal=>[journal.id,journal]));
     const visibleDocs=allDocs.filter(doc=>inPeriodForJournal(doc,period)&&canSeeWarehouse(doc.warehouseId)&&((doc.documentType.startsWith('sale')&&has('sales.read'))||(doc.documentType.startsWith('purchase')&&has('purchasing.read'))));
     const rows=[];
@@ -679,7 +679,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
     if (typeof store?.listEnterpriseData !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'مصدر القيود غير متاح في هذا الخادم بعد' };
     const period=reportPeriod(assistantQuery);
     if(period.error)return localResult(period.error,table('الفترة المطلوبة',['الحالة'],[[period.error]]));
-    const data=await store.listEnterpriseData(companyId);
+    const data=await store.listEnterpriseData(companyId,auth);
     const accounts=new Map((data.chartAccounts||[]).filter(account=>account.active!==false).map(account=>[String(account.code||'').toUpperCase(),account]));
     const query=String(assistantQuery||'').replace(/[أإآ]/g,'ا').toLocaleLowerCase('ar');
     const onlyExpenses=/مصروف/.test(query)&&!/(?:ايراد|دخل)/.test(query);
@@ -886,7 +886,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
   if (intent === 'general-ledger') {
     if (!has('accounting.read')) return { status: 403, code: 'PERMISSION_DENIED', message: 'تحتاج صلاحية قراءة الأستاذ العام' };
     const query = String(assistantQuery || '').replace(/كشف\s+حساب|حركة\s+حساب|دفتر\s+الأستاذ|دفتر\s+الاستاذ|الأستاذ\s+العام|الاستاذ\s+العام|general\s+ledger/ig, '').trim();
-    const data = typeof store?.listEnterpriseData === 'function' ? await store.listEnterpriseData(companyId) : null;
+    const data = typeof store?.listEnterpriseData === 'function' ? await store.listEnterpriseData(companyId,auth) : null;
     if (!data) return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'دفتر الأستاذ غير متاح في هذا الخادم بعد' };
     const needle = query.toLocaleLowerCase();
     const accounts = (data.chartAccounts || []).filter(account => !needle || `${account.code} ${account.name}`.toLocaleLowerCase().includes(needle));
@@ -898,7 +898,7 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
     if (typeof store?.listEnterpriseData !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'مصدر القيود غير متاح في هذا الخادم بعد' };
     const period = reportPeriod(assistantQuery);
     if (period.error) return localResult(period.error, table('الفترة المطلوبة',['الحالة'],[[period.error]]));
-    const data = await store.listEnterpriseData(companyId);
+    const data = await store.listEnterpriseData(companyId,auth);
     const accountCodes = new Set((data.chartAccounts || []).filter(account => account.active !== false).map(account => String(account.code || '')));
     const journals = (Array.isArray(data.journals) ? data.journals : []).filter(journal => journal.status === 'posted' && (!period.explicit || inPeriodForJournal(journal, period))).slice()
       .sort((a, b) => String(b.occurredAt || '').localeCompare(String(a.occurredAt || '')))
@@ -985,7 +985,9 @@ async function formatAccountingRead(intent, store, auth, assistantQuery = '', as
     return localResult(answer, table('دليل الحسابات', ['رمز الحساب','اسم الحساب','النوع','الحالة'], accounts.map(row=>[row.code,row.name,row.type,row.active===false?'موقوف':'نشط'])));
   }
   if (typeof store?.trialBalance !== 'function') return { status: 501, code: 'ASSISTANT_DATA_SOURCE_UNAVAILABLE', message: 'ميزان المراجعة غير متاح في هذا الخادم بعد' };
-  const rows = await store.trialBalance(companyId);
+  const restricted=(auth.scopes||[]).some(x=>['branch','warehouse'].includes(x.type));
+  if(restricted&&typeof store.listEnterpriseData!=='function')return {status:403,code:'SCOPE_FORBIDDEN',message:'ميزان الفرع غير متاح'};
+  const rows = restricted?(await store.listEnterpriseData(companyId,auth)).trialBalance:await store.trialBalance(companyId);
   const trialBalanceRows = Array.isArray(rows) ? rows : [];
   const visibleRows = trialBalanceRows.slice(0, 100);
   const answer = visibleRows.length
@@ -1106,3 +1108,4 @@ export function installAssistantRoutes(app, { authenticate, store }) {
     }
   });
 }
+

@@ -1,3 +1,4 @@
+import { requireMarketPermission, requireCompanyMarketScope, validateMarketCatalog } from './lib/market-security.js';
 import { installSalesRoutes, salesRep, salesScoped } from './sales-workspace.js';
 import express from 'express';
 import { PERMISSIONS } from './permissions.js';
@@ -23,6 +24,7 @@ const loginAttempts = new Map();
 export function createApp({ store, sessionDays = 14, secureCookies = false, allowedOrigins = [], cookieName = 'almahasib_session', cookiePath = '/', notificationSending = false }) {
   const app = express();
   app.disable('x-powered-by');
+  app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('X-Frame-Options','DENY');res.set('Referrer-Policy','same-origin');res.set('Content-Security-Policy',"frame-ancestors 'none'; object-src 'none'; base-uri 'self'");if(secureCookies)res.set('Strict-Transport-Security','max-age=31536000');if(req.path.startsWith('/api/'))res.set('Cache-Control','private, no-store');next();});
   app.use((req, res, next) => { req.sessionCookieName = cookieName; next(); });
   app.use(cors({
     origin(origin, callback) {
@@ -306,6 +308,13 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     }, req.auth.user.id) });
   }));
 
+  app.get('/api/v1/accounting/periods',authenticate(store),permit('accounting.read'),asyncRoute(async(req,res)=>res.json({periods:await store.listFinancialPeriods(req.auth.company.id)})));
+  app.post('/api/v1/accounting/periods/close',authenticate(store),permit('company.manage'),asyncRoute(async(req,res)=>res.status(201).json({period:await store.closeFinancialPeriod(req.auth,req.body||{})})));
+  app.post('/api/v1/accounting/periods/:id/reopen',authenticate(store),permit('company.manage'),asyncRoute(async(req,res)=>res.json({period:await store.reopenFinancialPeriod(req.auth,req.params.id,req.body?.reason)})));
+  app.get('/api/v1/audit',authenticate(store),permit('audit.read'),asyncRoute(async(req,res)=>{
+    requireCompanyMarketScope(req.auth);
+    res.set('Cache-Control','private, no-store').json(await store.listAudit(req.auth.company.id,req.query));
+  }));
   app.get('/api/v1/accounting/chart', authenticate(store), permit('accounting.read'), asyncRoute(async (req,res)=>{ res.json({accounts:await store.listChartAccounts(req.auth.company.id)}); }));
   app.post('/api/v1/accounting/chart', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{ res.status(201).json({account:await store.createChartAccount(req.auth.company.id,req.body||{},req.auth.user.id)}); }));
   app.post('/api/v1/accounting/journals', authenticate(store), permit('accounting.post'), asyncRoute(async (req,res)=>{
@@ -601,6 +610,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
         throw new AppError(403, 'PERMISSION_DENIED', 'لا توجد صلاحية لتسجيل العملية المالية');
       }
       if (operation.type === 'commerce.commit') { operation.payload=validateCommercePayload(operation.payload);operation.payloadHash=payloadHash(operation.payload);requireCommercePermission(req.auth, operation.payload.documentType); }
+      if (operation.type.startsWith('market.')) requireMarketPermission(req.auth, operation.type);
+      if (operation.type === 'market.snapshot') validateMarketCatalog(operation.payload.catalog);
       if (operation.type.startsWith('pos.')) requirePosPermission(req.auth, operation.type);
       if (operation.type.startsWith('representative.')) { if(salesRep(req.auth)&&store.salesSettings?.has('user:'+req.auth.user.id))throw new AppError(403,'USE_SALES_WORKSPACE','استخدم صفحة المبيعات الحالية');operation.payload = validateRepresentativePayload(operation.type, operation.payload); requireRepresentativePermission(req.auth, operation.type); }
     }
@@ -613,6 +624,15 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     const cursor = Math.max(0, Number.parseInt(req.query.cursor || '0', 10) || 0);
     const page=await store.pullChanges(req.auth.company.id,cursor,100);
     if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';page.changes=page.changes.filter(x=>x.entityType==='unit'||x.entityType==='item'||x.entityType==='item_unit'||(x.entityType==='price'&&['sale','sale_'+channel].includes(x.payload?.priceType))||(x.entityType==='customer'&&(store.salesSettings.get('customer:'+x.entityId)?.channel||'retail')===channel));}
+    const restricted=(req.auth.scopes||[]).some(x=>['branch','warehouse'].includes(x.type));
+    if(restricted)page.changes=page.changes.filter(change=>{
+      if(['unit','item','item_unit','price','chart_account'].includes(change.entityType))return true;
+      if(change.entityType.startsWith('market.'))return false;
+      const row=change.payload||change.data||{},doc=store.commerceDocuments.get(row.documentId),warehouse=store.warehouses.get(row.warehouseId||doc?.warehouseId||row.id);
+      if(warehouse)return warehouseScopeAllows(req.auth,warehouse)&&branchScopeAllows(req.auth,row.branchId||doc?.branchId||warehouse.branchId);
+      if((req.auth.scopes||[]).some(x=>x.type==='warehouse'))return false;
+      return Boolean(row.branchId)&&branchScopeAllows(req.auth,row.branchId);
+    });
     res.json(page);
   }));
 
@@ -620,9 +640,13 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json(await store.syncStatus(req.auth.company.id, req.auth.user.id, req.auth.session.deviceId));
   }));
 
+  app.use('/api/v1/market', (req,res,next)=>{if(/^\/scanner\/[^/]+\/(status|scan)$/.test(req.path))return next();return authenticate(store)(req,res,()=>{try{requireCompanyMarketScope(req.auth);next();}catch(error){next(error);}});});
+
   // Company-scoped market cloud snapshot. This deliberately stores the snapshot
   // through the existing sync change stream, so Mongo-backed stores persist it
   // with the same company isolation as every other synchronized entity.
+  let marketQueue=Promise.resolve();
+  function marketMutation(callback){if(typeof store.transaction==='function')return store.transaction(callback);const job=marketQueue.then(callback);marketQueue=job.catch(()=>{});return job;}
   async function currentMarketSnapshot(companyId) {
     let cursor=0,latestRow=null,guard=0;
     do { const page=await store.pullChanges(companyId,cursor,500); for(const row of page.changes||[]) if(row.entityType==='market.snapshot') latestRow=row;
@@ -639,22 +663,17 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     return false;
   }
 
-  app.post('/api/v1/market/stock-reversal', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
-    const kind=String(req.body?.kind||''), invoice=String(req.body?.invoice||'');
-    if(!['return','cancel'].includes(kind)||!invoice) throw new AppError(400,'INVALID_MARKET_REVERSAL','عملية المرتجع أو الإلغاء غير صالحة');
-    if(await marketTransactionExists(req.auth.company.id,(x)=>x.invoice===invoice&&x.kind==='cancel')) throw new AppError(409,'MARKET_INVOICE_CANCELLED','الفاتورة ملغاة مسبقًا');
-    if(kind==='cancel'&&await marketTransactionExists(req.auth.company.id,(x)=>x.invoice===invoice&&x.kind==='return')) throw new AppError(409,'MARKET_INVOICE_HAS_RETURN','لا يمكن إلغاء فاتورة عليها مرتجع');
-    const snapshot=await currentMarketSnapshot(req.auth.company.id); if(!snapshot?.catalog) throw new AppError(409,'MARKET_CATALOG_NOT_SYNCED','المخزون المركزي غير متاح');
-    const catalog=structuredClone(snapshot.catalog),lines=Array.isArray(req.body?.lines)?req.body.lines:[];
-    if(!lines.length) throw new AppError(400,'INVALID_MARKET_REVERSAL','لا توجد مواد لإعادتها');
-    for(const line of lines){const item=catalog.find(x=>String(x.id)===String(line.itemId)),qty=Number(line.quantity||0);if(!item||!(qty>0))throw new AppError(409,'MARKET_ITEM_NOT_FOUND','أحد أصناف المرتجع غير موجود');item.qty=Number(item.qty||0)+qty}
-    const now=new Date().toISOString(),snap=validateOperation({operationId:randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now(),occurredAt:now,schemaVersion:1,dependencies:[],type:'market.snapshot',payload:{catalog,updatedAt:now}});
-    const tx=validateOperation({operationId:randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now()+1,occurredAt:now,schemaVersion:1,dependencies:[],type:'market.transaction.'+kind,payload:{...req.body,id:String(req.body?.id||randomUUID()),kind,occurredAt:now}});
-    const results=await store.pushOperations(req.auth,[snap,tx]);if(results.some(x=>x.status!=='acknowledged'))throw new AppError(409,'MARKET_REVERSAL_REJECTED','تعذر اعتماد العملية مركزيًا');
-    res.json({ok:true,snapshot:{catalog,updatedAt:now}});
-  }));
-
-  const marketScannerLinks = new Map();
+  app.post('/api/v1/market/stock-reversal',authenticate(store),permit('sync.use'),asyncRoute(async (req, res) => {
+    return marketMutation(async()=>{
+      const kind=String(req.body?.kind||'');if(!['sale','return','cancel'].includes(kind))throw new AppError(400,'INVALID_MARKET_KIND','نوع العملية غير صالح');
+      requireMarketPermission(req.auth,'market.transaction.'+kind);
+      const now=new Date().toISOString(),id=String(req.body?.id||randomUUID());
+      const operation=validateOperation({operationId:randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now(),occurredAt:now,type:'market.transaction.'+kind,payload:{...req.body,id,kind,occurredAt:now}});
+      const results=await store.pushOperations(req.auth,[operation]);
+      if(results[0]?.status!=='acknowledged')throw new AppError(409,results[0]?.code||'MARKET_TRANSACTION_REJECTED','تعذر اعتماد العملية؛ راجع بيانات الفاتورة والمخزون');
+      res.json({ok:true,saleId:id,snapshot:await currentMarketSnapshot(req.auth.company.id)});
+    });
+  }));  const marketScannerLinks = new Map();
   const scannerCollection = store.db?.collection('market_scanner_links');
   async function getScannerLink(token){
     return scannerCollection ? scannerCollection.findOne({_id:token,revoked:false}) : marketScannerLinks.get(token);
@@ -668,6 +687,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     return link;
   }
   app.post('/api/v1/market/scanner/pair', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
+    requireMarketPermission(req.auth, "market.transaction.shift_open");
     const terminal=String(req.body?.terminal||'main').slice(0,128),shiftId=uuid(req.body?.shiftId,'shiftId');
     const opened=await marketTransactionExists(req.auth.company.id,x=>x.kind==='shift_open'&&x.shiftId===shiftId);
     const closed=await marketTransactionExists(req.auth.company.id,x=>x.kind==='shift_close'&&x.shiftId===shiftId);
@@ -697,48 +717,21 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.set('Cache-Control','no-store').json({codes});
   }));
   app.post('/api/v1/market/scanner/disconnect', authenticate(store), permit('sync.use'), asyncRoute(async (req,res)=>{
+    requireMarketPermission(req.auth, "market.transaction.shift_open");
     const shiftId=uuid(req.body?.shiftId,'shiftId');await revokeScannerShift(req.auth.company.id,shiftId);res.json({ok:true});
   }));
 
-  app.post('/api/v1/market/sale', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
-    const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
-    if (!lines.length || lines.length > 500) throw new AppError(400, 'INVALID_MARKET_SALE', 'فاتورة البيع غير صالحة');
-    let cursor = 0, latestRow = null, guard = 0;
-    do {
-      const page = await store.pullChanges(req.auth.company.id, cursor, 500);
-      for (const row of page.changes || []) if (row.entityType === 'market.snapshot') latestRow = row;
-      if (!page.hasMore || page.nextCursor === cursor) break;
-      cursor = page.nextCursor; guard += 1;
-    } while (guard < 200);
-    const latest = latestRow?.payload || latestRow?.data || null;
-    if (!latest?.catalog) throw new AppError(409, 'MARKET_CATALOG_NOT_SYNCED', 'يجب مزامنة مخزون الحاسبة الرئيسية أولًا');
-    const catalog = structuredClone(latest.catalog);
-    for (const line of lines) {
-      const item = catalog.find((x) => String(x.id) === String(line.itemId));
-      const qty = Number(line.quantity || 0);
-      if (!item || !(qty > 0)) throw new AppError(409, 'MARKET_ITEM_NOT_FOUND', 'أحد أصناف الفاتورة غير موجود');
-      if (Number(item.qty || 0) < qty) throw new AppError(409, 'MARKET_STOCK_INSUFFICIENT', 'الرصيد غير كافٍ للصنف: ' + String(item.name || ''));
-    }
-    for (const line of lines) {
-      const item = catalog.find((x) => String(x.id) === String(line.itemId));
-      item.qty = Number(item.qty || 0) - Number(line.quantity || 0);
-    }
-    const now = new Date().toISOString(), snapshotOperation = validateOperation({
-      operationId: randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
-      clientSequence: Date.now(), occurredAt: now, schemaVersion: 1, dependencies: [], type: 'market.snapshot',
-      payload: { catalog, updatedAt: now }
+  app.post('/api/v1/market/sale',authenticate(store),permit('sync.use'),asyncRoute(async (req, res) => {
+    return marketMutation(async()=>{
+      const kind='sale';if(!['sale','return','cancel'].includes(kind))throw new AppError(400,'INVALID_MARKET_KIND','نوع العملية غير صالح');
+      requireMarketPermission(req.auth,'market.transaction.'+kind);
+      const now=new Date().toISOString(),id=String(req.body?.id||randomUUID());
+      const operation=validateOperation({operationId:randomUUID(),deviceId:String(req.auth.session.deviceId||'market-web'),clientSequence:Date.now(),occurredAt:now,type:'market.transaction.'+kind,payload:{...req.body,id,kind,occurredAt:now}});
+      const results=await store.pushOperations(req.auth,[operation]);
+      if(results[0]?.status!=='acknowledged')throw new AppError(409,results[0]?.code||'MARKET_TRANSACTION_REJECTED','تعذر اعتماد العملية؛ راجع بيانات الفاتورة والمخزون');
+      res.json({ok:true,saleId:id,snapshot:await currentMarketSnapshot(req.auth.company.id)});
     });
-    const saleId = String(req.body?.id || randomUUID()), saleOperation = validateOperation({
-      operationId: randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
-      clientSequence: Date.now() + 1, occurredAt: now, schemaVersion: 1, dependencies: [], type: 'market.transaction.sale',
-      payload: { ...req.body, id: saleId, kind: 'sale', occurredAt: now }
-    });
-    const results = await store.pushOperations(req.auth, [snapshotOperation, saleOperation]);
-    if (results.some((x) => x.status !== 'acknowledged')) throw new AppError(409, 'MARKET_SALE_REJECTED', 'تعذر اعتماد البيع مركزيًا');
-    res.json({ ok: true, saleId, snapshot: { catalog, updatedAt: now } });
-  }));
-
-  app.get('/api/v1/market/cashier-events', authenticate(store), permit('sync.use'), asyncRoute(async(req,res)=>{
+  }));  app.get('/api/v1/market/cashier-events', authenticate(store), permit('sync.use'), asyncRoute(async(req,res)=>{
     const cursor=Math.max(0,Number.parseInt(req.query.cursor||'0',10)||0),page=await store.pullChanges(req.auth.company.id,cursor,500);
     res.set('Cache-Control','no-store').json({events:(page.changes||[]).filter(x=>x.entityType==='market.transaction').map(x=>x.payload||x.data),nextCursor:page.nextCursor,hasMore:page.hasMore});
   }));
@@ -754,7 +747,7 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     res.json({ transactions: rows.slice(-5000) });
   }));
 
-  app.get('/api/v1/market/snapshot', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+  app.get('/api/v1/market/snapshot', authenticate(store), permit('catalog.read'), asyncRoute(async (req, res) => {
     let cursor = 0, latest = null, guard = 0;
     do {
       const page = await store.pullChanges(req.auth.company.id, cursor, 500);
@@ -766,6 +759,8 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
   }));
 
   app.post('/api/v1/market/snapshot', authenticate(store), permit('sync.use'), asyncRoute(async (req, res) => {
+    return marketMutation(async()=>{
+    requireMarketPermission(req.auth, "market.snapshot");
     let cursor = 0, latestRow = null, guard = 0;
     do {
       const page = await store.pullChanges(req.auth.company.id, cursor, 500);
@@ -778,24 +773,19 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     if (latest?.updatedAt && baseUpdatedAt !== String(latest.updatedAt)) {
       return res.status(409).json({ ok:false, code:'MARKET_SNAPSHOT_CONFLICT', message:'تم تعديل المخزون من جهاز آخر', snapshot:latest });
     }
-    const catalog = Array.isArray(req.body?.catalog) ? req.body.catalog.slice(0, 10000).map((x) => ({
-      id: String(x.id || '').slice(0,128), name: String(x.name || '').slice(0,200),
-      category: String(x.category || 'غير مصنف').slice(0,100), barcode: String(x.barcode || '').slice(0,64),
-      cost: Number(x.cost || 0), price: Number(x.price || 0), qty: Number(x.qty || 0),
-      minQty: Number(x.minQty || 0), unit: String(x.unit || 'قطعة').slice(0,32), demo: x.demo === true
-    })) : null;
-    if (!catalog) throw new AppError(400, 'INVALID_MARKET_CATALOG', 'بيانات أصناف الماركت غير صالحة');
+    const catalog = validateMarketCatalog(req.body?.catalog);
     const operation = validateOperation({
       operationId: randomUUID(), deviceId: String(req.auth.session.deviceId || 'market-web'),
       clientSequence: Date.now(), occurredAt: new Date().toISOString(), schemaVersion: 1,
-      dependencies: [], type: 'market.snapshot', payload: { catalog, updatedAt: String(req.body?.clientUpdatedAt || new Date().toISOString()) }
+      dependencies: [], type: 'market.snapshot', payload: { catalog, baseUpdatedAt, updatedAt: new Date().toISOString() }
     });
     const results = await store.pushOperations(req.auth, [operation]);
-    res.json({ ok: true, result: results[0] });
+    res.json({ ok: true, result: results[0], updatedAt: (await currentMarketSnapshot(req.auth.company.id))?.updatedAt });
+    });
   }));
 
   app.get('/api/v1/enterprise/reports', authenticate(store), permit('accounting.read'), asyncRoute(async (req, res) => {
-    const data = await store.listEnterpriseData(req.auth.company.id);
+    const data = await store.listEnterpriseData(req.auth.company.id, req.auth);
     data.transfers=(data.transfers||[]).filter(transfer=>warehouseScopeAllows(req.auth,store.warehouses.get(transfer.sourceWarehouseId))&&warehouseScopeAllows(req.auth,store.warehouses.get(transfer.destinationWarehouseId)));
     if (!req.auth.permissions.includes('users.manage')) delete data.users;
     res.json(data);
@@ -832,7 +822,10 @@ export function createApp({ store, sessionDays = 14, secureCookies = false, allo
     if(targetDocument)assertWarehouseScope(req.auth,store.warehouses.get(targetDocument.warehouseId));
     res.status(201).json({application:await store.applyCustomerCredit(req.auth,{operationId:uuid(req.body.operationId,'operationId'),documentId:uuid(req.body.documentId,'documentId'),amount:decimalInput(req.body.amount,{positive:true}),receiptNumber:String(req.body.receiptNumber||'').trim().slice(0,64)||undefined,occurredAt:/^\d{4}-\d{2}-\d{2}$/.test(String(req.body.paymentDate||''))?new Date(req.body.paymentDate+'T12:00:00.000Z').toISOString():new Date().toISOString()})});
   }));
+  app.get('/api/v1/enterprise/backup-status',authenticate(store),permit('company.manage'),asyncRoute(async(req,res)=>{requireCompanyMarketScope(req.auth);res.json(store.backupService?.status()||{available:false});}));
+  app.post('/api/v1/enterprise/backup-run',authenticate(store),permit('company.manage'),asyncRoute(async(req,res)=>{requireCompanyMarketScope(req.auth);if(!store.backupService)throw new AppError(501,'BACKUP_SERVICE_UNAVAILABLE','خدمة النسخ الآلي غير متاحة');const file=await store.backupService.run();res.json({ok:Boolean(file)});}));
   app.get('/api/v1/enterprise/backup', authenticate(store), permit('company.manage'), asyncRoute(async (req, res) => {
+    requireCompanyMarketScope(req.auth);
     if (typeof store.exportCompanyBackup !== 'function') throw new AppError(400,'SQLITE_BACKUP_REQUIRED','النسخ الاحتياطي غير متاح لهذا الخادم');
     const stamp=new Date().toISOString().replace(/[:.]/g,'-');
     res.setHeader('Cache-Control','private, no-store');

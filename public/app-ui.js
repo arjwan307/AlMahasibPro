@@ -58,6 +58,25 @@
    if(node.hasAttribute('data-ui-help')||/سعر الصرف هو|عرّف الوحدات|امسح المادة بالهاتف|يبقى النقد|يبقى رصيد|عند تسجيل تسليم|يمكنك |لإضافة |اختر .*ثم|اربط .*مندوب|أنشئ مستخدمًا|إخراج مخزني مستقل|الفاتورة تخصم المخزون/.test(text(node)))help(node);
   });
  }
+ if(location.pathname.endsWith('/market-cashier.html')){
+  document.body.classList.add('cashier-layout');document.body.classList.remove('ui-dark');
+  const toolbar=document.querySelector('.header>.actions');
+  if(toolbar){const tools=document.createElement('details');tools.className='cashier-tools';const summary=document.createElement('summary');summary.textContent='⋯';summary.setAttribute('aria-label','أدوات الكاشير');tools.append(summary);const menu=document.createElement('div');tools.append(menu);
+   for(const element of [...toolbar.children]){if(element.tagName==='BUTTON'&&!element.getAttribute('onclick')?.includes('pairPhoneScanner'))menu.append(element);else if(element.tagName==='INPUT')menu.append(element);}
+   for(const element of [...menu.querySelectorAll('button')])if(element.getAttribute('onclick')?.includes('TrialCatalog'))element.remove();
+   toolbar.append(tools);menu.addEventListener('click',event=>{if(event.target.closest('button'))tools.open=false;});
+  }
+ }
+ if(document.getElementById('restaurantExperience')){document.body.classList.add('restaurant-layout-ui');document.body.classList.remove('ui-dark');}
+ function simplifyLogin(){
+  const form=document.getElementById('login');if(!form)return;const input=form.elements.companyCode;if(!input?.value.trim())return;
+  const label=input.closest('label');if(!label||label.dataset.userExpanded)return;label.hidden=true;
+  if(!document.getElementById('loginCompanyChoice')){const button=document.createElement('button');button.id='loginCompanyChoice';button.type='button';button.className='login-company-choice';button.title='تغيير الشركة';button.setAttribute('aria-label','تغيير الشركة');button.textContent='⌂ '+input.value;button.onclick=()=>{label.hidden=false;label.dataset.userExpanded='true';input.focus();};form.before(button);}
+ }
+ window.addEventListener('almahasib:login-ready',simplifyLogin);simplifyLogin();
  let queued=false;const observer=new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;decorate()})});
  observer.observe(document.body,{childList:true,subtree:true});decorate();
 })();
+
+
+
