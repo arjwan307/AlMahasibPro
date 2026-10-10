@@ -10,6 +10,11 @@ on:
       - 'public/**'
       - 'tests/**'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish the verified installer as a GitHub release
+        type: boolean
+        default: false
 concurrency:
   group: company-desktop-${{ github.ref }}
   cancel-in-progress: true
@@ -46,7 +51,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Publish verified company installer
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

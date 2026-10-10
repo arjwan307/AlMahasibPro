@@ -69,7 +69,7 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
  return {app,store,stopNotifications:()=>api.stopNotifications?.()};
 }
 
-export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, port = 10000, host = '0.0.0.0', resetGeneration = process.env.ALMAHASIB_RESET_COMPANIES_ONCE }) {
+export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, port = 10000, host = '0.0.0.0', resetGeneration }) {
  const store=new SQLiteStore(join(dataDirectory,'enterprise.sqlite'));
  const legacyRetailFile=join(dataDirectory,'retail','enterprise.sqlite');
  try{await access(legacyRetailFile);const legacyRetail=new SQLiteStore(legacyRetailFile);try{await store.mergeFrom(legacyRetail,'retail');}finally{await legacyRetail.close();}}catch(error){if(error.code!=='ENOENT')throw error;}

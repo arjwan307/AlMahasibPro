@@ -4,7 +4,7 @@ const retailFiles = new Set(['retail.html','retail-login.html','retail-login.js'
 export function productPages(product = 'company') {
  if(product==='company'||product==='unified'){companyFiles.add('company-output.js');companyFiles.add('company-output.css');companyFiles.add('company-messages.js');companyFiles.add('company-responsive.css');companyFiles.add('company-responsive.js');companyFiles.add('company-sync-ui.js');}
  retailFiles.add('company-responsive.css');
- for(const set of [companyFiles,retailFiles]){for(const file of ['login.html','login.js','erp-offline.js','erp-service-worker.js','erp-shell-manifest.js'])set.add(file);set.add('safety-center.html');set.add('safety-center.js');set.add('app-ui.css');set.add('app-ui.js');}
+ for(const set of [companyFiles,retailFiles]){for(const file of ['login.html','login.js','erp-offline.js','erp-service-worker.js','erp-shell-manifest.js','data-import.html','data-import.js'])set.add(file);set.add('safety-center.html');set.add('safety-center.js');set.add('app-ui.css');set.add('app-ui.js');}
  const files = product === 'unified' ? new Set([...companyFiles,...retailFiles]) : product === 'retail' ? retailFiles : companyFiles;
  const login = product === 'retail' ? '/retail-login.html' : '/enterprise.html';
  const home = product === 'retail' ? '/retail.html' : login;

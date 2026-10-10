@@ -31,7 +31,12 @@ test('shared cloud uses one session across interfaces and preserves the authenti
   const script=await (await fetch(runtime.url+'/retail/retail-login.js')).text();assert.ok(script.includes('/retail/api/v1/auth/login'));
   assert.equal((await request('/retail/api/v1/auth/logout',{},retailCookie)).status,204);
   assert.equal((await request('/api/v1/bootstrap',null,companyCookie)).status,200);
-  await runtime.close();runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken,origin:'http://localhost',port:0});
+  await runtime.close();
+  const previousReset=process.env.ALMAHASIB_RESET_COMPANIES_ONCE;
+  process.env.ALMAHASIB_RESET_COMPANIES_ONCE='obsolete-release-reset';
+  try{runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken,origin:'http://localhost',port:0});}
+  finally{if(previousReset===undefined)delete process.env.ALMAHASIB_RESET_COMPANIES_ONCE;else process.env.ALMAHASIB_RESET_COMPANIES_ONCE=previousReset;}
+  assert.equal((await request('/api/v1/bootstrap',null,companyCookie)).data.company.id,company.data.account.company.id);
   assert.equal((await request('/api/local/status')).data.initialized,true);assert.equal((await request('/retail/api/local/status')).data.initialized,true);
  }finally{if(runtime)await runtime.close();await rm(directory,{recursive:true,force:true});}
 });
