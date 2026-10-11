@@ -65,7 +65,7 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
   }catch(error){res.status(400).json({error:{message:error.message}});}finally{configuring=false;}
  });
  app.use((req,_res,next)=>{if(req.method==='POST'&&req.path==='/api/v1/companies/register')req.productScope=req.body.product==='retail'||product==='retail'?'retail':'company';next();});
- const api=createApp({store,notificationSending:product==='company',secureCookies:origin.startsWith('https:'),allowedOrigins:[origin],cookieName:'almahasib_session',cookiePath:'/'});app.use(api);
+ const api=createApp({store,notificationSending:product==='company',secureCookies:origin.startsWith('https:'),allowedOrigins:[origin],cookieName:product==='retail'?'almahasib_retail_session':'almahasib_company_session',cookiePath:basePath||'/'});app.use(api);
  return {app,store,stopNotifications:()=>api.stopNotifications?.()};
 }
 
