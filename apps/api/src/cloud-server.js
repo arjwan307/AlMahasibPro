@@ -70,13 +70,14 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
 }
 
 export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, port = 10000, host = '0.0.0.0', resetGeneration }) {
- const store=new SQLiteStore(join(dataDirectory,'enterprise.sqlite'));
- const legacyRetailFile=join(dataDirectory,'retail','enterprise.sqlite');
- try{await access(legacyRetailFile);const legacyRetail=new SQLiteStore(legacyRetailFile);try{await store.mergeFrom(legacyRetail,'retail');}finally{await legacyRetail.close();}}catch(error){if(error.code!=='ENOENT')throw error;}
- if(await resetInstallationOnce(store,dataDirectory,resetGeneration))console.log('AlMahasibPro clean installation completed: company data cleared; platform administrators preserved.');
- const backups=startBackupService({store,directory:process.env.ALMAHASIB_BACKUP_DIR||join(dataDirectory,'backups')});store.backupService=backups;
- const company=await createProductCloud({dataDirectory,setupToken,origin,sharedStore:store});
- const retail=await createProductCloud({dataDirectory,setupToken,origin,sharedStore:store,product:'retail',basePath:'/retail'});
+ // Product data is physically isolated; legacy shared data is not auto-migrated.
+ const companyStore=new SQLiteStore(join(dataDirectory,'enterprise.sqlite'));
+ const retailStore=new SQLiteStore(join(dataDirectory,'retail','enterprise.sqlite'));
+ if(await resetInstallationOnce(companyStore,dataDirectory,resetGeneration))console.log('AlMahasibPro clean installation completed: company data cleared; platform administrators preserved.');
+ const backups=startBackupService({store:companyStore,directory:process.env.ALMAHASIB_BACKUP_DIR||join(dataDirectory,'backups','company')});companyStore.backupService=backups;
+ const retailBackups=startBackupService({store:retailStore,directory:process.env.ALMAHASIB_RETAIL_BACKUP_DIR||join(dataDirectory,'backups','retail')});retailStore.backupService=retailBackups;
+ const company=await createProductCloud({dataDirectory,setupToken,origin,sharedStore:companyStore});
+ const retail=await createProductCloud({dataDirectory,setupToken,origin,sharedStore:retailStore,product:'retail',basePath:'/retail'});
  const app=express();app.set('trust proxy',1);
  app.get(['/', '/index.html'],(_req,res)=>res.redirect('/login.html'));
  app.get('/companies',(_req,res)=>res.redirect('/enterprise.html'));
@@ -86,7 +87,7 @@ export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, 
  app.use('/retail',retail.app);
  app.use(company.app);
  const server=await new Promise((resolve,reject)=>{const server=app.listen(port,host,()=>resolve(server));server.on('error',reject);});
- return {store:company.store,retailStore:retail.store,url:`http://127.0.0.1:${server.address().port}`,close:async()=>{company.stopNotifications();retail.stopNotifications();await backups.close();await new Promise(resolve=>server.close(resolve));await company.store.close();}};
+ return {store:company.store,retailStore:retail.store,url:`http://127.0.0.1:${server.address().port}`,close:async()=>{company.stopNotifications();retail.stopNotifications();await backups.close();await retailBackups.close();await new Promise(resolve=>server.close(resolve));await company.store.close();await retail.store.close();}};
 }
 if(process.argv[1]?.endsWith('cloud-server.js')){
  const runtime=await startEnterpriseCloud({dataDirectory:process.env.ALMAHASIB_DATA_DIR,setupToken:process.env.ALMAHASIB_SETUP_TOKEN,origin:process.env.ALMAHASIB_PUBLIC_ORIGIN,port:Number(process.env.PORT||10000)});
