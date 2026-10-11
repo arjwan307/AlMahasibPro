@@ -13,8 +13,8 @@ test('retail cashier QR reaches its own scanner link and cannot poll another ten
  const runtime=await startEnterpriseCloud({dataDirectory:directory,origin:'http://localhost',port:0});
  try {
   const companyId=randomUUID(), otherId=randomUUID(), shiftId=randomUUID();
-  runtime.store.getSessionContext=async token=>({company:{id:token===hashToken('other')?otherId:companyId},user:{id:randomUUID()},permissions:['sync.use','pos.shift.open'],scopes:[]});
-  runtime.store.pullChanges=async()=>({changes:[{entityType:'market.transaction',payload:{kind:'shift_open',shiftId}}],hasMore:false});
+  runtime.retailStore.getSessionContext=async token=>({company:{id:token===hashToken('other')?otherId:companyId},user:{id:randomUUID()},permissions:['sync.use','pos.shift.open'],scopes:[]});
+  runtime.retailStore.pullChanges=async()=>({changes:[{entityType:'market.transaction',payload:{kind:'shift_open',shiftId}}],hasMore:false});
   const request=(path,body,token='owner')=>fetch(runtime.url+path,{headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},...(body?{method:'POST',body:JSON.stringify(body)}:{})});
   const paired=await request('/retail/api/v1/market/scanner/pair',{shiftId});
   assert.equal(paired.status,200);
