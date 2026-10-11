@@ -3,7 +3,7 @@ import { resetInstallationOnce } from './lib/clean-install.js';
 import { productPages } from './product-pages.js';
 import express from 'express';
 import { join } from 'node:path';
-import { access, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createApp } from './app.js';
