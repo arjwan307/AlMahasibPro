@@ -4,10 +4,10 @@
 !ifndef VERSION
 !define VERSION "1.0.0"
 !endif
-OutFile "${PROJECT_DIR}\releases\retail\AlMahasibPro-Retail-Setup-${VERSION}-x64.exe"
+OutFile "${PROJECT_DIR}\releases\retail\AlMahasibCashier-Setup-${VERSION}-x64.exe"
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
-Name "AlMahasibPro-Retail"
+Name "AlMahasibCashier"
 InstallDir "$LOCALAPPDATA\Programs\AlMahasibPro-Retail"
 InstallDirRegKey HKCU "Software\AlMahasibPro-Retail" "InstallDir"
 RequestExecutionLevel user
@@ -28,7 +28,7 @@ Function .onVerifyInstDir
  Abort
  valid:
 FunctionEnd
-Section "AlMahasibPro-Retail" SEC01
+Section "AlMahasibCashier" SEC01
  SetOutPath "$INSTDIR"
  File /r "${PROJECT_DIR}\releases\retail\win-unpacked\*"
  WriteUninstaller "$INSTDIR\Uninstall.exe"
@@ -36,7 +36,7 @@ Section "AlMahasibPro-Retail" SEC01
  CreateShortcut "$SMPROGRAMS\AlMahasibPro-Retail\AlMahasibPro-Retail.lnk" "$INSTDIR\AlMahasibPro-Retail.exe"
  CreateShortcut "$DESKTOP\AlMahasibPro-Retail.lnk" "$INSTDIR\AlMahasibPro-Retail.exe"
  WriteRegStr HKCU "Software\AlMahasibPro-Retail" "InstallDir" "$INSTDIR"
- WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlMahasibPro-Retail" "DisplayName" "AlMahasibPro-Retail"
+ WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlMahasibPro-Retail" "DisplayName" "AlMahasibCashier"
  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlMahasibPro-Retail" "UninstallString" '"$INSTDIR\Uninstall.exe"'
  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlMahasibPro-Retail" "DisplayVersion" "${VERSION}"
  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\AlMahasibPro-Retail" "NoModify" 1

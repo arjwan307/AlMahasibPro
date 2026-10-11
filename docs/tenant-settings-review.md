@@ -29,7 +29,7 @@ Backups are isolated SQLite files under deletion-backups/<UUID>.sqlite, with int
 
 ## Product separation
 
-- The Pro desktop and default Windows build now select company mode instead of unified mode; Cashier uses its existing independent identity, app-data directory and builder. Existing installation paths/data are preserved. No installer was built or distributed.
+- The Pro desktop and default Windows build now select company mode instead of unified mode; Cashier uses its existing independent identity, app-data directory and builder. Existing installation paths/data are preserved. Cashier entry pages and its artifact name now identify AlMahasibCashier; its appId and existing data path remain unchanged. No installer was built or distributed.
 - Cloud product cookies/paths are separate, API login/bootstrap enforce product identity, company-only and retail-only modules are fenced even inside desktop-command replay, and cached shells/bootstrap keys are scoped to the product.
 - The cloud may still share one physical SQLite store; isolation is by company UUID and product. Existing legacy retail migration is retained. A destructive split of the current shared database was deliberately not performed.
 - The legacy explicitly requested unified runtime remains available for compatibility tests, but is no longer the Pro desktop default.

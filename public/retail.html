@@ -4,7 +4,7 @@
     <style>[hidden]{display:none!important}</style>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>المطاعم والمجمعات | لوحة التحكم - المحاسب برو</title>
+    <title>المطاعم والمجمعات | لوحة التحكم - المحاسب كاشير</title>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -81,7 +81,7 @@
 <body>
     <div class="main-card">
         <div class="header">
-            <h1>🌙 المحاسب <span>برو</span></h1>
+            <h1>🌙 المحاسب <span>كاشير</span></h1>
             <p style="color:rgba(255,255,255,0.7);">اختر القسم الذي تريد العمل عليه</p>
         </div>
 
@@ -101,7 +101,7 @@
         </div>
 
         <!-- الأقسام الفرعية (الأدوات المشتركة) - تم تحديث الروابط -->
-        <p>المحاسب برو للمطاعم والمجمعات</p><button id="retailLogout" style="padding:12px">تسجيل الخروج وتبديل الحساب</button>
+        <p>المحاسب كاشير للمطاعم والمجمعات</p><button id="retailLogout" style="padding:12px">تسجيل الخروج وتبديل الحساب</button>
     </div><script>
 fetch('/api/v1/bootstrap',{credentials:'same-origin'}).then(async response=>{if(!response.ok){location.replace('/login.html');return;}const account=await response.json();const restaurant=account.company.businessType==='restaurant';document.querySelector('.card-restaurant').hidden=!restaurant;document.querySelector('.card-market').hidden=restaurant;document.querySelector('.header p').textContent=account.company.legalName;});
 document.getElementById('retailLogout').onclick=async()=>{const response=await fetch('/api/v1/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(response.ok||response.status===401)location.replace('/retail-login.html');else alert('تعذر تسجيل الخروج؛ أعد المحاولة');};
