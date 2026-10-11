@@ -1,6 +1,7 @@
 import { MongoClient } from 'mongodb';
 import { serialize, deserialize } from 'node:v8';
 import { createHash } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { MemoryStore } from './memory-store.js';
 
 const MAP_FIELDS = [
@@ -32,6 +33,11 @@ export class MongoStore extends MemoryStore {
     this.state = db.collection('_app_state');
     this.stateChunks = db.collection('_app_state_chunks');
     this.persistQueue = Promise.resolve();
+    // Serialize explicit transactions the same way the SQLite store does, and
+    // persist the resulting snapshot once the callback settles. Re-entrant calls
+    // (already inside a transaction) run inline to avoid deadlocking the queue.
+    this.txScope = new AsyncLocalStorage();
+    this.txQueue = Promise.resolve();
 
     for (const name of WRITE_METHODS) {
       const domainMethod = this[name].bind(this);
@@ -95,6 +101,17 @@ export class MongoStore extends MemoryStore {
       await this.state.replaceOne({ _id: 'primary' }, { _id: 'primary', storageFormat: 'chunks-v1', chunkIds, changeSequence: snapshot.changeSequence, updatedAt: new Date() }, { upsert: true });
     });
     await this.persistQueue;
+  }
+
+  async transaction(callback) {
+    if (this.txScope.getStore()) return callback();
+    const task = this.txQueue.then(() => this.txScope.run(true, async () => {
+      const result = await callback();
+      await this.#persist();
+      return result;
+    }));
+    this.txQueue = task.catch(() => {});
+    return task;
   }
 
   async close() {
