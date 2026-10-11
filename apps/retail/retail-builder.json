@@ -20,7 +20,7 @@
     "public/**",
     "package.json"
   ],
-  "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
+  "artifactName": "AlMahasibCashier-Setup-${version}-${arch}.${ext}",
   "appId": "com.almahasibpro.retail",
   "productName": "AlMahasibPro-Retail",
   "directories": {

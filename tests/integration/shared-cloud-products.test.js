@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { startEnterpriseCloud } from '../../apps/api/src/cloud-server.js';
 import { SQLiteStore } from '../../apps/api/src/store/sqlite-store.js';
 import { hashPassword } from '../../apps/api/src/lib/security.js';
-test('shared cloud uses one session across interfaces and preserves the authenticated company identity',async()=>{
+test('shared cloud isolates product sessions and preserves each company identity',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'shared-cloud-'));let runtime;const setupToken='test-setup-key-longer-than-24-characters';
  try{
   runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken,origin:'http://localhost',port:0});
@@ -15,11 +15,13 @@ test('shared cloud uses one session across interfaces and preserves the authenti
   assert.equal(runtime.store,runtime.retailStore);assert.equal(runtime.store.filename,join(directory,'enterprise.sqlite'));
   for(const prefix of ['', '/retail'])assert.equal((await request(prefix+'/api/local/setup',{setupToken,legalName:prefix?'مطعم':'شركة',ownerName:'مدير',username:'owner',password:'Strong-Password-123'})).status,201);
   const company=await request('/api/v1/auth/login',{companyCode:'company',username:'owner',password:'Strong-Password-123'}),retail=await request('/retail/api/v1/auth/login',{companyCode:'retail',username:'owner',password:'Strong-Password-123'});
-  assert.match(company.cookie,/^almahasib_session=/);assert.match(retail.cookie,/^almahasib_session=/);assert.match(retail.cookie,/Path=\//);
+  assert.match(company.cookie,/^almahasib_session=/);assert.match(retail.cookie,/^almahasib_retail_session=/);assert.match(retail.cookie,/Path=\/retail/);
   const companyCookie=company.cookie.split(';')[0],retailCookie=retail.cookie.split(';')[0];
-  assert.equal((await request('/api/v1/bootstrap',null,retailCookie)).data.company.id,retail.data.account.company.id);
-  assert.equal((await request('/retail/api/v1/bootstrap',null,companyCookie)).data.company.id,company.data.account.company.id);
+  assert.equal((await request('/api/v1/bootstrap',null,retailCookie)).status,401);
+  assert.equal((await request('/retail/api/v1/bootstrap',null,companyCookie)).status,401);
   assert.equal((await request('/retail/api/v1/bootstrap',null,'almahasib_retail_session='+company.data.token)).status,401);
+  assert.equal((await request('/api/v1/auth/login',{companyCode:'retail',username:'owner',password:'Strong-Password-123'})).status,403);
+  assert.equal((await request('/retail/api/v1/auth/login',{companyCode:'company',username:'owner',password:'Strong-Password-123'})).status,403);
   assert.notEqual(company.data.account.company.id,retail.data.account.company.id);
   assert.equal((await request('/api/v1/bootstrap',null,companyCookie)).data.company.legalName,'شركة');
   assert.equal((await request('/retail/api/v1/bootstrap',null,retailCookie)).data.company.legalName,'مطعم');

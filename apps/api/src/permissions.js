@@ -1,5 +1,5 @@
 export const PERMISSIONS = Object.freeze([
-  'company.manage', 'company.approve', 'users.manage', 'roles.manage',
+  'company.delete', 'local.data.delete', 'account.delete', 'company.manage', 'company.approve', 'users.manage', 'roles.manage',
   'assistant.use',
   'catalog.read', 'catalog.manage', 'customers.read', 'customers.manage', 'suppliers.read', 'suppliers.manage',
   'inventory.read', 'inventory.manage', 'inventory.receive', 'inventory.issue',
@@ -15,7 +15,7 @@ export const PERMISSIONS = Object.freeze([
 ]);
 
 export const ROLE_TEMPLATES = Object.freeze({
-  company_admin: PERMISSIONS.filter((permission) => permission !== 'company.approve'),
+  company_admin: PERMISSIONS.filter((permission) => !['company.approve','company.delete','local.data.delete','account.delete'].includes(permission)),
   accountant: ['assistant.use', 'accounting.read', 'accounting.post', 'sales.read', 'customers.read', 'suppliers.read', 'purchasing.read', 'imports.read', 'imports.manage', 'payroll.read', 'payroll.review', 'payroll.pay', 'audit.read', 'sync.use'],
   warehouse_keeper: ['assistant.use', 'catalog.read', 'suppliers.read', 'inventory.read', 'inventory.manage', 'inventory.receive', 'inventory.issue', 'purchasing.read', 'purchasing.create', 'imports.read', 'imports.manage', 'sync.use'],
   cashier: ['assistant.use', 'catalog.read', 'customers.read', 'customers.manage', 'inventory.read', 'sales.read', 'sales.create', 'sales.approve', 'sales.return', 'pos.shift.open', 'pos.shift.close', 'sync.use'],

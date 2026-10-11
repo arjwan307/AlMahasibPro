@@ -76,10 +76,73 @@ export class MemoryStore {
     // Deletion tombstones survive across restarts and prevent a stale device or a
     // delayed sync payload from resurrecting a company that was intentionally removed.
     this.deletedCompanies = new Map();
+    this.deletedAccounts = new Map();
+    this.ownershipTransfers = new Map();
     this.changeSequence = 0;
   }
 
   async close() {}
+
+  async transferCompanyOwnership(context, newOwnerId, reason) {
+    const company=this.companies.get(context.company.id), user=this.users.get(newOwnerId);
+    if(company?.ownerUserId!==context.user.id)throw new AppError(403,'OWNER_ONLY','نقل الملكية متاح للمالك الحالي فقط');
+    const target=(await this.listUsers(company.id)).find(row=>row.id===newOwnerId);
+    if(!user||user.companyId!==company.id||user.platformAdmin||user.status!=='active'||newOwnerId===context.user.id||!target.permissions.includes('company.manage')||!target.permissions.includes('users.manage')||user.scopes?.length&&!user.scopes.some(scope=>scope.type==='company'&&scope.id===company.id))throw new AppError(400,'INVALID_NEW_OWNER','اختر مسؤولًا نشطًا من الشركة بصلاحية إدارة الشركة والمستخدمين ونطاق الشركة كاملًا');
+    company.ownerUserId=newOwnerId;
+    this.ownershipTransfers.set(company.id,{companyId:company.id,newOwnerId,revision:(this.ownershipTransfers.get(company.id)?.revision||0)+1,transferredAt:new Date().toISOString()});
+    this.#audit(company.id,context.user.id,'company.owner.transferred','company',company.id,{from:context.user.id,to:newOwnerId,reason});
+    this.#change(company.id,'company',company.id,'upsert',this.#publicCompany(company));
+    return {transferred:true,ownerUserId:newOwnerId};
+  }
+  async updateOwnDisplayName(context, displayName) {
+    const user = this.users.get(context.user.id);
+    if (!user || user.companyId !== context.company.id || user.platformAdmin) throw new AppError(404,'USER_NOT_FOUND','المستخدم غير موجود');
+    const before = user.displayName;
+    user.displayName = displayName;
+    this.#audit(context.company.id,user.id,'account.name.updated','user',user.id,{before,after:displayName});
+    this.#change(context.company.id,'user',user.id,'upsert',this.#publicUser(user));
+    return this.#publicUser(user);
+  }
+  async updateCompanyProfile(context, input) {
+    const company = this.companies.get(context.company.id);
+    if (!company) throw new AppError(404,'COMPANY_NOT_FOUND','الشركة غير موجودة');
+    const before = {legalName:company.legalName,phone:company.phone,address:company.address};
+    Object.assign(company,input);
+    this.#audit(company.id,context.user.id,'company.profile.updated','company',company.id,{before,after:input});
+    this.#change(company.id,'company',company.id,'upsert',this.#publicCompany(company));
+    return this.#publicCompany(company);
+  }
+  async deleteOwnAccount(context) {
+    const user = this.users.get(context.user.id), company = this.companies.get(context.company.id);
+    if (!user || user.companyId !== company?.id || user.platformAdmin) throw new AppError(404,'USER_NOT_FOUND','المستخدم غير موجود');
+    // Keep an anonymous identity for immutable financial references; never delete the company.
+    if (company.ownerUserId === user.id) throw new AppError(409,'OWNER_TRANSFER_REQUIRED','انقل ملكية الشركة قبل حذف حساب المالك');
+    const managers = await this.listUsers(company.id);
+    if (managers.find(x=>x.id===user.id)?.permissions.includes('users.manage') && !managers.some(x=>x.id!==user.id&&x.status==='active'&&x.permissions.includes('users.manage'))) throw new AppError(409,'LAST_MANAGER','يجب إبقاء مسؤول نشط');
+    this.deletedAccounts.set(user.id,{companyId:company.id,userId:user.id,deletedAt:new Date().toISOString()});
+    Object.assign(user,{status:'disabled',displayName:'حساب محذوف',username:'deleted-'+user.id,passwordHash:'',permissions:[],roleIds:[],scopes:[],deletedAt:new Date().toISOString()});
+    for (const [key,session] of this.sessions) if(session.userId===user.id)this.sessions.delete(key);
+    this.salesSettings.delete('user:'+user.id);
+    this.#audit(company.id,user.id,'account.deleted','user',user.id,{anonymized:true});
+    this.#change(company.id,'user',user.id,'delete',{id:user.id});
+    return {deleted:true,companyDeleted:false};
+  }
+  async enforceAccountDeletions(companyId) {
+    for(const row of this.deletedAccounts.values()){
+      if(row.companyId!==companyId)continue;
+      const user=this.users.get(row.userId);
+      if(user?.companyId===companyId)Object.assign(user,{status:'disabled',displayName:'حساب محذوف',username:'deleted-'+user.id,passwordHash:'',permissions:[],roleIds:[],scopes:[],deletedAt:row.deletedAt});
+      for(const [key,session] of this.sessions)if(session.userId===row.userId)this.sessions.delete(key);
+      this.salesSettings.delete('user:'+row.userId);
+    }
+  }
+  async recordDeletionEvidence(context, metadata) {
+    this.#audit(null,context.user.id,'settings.company.deleted','company',context.company.id,metadata);
+  }
+  async recordSettingsAction(context, action, metadata = {}) {
+    this.#audit(context.company.id,context.user.id,action,'company',context.company.id,metadata);
+  }
+
   async createDataImportPreview(context, input) {
     const plan = inspectImport(this,context,input);
     const companyId = context.company.id;
@@ -451,7 +514,7 @@ export class MemoryStore {
     if (!this.companies.has(companyId)) {
       if (existingTombstone) {
         if (suppliedCode !== String(existingTombstone.code || '').trim().toLowerCase()) throw new AppError(400, 'CONFIRMATION_REQUIRED', 'رمز الشركة غير صحيح');
-        return { id: companyId, code: existingTombstone.code, alreadyDeleted: true, deletion: clone(existingTombstone) };
+        return { id: companyId, code: existingTombstone.code, generation:existingTombstone.generation,status:'completed',alreadyDeleted: true, deletion: clone(existingTombstone) };
       }
       throw new AppError(404, 'COMPANY_NOT_FOUND', 'الشركة غير موجودة');
     }

@@ -66,7 +66,7 @@ test('desktop replays offline edits with ID mapping, atomic receipts, conflict r
   await local.store.importCloudSnapshot(await cloud.exportCompanyBackup(other.id),other.id,{initial:true});await local.close();local=null;
   local=await startEnterpriseLocal({dataDirectory:join(dir,'local'),port:33385,allowTestCloud:true,protect:x=>x,unprotect:x=>x});
   r=await request('/api/v1/auth/login',{companyCode:other.code,username:'other',password});token=r.data.token;
-  assert.equal((await request('/api/local/cloud/status')).data.connected,false,'restore from another company clears the old cloud connection');assert.equal((await request('/api/local/cloud/synchronize',{})).data.state,'failed');assert.ok(local.store.companies.has(other.id));
+  assert.equal((await request('/api/local/cloud/status')).status,403,'another tenant cannot inspect or drive the existing cloud connection');assert.equal((await request('/api/local/cloud/synchronize',{})).status,403);assert.ok(local.store.companies.has(company.id),'scoped import preserves the previously cached company');assert.ok(local.store.companies.has(other.id));
 
  }finally{await local?.close();if(server)await new Promise(resolve=>server.close(resolve));await cloud?.close();await rm(dir,{recursive:true,force:true});}
 });

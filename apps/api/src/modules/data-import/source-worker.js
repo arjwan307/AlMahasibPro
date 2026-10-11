@@ -3,9 +3,6 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import ExcelJS from 'exceljs';
-import yauzl from 'yauzl';
-import { parse } from 'csv-parse/sync';
 
 const MAX_ROWS = 5000, MAX_COLUMNS = 30;
 function bounded(rows) {
@@ -23,6 +20,7 @@ function bounded(rows) {
   });
 }
 async function checkZip(bytes) {
+  const {default:yauzl}=await import('yauzl');
   await new Promise((resolve, reject) => yauzl.fromBuffer(bytes, { lazyEntries: true }, (error, zip) => {
     if (error) return reject(error);
     let size = 0, count = 0;
@@ -65,8 +63,12 @@ async function readSource({format, bytes, table, sheet, config}) {
     } finally { if (client) await client.end(); }
   }
   const buffer = Buffer.from(bytes);
-  if (format === 'csv') return bounded(parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer), { bom: true, skip_empty_lines: true, max_record_size: 16384 }));
+  if (format === 'csv') {
+    const {parse}=await import('csv-parse/sync');
+    return bounded(parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer), { bom: true, skip_empty_lines: true, max_record_size: 16384 }));
+  }
   if (format === 'xlsx') {
+    const {default:ExcelJS}=await import('exceljs');
     await checkZip(buffer);
     const book = new ExcelJS.Workbook(); await book.xlsx.load(buffer);
     const worksheet = sheet ? book.getWorksheet(sheet) : book.worksheets[0];

@@ -1,3 +1,4 @@
+import { assertSettingsScope, confirmSettingsOperation, settingsBackup } from '../api/src/modules/settings/routes.js';
 import { randomUUID } from 'node:crypto';
 import { readFile,writeFile,rename } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -5,30 +6,49 @@ import { hashToken } from '../api/src/lib/security.js';
 import { commandPathAllowed } from '../api/src/lib/desktop-sync.js';
 
 const defaultCloud='https://shenoo-menoo-tak-tak.onrender.com';
-export async function installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud=false,cloudOrigin=defaultCloud}){
+export async function installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud=false,cloudOrigin=defaultCloud,product='company'}){
   const filename=join(dataDirectory,'cloud-connection.json');
-  let config={url:cloudOrigin,automatic:true},tokens=new Map(),running=false,lastError='',lastSync=null,closed=false,connecting=false,saveQueue=Promise.resolve();
+  let config={url:product==='retail'?cloudOrigin.replace(/\/retail\/?$/,'')+'/retail':cloudOrigin,automatic:true},tokens=new Map(),running=false,lastError='',lastSync=null,closed=false,connecting=false,saveQueue=Promise.resolve();
   try{const saved=JSON.parse(await readFile(filename,'utf8'));config=saved.config;if(unprotect&&saved.tokens)tokens=new Map(JSON.parse(await unprotect(Buffer.from(saved.tokens,'base64'))));}catch{}
   if(config.companyId&&!store.companies.has(config.companyId)){config={url:config.url||defaultCloud,automatic:false};tokens.clear();await writeFile(filename,JSON.stringify({config}));}
   lastSync=config.lastSuccessfulSync||null;
-  function save(){const task=saveQueue.then(async()=>{const saved={config};if(protect)saved.tokens=(await protect(Buffer.from(JSON.stringify([...tokens])))).toString('base64');await writeFile(filename+'.tmp',JSON.stringify(saved));await rename(filename+'.tmp',filename);});saveQueue=task.catch(()=>{});return task;}
+  function save(){store.cloudConnectionCompanyId=config.companyId||null;const task=saveQueue.then(async()=>{const saved={config};if(protect)saved.tokens=(await protect(Buffer.from(JSON.stringify([...tokens])))).toString('base64');await writeFile(filename+'.tmp',JSON.stringify(saved));await rename(filename+'.tmp',filename);});saveQueue=task.catch(()=>{});return task;}
   function cloudURL(value){const url=new URL(value||defaultCloud);if(url.username||url.password||url.search||url.hash||!['/','/retail','/retail/'].includes(url.pathname)||(url.protocol!=='https:'&&!(allowTestCloud&&url.protocol==='http:'&&url.hostname==='127.0.0.1')))throw Error('استخدم عنوان الخادم عبر HTTPS؛ مسار /retail متاح للمطاعم');return url.origin+(url.pathname.startsWith('/retail')?'/retail':'');}
-  config.url=cloudURL(config.url);
+  config.url=cloudURL(config.url);store.cloudConnectionCompanyId=config.companyId||null;
   async function remote(path,{body,method='GET',token}={}){
     const response=await fetch(config.url+path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(45000)});
-    if(!response.ok){let message;try{message=(await response.json()).error?.message;}catch{}throw Error(message||'تعذر الاتصال بالخادم: '+response.status);}
+    if(!response.ok){let message;try{message=(await response.json()).error?.message;}catch{}const error=Error(message||'تعذر الاتصال بالخادم: '+response.status);error.status=response.status;throw error;}
     return response;
   }
-  async function localAccount(req){const cookie=(req.headers.cookie||'').match(/(?:^|;\s*)almahasib_session=([^;]+)/);const token=req.headers.authorization?.replace(/^Bearer /,'')||cookie?.[1];return token?store.getSessionContext(hashToken(token)):null;}
-  async function authorized(req,res,permission){const account=await localAccount(req);if(!account?.company||!account.permissions.includes(permission)){res.status(403).json({error:{message:'سجّل الدخول بحساب مخوّل'}});return null;}return account;}
-  const pending=()=>[...store.desktopCommands.values()].filter(x=>x.local&&x.status!=='acknowledged');
+  async function localAccount(req){const cookie=(req.headers.cookie||'').match(product==='retail'?/(?:^|;\s*)almahasib_retail_session=([^;]+)/:/(?:^|;\s*)almahasib_session=([^;]+)/);const token=req.headers.authorization?.replace(/^Bearer /,'')||cookie?.[1];return token?store.getSessionContext(hashToken(token)):null;}
+  async function authorized(req,res,permission,{anyCompany=false}={}){const account=await localAccount(req);if(!account?.company||!account.permissions.includes(permission)||!anyCompany&&config.companyId&&account.company.id!==config.companyId){res.status(403).json({error:{message:'سجّل الدخول بحساب مخوّل'}});return null;}return account;}
+  const pending=()=>[...store.desktopCommands.values()].filter(x=>x.companyId===config.companyId&&x.local&&x.status!=='acknowledged');
   const status=()=>({connected:!!config.companyId,automatic:config.automatic,running,pending:pending().length,conflicts:pending().filter(x=>x.status==='conflict').length,lastSuccessfulSync:lastSync,error:lastError,url:config.url});
   function mapped(value){if(typeof value==='string')return store.desktopIdMappings.get(value)?.remoteId||value;if(Array.isArray(value))return value.map(mapped);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,v])=>[mapped(key),mapped(v)]));return value;}
   function remember(local,remote,generated){if(typeof local==='string'&&typeof remote==='string'&&/^[0-9a-f-]{36}$/i.test(local)&&/^[0-9a-f-]{36}$/i.test(remote)&&local!==remote&&(!generated||generated.includes(local)))store.desktopIdMappings.set(local,{companyId:config.companyId,remoteId:remote});else if(Array.isArray(local)&&Array.isArray(remote))local.forEach((v,i)=>remember(v,remote[i],generated));else if(local&&remote&&typeof local==='object'&&typeof remote==='object')for(const key of Object.keys(local))remember(local[key],remote[key],generated);}
+  async function applyCloudDeletion(companyId,code) {
+    await store.deletePlatformCompany(companyId,null,{confirm:true,code});
+    config={url:config.url,automatic:false};tokens.clear();await save();
+  }
   async function synchronize(){
     if(running||connecting)return {state:'busy',...status()};if(!config.companyId)return {state:'failed',message:'اربط الجهاز بالشركة السحابية أولًا',...status()};
     running=true;lastError='';
     try{
+      // Fail closed before replay; a revoked session alone cannot identify a deleted tenant.
+      const notice=await (await remote('/api/v1/company/deletion-notice?companyId='+encodeURIComponent(config.companyId))).json();
+      if(notice.companyId!==config.companyId||typeof notice.deleted!=='boolean')throw Error('تعذر التحقق من حالة الشركة');
+      if(notice.deleted){await applyCloudDeletion(config.companyId,config.companyCode);return {state:'deleted',...status()};}
+      if(config.deletionPending?.kind==='account') {
+        // The owner remains active: account deletion cannot remove the company owner.
+        // Reconcile a lost account-deletion response against the authoritative snapshot.
+        const token=tokens.get(config.directorId);if(!token)throw Error('جلسة المدير مطلوبة لمراجعة نتيجة حذف الحساب');
+        const bytes=Buffer.from(await (await remote('/api/v1/enterprise/backup',{token})).arrayBuffer());
+        if(!await store.importCloudSnapshot(bytes,config.companyId))throw Error('راجع العمليات المعلقة قبل حسم حذف الحساب');
+        const userId=config.deletionPending.userId;
+        if(store.users.get(userId)?.deletedAt){tokens.delete(userId);tokens.delete(mapped(userId));}
+        delete config.deletionPending;await save();
+      }
+      if(config.deletionPending)throw Error('طلب حذف سحابي معلّق؛ أعد العملية للتحقق قبل المزامنة');
       for(const command of pending()){
         if(command.status==='conflict')throw Error('توجد عملية مرفوضة تحتاج مراجعة قبل متابعة المزامنة: '+command.error);
         const token=tokens.get(command.userId)||tokens.get(mapped(command.userId));if(!token)throw Error('يلزم تسجيل دخول سحابي للمستخدم الذي أنشأ العملية');
@@ -53,6 +73,64 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
     }catch(error){lastError=error.message;return {state:'failed',message:lastError,...status()};}
     finally{running=false;}
   }
+
+  app.post('/api/local/settings/transfer-owner',async(req,res)=>{
+    let ownsLock=false;
+    try{
+      const account=await authorized(req,res,'company.manage');if(!account)return;
+      assertSettingsScope(account,'users.manage');await confirmSettingsOperation(store,account,req.body,'transfer');
+      if(account.company.id!==config.companyId||running||connecting||pending().length)throw Error('تحقق من ربط الشركة وأنه لا توجد مزامنة أو عمليات معلقة');
+      connecting=true;ownsLock=true;
+      const token=tokens.get(account.user.id)||tokens.get(mapped(account.user.id));if(!token)throw Error('سجّل دخول المالك السحابي');
+      const result=await (await remote('/api/v1/settings/transfer-owner',{method:'POST',body:req.body,token})).json();
+      await store.transferCompanyOwnership(account,String(req.body.newOwnerId||''),req.body.reason);res.json(result);
+    }catch(error){res.status(error.status||400).json({error:{message:error.message}});}finally{if(ownsLock)connecting=false;}
+  });
+  app.post('/api/local/settings/erase-company',async(req,res)=>{
+    let ownsLock=false;
+    try {
+      const account=await authorized(req,res,'local.data.delete',{anyCompany:true});if(!account)return;
+      assertSettingsScope(account,'local.data.delete');
+      const reason=await confirmSettingsOperation(store,account,req.body,'local');
+      if(running||connecting)throw Error('انتظر انتهاء الربط أو المزامنة');
+      if([...store.desktopCommands.values()].some(x=>x.companyId===account.company.id&&x.local&&x.status!=='acknowledged'))throw Error('راجع العمليات غير المرسلة قبل مسح النسخة المحلية');
+      connecting=true;ownsLock=true;
+      // Persist detachment before erasing state: a restart cannot restore it automatically.
+      if(config.companyId===account.company.id){config={url:config.url,automatic:false};tokens.clear();await save();}
+      const result=await store.transaction(async()=>{
+        const backupId=await settingsBackup(store,account,reason,'local');
+        const result=await store.deletePlatformCompany(account.company.id,account.user.id,{confirm:true,code:account.company.code});
+        store.deletedCompanies.set(account.company.id,{...result.deletion,localOnly:true});
+        await store.recordDeletionEvidence(account,{kind:'local',reason,backupId});return {...result,backupId,cloudDeleted:false};
+      });res.json(result);
+    }catch(error){res.status(error.status||400).json({error:{code:error.code,message:error.message}});}finally{if(ownsLock)connecting=false;}
+  });
+  for(const kind of ['account','company'])app.post('/api/local/settings/delete-cloud-'+kind,async(req,res)=>{
+    let ownsLock=false;
+    try {
+      const account=await authorized(req,res,kind==='account'?'account.delete':'company.delete');if(!account)return;
+      assertSettingsScope(account,kind==='account'?'account.delete':'company.delete');
+      await confirmSettingsOperation(store,account,req.body,kind);
+      if(account.company.id!==config.companyId)throw Error('الحساب لا يطابق الشركة السحابية المرتبطة');
+      if(running||connecting)throw Error('انتظر انتهاء الربط أو المزامنة');
+      if(pending().length)throw Error('راجع العمليات غير المرسلة قبل الحذف السحابي');
+      const token=tokens.get(account.user.id)||tokens.get(mapped(account.user.id));if(!token)throw Error('سجّل دخولك السحابي أولًا');
+      connecting=true;ownsLock=true;
+      if(kind==='company'){
+        const notice=await (await remote('/api/v1/company/deletion-notice?companyId='+encodeURIComponent(account.company.id))).json();
+        if(notice.deleted===true){await applyCloudDeletion(account.company.id,account.company.code);return res.json({deleted:true,alreadyDeleted:true});}
+      }
+      const remoteAccount=await (await remote('/api/v1/settings',{token})).json();
+      if(remoteAccount.company?.id!==account.company.id||remoteAccount.user?.id!==mapped(account.user.id))throw Error('الهوية السحابية لا تطابق الحساب المحلي');
+      // Durable ambiguity flag prevents replay if the cloud committed but the response was lost.
+      config.deletionPending={kind,userId:account.user.id};await save();
+      const result=await (await remote('/api/v1/settings/delete-'+kind,{method:'POST',body:req.body,token})).json();
+      if(kind==='company')await applyCloudDeletion(account.company.id,account.company.code);
+      else {await store.deleteOwnAccount(account);tokens.delete(account.user.id);tokens.delete(mapped(account.user.id));delete config.deletionPending;await save();}
+      res.json(result);
+    }catch(error){if(error.status>=400&&error.status<500&&config.deletionPending){delete config.deletionPending;await save();}res.status(error.status||400).json({error:{code:error.code,message:error.message}});}finally{if(ownsLock)connecting=false;}
+  });
+
   app.get('/api/local/cloud/status',async(req,res)=>{if(await authorized(req,res,'sync.use'))res.json(status());});
   app.post('/api/local/cloud/synchronize',async(req,res)=>{if(await authorized(req,res,'sync.use'))res.json(await synchronize());});
   app.put('/api/local/cloud/settings',async(req,res)=>{if(!await authorized(req,res,'company.manage'))return;if(typeof req.body.automatic!=='boolean')return res.status(400).json({error:{message:'إعداد غير صالح'}});config.automatic=req.body.automatic;await save();res.json(status());});
@@ -63,12 +141,12 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
       const token=tokens.get(config.directorId);if(!token)throw Error('سجّل دخول المدير للاتصال بالسحابة');
       const bytes=Buffer.from(await(await remote('/api/v1/enterprise/backup',{token})).arrayBuffer());
       const backup=await store.exportBackup();const backupName='before-cloud-review-'+Date.now()+'.sqlite';await writeFile(join(dataDirectory,backupName),backup);
-      await store.importCloudSnapshot(bytes,config.companyId,{initial:true});lastSync=new Date().toISOString();res.json({saved:true,backupName});
+      await store.importCloudSnapshot(bytes,config.companyId,{initial:true,discardPending:true});lastSync=new Date().toISOString();res.json({saved:true,backupName});
     }catch(error){res.status(400).json({error:{message:error.message}});}finally{if(ownsLock)connecting=false;}
   });
   async function connectAccount(req,res){
     let ownsLock=false;try{
-      if(store.companies.size&&!await authorized(req,res,'company.manage'))return;
+      if(store.companies.size&&!await authorized(req,res,'company.manage',{anyCompany:true}))return;
       if(connecting||running)throw Error('عملية ربط أو مزامنة قيد التنفيذ');
       if(pending().length)throw Error('توجد عمليات غير مرسلة؛ لا يمكن تغيير الاتصال أو استبدال البيانات');
       if(req.body.adopt!==true)throw Error('اختر اعتماد بيانات الشركة السحابية لتهيئة الجهاز');
@@ -77,6 +155,7 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
       let account,token,bytes;
       try{
         const login=await (await remote('/api/v1/auth/login',{method:'POST',body:{companyCode:req.body.companyCode,username:req.body.username,password:req.body.password}})).json();account=login.account;token=login.token;
+        if(product!=='unified'&&(account.company.product||'company')!==product)throw Error('الشركة السحابية تتبع منتجًا مختلفًا');
         if(!account.permissions.includes('company.manage')||!account.permissions.includes('sync.use'))throw Error('استخدم حساب مدير الشركة للربط الأول');
         bytes=Buffer.from(await(await remote('/api/v1/enterprise/backup',{token})).arrayBuffer());
       }catch(error){config=previous;throw error;}
@@ -108,6 +187,7 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
   // Commit the domain mutation and its replay command together before releasing
   // the HTTP response. Server rejection restores every domain field.
   app.use(async(req,res,next)=>{
+    if(config.deletionPending&&req.path!=='/api/v1/auth/login'&&['POST','PUT','PATCH','DELETE'].includes(req.method))return res.status(423).json({error:{message:'نتيجة حذف سحابي تحتاج مراجعة؛ شغّل المزامنة قبل العمليات الجديدة'}});
     if(connecting&&['POST','PUT','PATCH','DELETE'].includes(req.method))return res.status(423).json({error:{message:'جاري تهيئة بيانات الشركة؛ أعد المحاولة بعد الربط'}});
     const isLogin=req.method==='POST'&&req.path==='/api/v1/auth/login';
     const capture=config.companyId&&['POST','PUT','PATCH','DELETE'].includes(req.method)&&commandPathAllowed(req.originalUrl);

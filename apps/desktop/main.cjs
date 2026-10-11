@@ -7,7 +7,7 @@ app.on('second-instance',()=>{const current=BrowserWindow.getAllWindows()[0];if(
 if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async () => {
   try {
     const { startEnterpriseLocal } = await import('../local/enterprise-server.js');
-    runtime = await startEnterpriseLocal({ dataDirectory: app.getPath('userData'), port: Number(process.env.ALMAHASIB_PORT || 3211), product: 'unified', bindHost:process.env.ALMAHASIB_BIND_HOST||'127.0.0.1',lanHost:process.env.ALMAHASIB_LAN_HOST,tlsKey:process.env.ALMAHASIB_TLS_KEY,tlsCert:process.env.ALMAHASIB_TLS_CERT, protect: bytes => { if(!safeStorage.isEncryptionAvailable()) throw Error('تعذر حماية جلسة السحابة على الجهاز'); return safeStorage.encryptString(bytes.toString()); }, unprotect: bytes => Buffer.from(safeStorage.decryptString(bytes)) });
+    runtime = await startEnterpriseLocal({ dataDirectory: app.getPath('userData'), port: Number(process.env.ALMAHASIB_PORT || 3211), product: 'company', bindHost:process.env.ALMAHASIB_BIND_HOST||'127.0.0.1',lanHost:process.env.ALMAHASIB_LAN_HOST,tlsKey:process.env.ALMAHASIB_TLS_KEY,tlsCert:process.env.ALMAHASIB_TLS_CERT, protect: bytes => { if(!safeStorage.isEncryptionAvailable()) throw Error('تعذر حماية جلسة السحابة على الجهاز'); return safeStorage.encryptString(bytes.toString()); }, unprotect: bytes => Buffer.from(safeStorage.decryptString(bytes)) });
     const window = new BrowserWindow({ show: process.env.ALMAHASIB_SMOKE_TEST !== '1', width: 1440, height: 950, minWidth: 960, minHeight: 640, title: 'المحاسب برو', webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true } });
     if(runtime.cleanInstallation)await window.webContents.session.clearStorageData();
     window.webContents.setWindowOpenHandler(({url}) => {
@@ -64,16 +64,11 @@ async function restoreBackup() {
   const dataPath = app.getPath('userData');
   const backup = await runtime.store.exportBackup();
   await fs.writeFile(path.join(dataPath, 'before-restore-' + Date.now() + '.sqlite'), backup);
-  await runtime.close(); runtime = null;
-  const destination = path.join(dataPath, 'enterprise.sqlite');
-  const temporary = destination + '.restoring';
-  await fs.copyFile(selected.filePaths[0], temporary);
-  const { SQLiteStore } = await import('../api/src/store/sqlite-store.js');
-  const restored = new SQLiteStore(temporary);
-  await restored.transaction(()=>restored.sessions.clear());
-  await restored.close();
-  await fs.rename(temporary, destination);
-  app.relaunch(); app.exit(0);
+  const bytes=await fs.readFile(selected.filePaths[0]);
+  if(!await runtime.store.importCloudSnapshot(bytes,account.company.id))throw Error('توجد عمليات غير مرسلة؛ راجع المزامنة قبل الاستعادة');
+  await dialog.showMessageBox({type:'info',message:'استُعيدت نسخة الشركة المحددة؛ بقيت بيانات الشركات الأخرى وعلامات الحذف محفوظة'});
+  for(const window of BrowserWindow.getAllWindows())await window.loadURL(runtime.url+'/login.html');
+
  } catch (error) { dialog.showErrorBox('تعذر الاستعادة', error.message); }
 }
 

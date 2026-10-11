@@ -13,12 +13,14 @@ let server;
 let baseUrl;
 let store;
 let platformToken;
+let testDirectory;
 
 const PASSWORD = 'Company-Strong-123';
 const companies = {};
 
 before(async () => {
-  store = new MemoryStore();
+  testDirectory=await mkdtemp(join(tmpdir(),'platform-delete-'));
+  store = new SQLiteStore(join(testDirectory,'state.sqlite'));
   await store.seedPlatformAdmin({ username: 'platform_admin', displayName: 'Platform', passwordHash: await hashPassword('Platform-Strong-123') });
   const app = createApp({ store });
   await new Promise((resolve) => { server = app.listen(0, '127.0.0.1', resolve); });
@@ -31,6 +33,7 @@ before(async () => {
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
   await store.close();
+  await rm(testDirectory,{recursive:true,force:true});
 });
 
 async function api(path, { token, cookies, ...options } = {}) {

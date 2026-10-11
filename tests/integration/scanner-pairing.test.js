@@ -13,7 +13,7 @@ test('retail cashier QR reaches its own scanner link and cannot poll another ten
  const runtime=await startEnterpriseCloud({dataDirectory:directory,origin:'http://localhost',port:0});
  try {
   const companyId=randomUUID(), otherId=randomUUID(), shiftId=randomUUID();
-  runtime.store.getSessionContext=async token=>({company:{id:token===hashToken('other')?otherId:companyId},user:{id:randomUUID()},permissions:['sync.use','pos.shift.open'],scopes:[]});
+  runtime.store.getSessionContext=async token=>({company:{id:token===hashToken('other')?otherId:companyId,product:'retail'},user:{id:randomUUID()},permissions:['sync.use','pos.shift.open'],scopes:[]});
   runtime.store.pullChanges=async()=>({changes:[{entityType:'market.transaction',payload:{kind:'shift_open',shiftId}}],hasMore:false});
   const request=(path,body,token='owner')=>fetch(runtime.url+path,{headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},...(body?{method:'POST',body:JSON.stringify(body)}:{})});
   const paired=await request('/retail/api/v1/market/scanner/pair',{shiftId});
@@ -30,7 +30,7 @@ test('retail cashier QR reaches its own scanner link and cannot poll another ten
   assert.equal(target.hash,'#'+token);
   const base=target.pathname.replace('/market-scanner.html','');
   assert.equal((await request(base+'/api/v1/market/scanner/'+token+'/status')).status,200);
-  assert.equal((await request('/api/v1/market/scanner/'+token+'/status')).status,410);
+  assert.equal((await request('/api/v1/market/scanner/'+token+'/status')).status,404);
   assert.equal((await request(base+'/api/v1/market/scanner/'+token+'/poll',null,'other')).status,410);
   assert.equal((await request(base+'/api/v1/market/scanner/'+token+'/scan',{barcode:'SCANNER-TEST'})).status,200);
   const poll=await request(base+'/api/v1/market/scanner/'+token+'/poll');

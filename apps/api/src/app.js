@@ -1,3 +1,5 @@
+import { productApiAllowed } from './product-pages.js';
+import { settingsBackup, installSettingsRoutes } from './modules/settings/routes.js';
 import { requireMarketPermission, requireCompanyMarketScope, validateMarketCatalog } from './lib/market-security.js';
 import { approvedCompanyCode } from './lib/company-code.js';
 import { installSalesRoutes, salesRep, salesScoped } from './sales-workspace.js';
@@ -24,13 +26,19 @@ const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, '../../../public');
 const loginAttempts = new Map();
 
-export function createApp({ store, localDeletionStore = null, sessionDays = 14, secureCookies = false, allowedOrigins = [], cookieName = 'almahasib_session', platformCookieName = null, cookiePath = '/', notificationSending = false }) {
+export function createApp({ store, localDeletionStore = null, localMode = false, productScope = null, sessionDays = 14, secureCookies = false, allowedOrigins = [], cookieName = 'almahasib_session', platformCookieName = null, cookiePath = '/', notificationSending = false }) {
   // Company accounts and platform developers keep independent cookies so that
   // signing into a company never replaces an active developer session and vice
   // versa, on the web and inside the Electron shell alike.
   const developerCookieName = platformCookieName || `${cookieName}_dev`;
   const app = express();
   app.disable('x-powered-by');
+  // Keep API boundaries inside the dispatchable app, including desktop replay.
+  app.use((req,res,next)=>{
+    if(productScope&&!productApiAllowed(productScope,req.path))return res.status(404).json({error:{code:'PRODUCT_ROUTE_UNAVAILABLE',message:'هذه العملية غير متاحة في هذا المنتج'}});
+    if(productScope&&!req.path.startsWith('/api/v1/platform/')&&req.path!=='/api/v1/companies/register')req.productScope=productScope;
+    next();
+  });
   app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('X-Frame-Options','DENY');res.set('Referrer-Policy','same-origin');res.set('Content-Security-Policy',"frame-ancestors 'none'; object-src 'none'; base-uri 'self'");if(secureCookies)res.set('Strict-Transport-Security','max-age=31536000');if(req.path.startsWith('/api/'))res.set('Cache-Control','private, no-store');next();});
   app.use((req, res, next) => { req.sessionCookieName = cookieName; req.developerCookieName = developerCookieName; next(); });
   app.use(cors({
@@ -43,6 +51,7 @@ export function createApp({ store, localDeletionStore = null, sessionDays = 14, 
   app.use(express.json({ limit: '5mb', verify(req,res,bytes){if(req.path==='/api/v1/notifications/webhook')req.rawBody=Buffer.from(bytes);} }));
   app.use(express.static(publicDirectory, { extensions: ['html'], etag: true }));
 
+  installSettingsRoutes(app,{store,authenticate,permit,localMode});
   installSalesRoutes(app,{store,authenticate,permit,validateDocument:validateCommercePayload});
   installPayrollRoutes(app,{store,authenticate,permit});
   installTreasuryRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency});
@@ -175,6 +184,7 @@ export function createApp({ store, localDeletionStore = null, sessionDays = 14, 
       const user = (await store.listUsers(login.company.id)).find(row => row.id === login.user.id);
       if (user?.roleCode !== req.body.roleCode) throw new AppError(403, 'LOGIN_ROLE_MISMATCH', 'الدور المختار لا يطابق دور حسابك؛ اختر الدور الذي حدده المدير');
     }
+    if (!platform && req.productScope && (login.company?.product || 'company') !== req.productScope) throw new AppError(403,'PRODUCT_SCOPE_DENIED','استخدم صفحة دخول المنتج الذي تتبعه الشركة');
     loginAttempts.delete(attemptKey);
     const token = newSessionToken();
     const expiresAt = new Date(Date.now() + sessionDays * 86400000).toISOString();
@@ -275,9 +285,16 @@ export function createApp({ store, localDeletionStore = null, sessionDays = 14, 
   app.delete('/api/v1/platform/companies/:companyId', authenticate(store), asyncRoute(async (req,res)=>{
     requirePlatform(req.auth);
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const result = await deleteTenantEverywhere({ cloudStore: store, localStore: localDeletionStore,
-      companyId: req.params.companyId, actorUserId: req.auth.user.id,
-      confirm: body.confirm === true, companyCode: body.code });
+    if(!store.deletePlatformCompany||!store.exportCompanyBackup||!store.transaction)throw new AppError(501,'BACKUP_UNAVAILABLE','الحذف غير متاح دون مخزن ذري ونسخة احتياطية للشركة');
+    const company=store.companies.get(req.params.companyId),deleted=store.companyDeletionTombstone(req.params.companyId);
+    if(body.confirm!==true||String(body.code||'').trim().toLowerCase()!==String(company?.code||deleted?.code||'').toLowerCase())throw new AppError(400,'CONFIRMATION_REQUIRED','اكتب رمز الشركة الصحيح وأكد الحذف');
+    const result=await store.transaction(async()=>{
+      let backupId=null;
+      if(company)backupId=await settingsBackup(store,{...req.auth,company},'platform company deletion','platform');
+      const result=await deleteTenantEverywhere({cloudStore:store,localStore:localDeletionStore,companyId:req.params.companyId,actorUserId:req.auth.user.id,confirm:true,companyCode:body.code});
+      if(backupId)await store.recordDeletionEvidence({...req.auth,company},{backupId,kind:'platform'});
+      return {...result,backupId};
+    });
     res.json(result);
   }));
   app.get('/api/v1/platform/companies/:companyId/deletion', authenticate(store), asyncRoute(async (req,res)=>{
@@ -677,7 +694,7 @@ export function createApp({ store, localDeletionStore = null, sessionDays = 14, 
     res.json(await store.syncStatus(req.auth.company.id, req.auth.user.id, req.auth.session.deviceId));
   }));
 
-  app.use('/api/v1/market', (req,res,next)=>{if(/^\/scanner\/[^/]+\/(status|scan)$/.test(req.path))return next();return authenticate(store)(req,res,()=>{try{requireCompanyMarketScope(req.auth);next();}catch(error){next(error);}});});
+  app.use('/api/v1/market', (req,res,next)=>{if(/^\/scanner\/[^/]+\/(status|scan)$/.test(req.path))return next();return authenticate(store)(req,res,(error)=>{if(error)return next(error);try{requireCompanyMarketScope(req.auth);next();}catch(error){next(error);}});});
 
   // Company-scoped market cloud snapshot. This deliberately stores the snapshot
   // through the existing sync change stream, so Mongo-backed stores persist it
