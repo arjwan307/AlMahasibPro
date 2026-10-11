@@ -1,6 +1,6 @@
 (() => {
  'use strict';
- const rawFetch=window.fetch.bind(window), ACTIVE='almahasib_erp_active_v1';
+ const rawFetch=window.fetch.bind(window), ACTIVE=location.pathname.startsWith('/retail/')?'almahasib_retail_erp_active_v1':'almahasib_erp_active_v1', BOOTSTRAP=location.pathname.startsWith('/retail/')?'almahasib_retail_cached_bootstrap':'almahasib_cached_bootstrap';
  if(!crypto.randomUUID)crypto.randomUUID=()=>{const b=crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const h=[...b].map(x=>x.toString(16).padStart(2,'0')).join('');return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);};
  let account,db,ready,flushing=false,reachable=false,localServer=false,flushPromise,cloud,lan,usingLan=false;
  const routes=new Map([
@@ -27,14 +27,15 @@
  function connectionText(){return reachable?(usingLan?'مزامنة عبر شبكة الفرع':localServer?'خادم الفرع المحلي متصل':'خادم الشركة متصل'):'قاعدة الجهاز · الخادم غير متصل';}
  async function status(){const queue=await rows('outbox');return{reachable,localServer,cloud,pending:queue.filter(x=>['pending','sending'].includes(x.state)).length,conflicts:queue.filter(x=>x.state==='conflict').length,connection:connectionText()};}
  async function render(){const el=document.getElementById('erpOfflineStatus');if(!el)return;const button=document.getElementById('erpConnectionButton');if(button)button.hidden=!valid();const s=await status();el.textContent=s.connection+' · بانتظار الإرسال: '+s.pending+' · تحتاج مراجعة: '+s.conflicts+(localServer?' · السحابة: '+(cloud?.connected?'مرتبطة؛ آخر مزامنة: '+(cloud.lastSuccessfulSync||'لم تتم بعد'):'لم يُؤكد الربط'):'');window.dispatchEvent(new CustomEvent('almahasib:connection',{detail:s}));}
- function reset(){account=null;db?.close();db=null;lan=null;localStorage.removeItem(ACTIVE);localStorage.removeItem('almahasib_cached_bootstrap');reachable=false;}
+ function reset(){account=null;db?.close();db=null;lan=null;localStorage.removeItem(ACTIVE);localStorage.removeItem(BOOTSTRAP);reachable=false;}
  // Removes only the deleted company's local footprint (IndexedDB databases and
  // scoped localStorage keys) so other companies cached on this device survive.
  async function purgeCompanyScope(companyId){const id=String(companyId||'');if(!id)return false;
   if(account?.company?.id===id)reset();
-  try{const active=JSON.parse(localStorage.getItem(ACTIVE)||'null');if(active?.company?.id===id){localStorage.removeItem(ACTIVE);localStorage.removeItem('almahasib_cached_bootstrap');}}catch{}
-  try{for(const key of Object.keys(localStorage))if(key.startsWith('almahasib-erp-'+id+'-'))localStorage.removeItem(key);}catch{}
-  try{if(indexedDB.databases)for(const database of await indexedDB.databases()){if(database.name&&String(database.name).startsWith('almahasib-erp-'+id+'-'))await new Promise(resolve=>{const request=indexedDB.deleteDatabase(database.name);request.onsuccess=resolve;request.onerror=resolve;request.onblocked=resolve;});}}catch{}
+  try{const context=JSON.parse(localStorage.getItem('almahasib_company_context')||'null');if(context?.id===id)localStorage.removeItem('almahasib_company_context');}catch{}
+  try{const active=JSON.parse(localStorage.getItem(ACTIVE)||'null');if(active?.company?.id===id){localStorage.removeItem(ACTIVE);localStorage.removeItem(BOOTSTRAP);}}catch{}
+  try{for(const key of Object.keys(localStorage))if(key.startsWith('almahasib-erp-'+id+'-')||key.startsWith('tenant:'+id+':'))localStorage.removeItem(key);}catch{}
+  try{if(indexedDB.databases)for(const database of await indexedDB.databases()){if(database.name&&(String(database.name).startsWith('almahasib-erp-'+id+'-')||String(database.name).startsWith('almahasib-'+id+'-')||database.name==='almahasib-market-'+id))await new Promise(resolve=>{const request=indexedDB.deleteDatabase(database.name);request.onsuccess=resolve;request.onerror=resolve;request.onblocked=resolve;});}}catch{}
   return true;
  }
  async function confirmCompanyDeletion(companyId){if(!companyId)return false;try{const r=await rawFetch('/api/v1/company/deletion-notice?companyId='+encodeURIComponent(companyId),{credentials:'same-origin',signal:AbortSignal.timeout(3000)});if(r.ok){const d=await r.json();if(d.deleted){await purgeCompanyScope(companyId);return true;}}}catch{}return false;}

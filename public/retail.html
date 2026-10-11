@@ -105,4 +105,4 @@
     </div><script>
 fetch('/api/v1/bootstrap',{credentials:'same-origin'}).then(async response=>{if(!response.ok){location.replace('/login.html');return;}const account=await response.json();const restaurant=account.company.businessType==='restaurant';document.querySelector('.card-restaurant').hidden=!restaurant;document.querySelector('.card-market').hidden=restaurant;document.querySelector('.header p').textContent=account.company.legalName;});
 document.getElementById('retailLogout').onclick=async()=>{const response=await fetch('/api/v1/auth/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});if(response.ok||response.status===401)location.replace('/retail-login.html');else alert('تعذر تسجيل الخروج؛ أعد المحاولة');};
-</script><script src="/app-ui.js?v=1.2.0" defer></script></body></html>
+</script><script src="/app-ui.js?v=1.2.0" defer></script><a href="/settings.html" style="position:fixed;bottom:18px;right:18px;z-index:45;background:#24619b;color:white;padding:10px;border-radius:8px">الإعدادات</a></body></html>

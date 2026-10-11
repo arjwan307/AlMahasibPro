@@ -35,7 +35,7 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211, product
   // Shared cloud retail clients use /retail/api; the same local engine serves both interfaces.
   if(product==='unified')app.use((req,_res,next)=>{if(req.path.startsWith('/retail/api/')){req.url=req.url.slice(7);req.originalUrl=req.originalUrl.slice(7);}next();});
   app.get('/desktop-cloud.html',(req,res)=>res.sendFile(fileURLToPath(new URL('../../public/desktop-cloud.html',import.meta.url))));
-  const cloud=await installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud,cloudOrigin});
+  const cloud=await installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud,cloudOrigin,product});
   if(product==='unified')app.get(['/', '/index.html'],(_req,res)=>res.redirect('/login.html'));
   app.use(productPages(product));
   if (product === 'retail'||product==='unified') {
@@ -62,13 +62,14 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211, product
     try {
       const { legalName, ownerName, username, password } = req.body;
       if (!legalName?.trim() || !ownerName?.trim() || !username?.trim() || typeof password !== 'string' || password.length < 10) throw new Error('أكمل البيانات؛ كلمة المرور عشرة أحرف على الأقل');
-      const company = await store.registerCompany({ code: 'local', legalName: legalName.trim(), timezone: 'Asia/Baghdad', currency: 'IQD', owner: { username: normalizeUsername(username), displayName: ownerName.trim(), passwordHash: await hashPassword(password) } });
+      const company = await store.registerCompany({ code: 'local', product: product === 'retail' ? 'retail' : 'company', legalName: legalName.trim(), timezone: 'Asia/Baghdad', currency: 'IQD', owner: { username: normalizeUsername(username), displayName: ownerName.trim(), passwordHash: await hashPassword(password) } });
       await store.approveCompany(company.id, company.ownerUserId);
       res.status(201).json({ companyCode: company.code });
     } catch (error) { res.status(400).json({ error: { message: error.message } }); }
     finally { configuring = false; }
   });
-  app.use(createApp({ store, allowedOrigins: origins,secureCookies:Boolean(tls) }));
+  app.use((req,_res,next)=>{if(product!=='unified'&&!req.path.startsWith('/api/v1/platform/'))req.productScope=product;next();});
+  app.use(createApp({ store, productScope:product==='unified'?null:product, localMode:true, cookieName:product==='retail'?'almahasib_retail_session':'almahasib_session', allowedOrigins: origins,secureCookies:Boolean(tls) }));
   const server = await new Promise((resolve, reject) => { const server = tls?createHttpsServer(tls,app):app;const listening=server.listen(port,bindHost,()=>resolve(listening));listening.on('error',reject); });
   return { url: `${protocol}://127.0.0.1:${port}`, lanUrl:lanHost?`${protocol}://${lanHost}:${port}`:null, cleanInstallation, store, close: async () => { cloud?.close(); await backups.close(); await new Promise(resolve => server.close(resolve)); await store.close(); } };
 }

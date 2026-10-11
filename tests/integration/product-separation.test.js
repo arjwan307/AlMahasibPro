@@ -17,6 +17,10 @@ test('company and retail runtimes expose separate pages and keep separate databa
   assert.equal((await fetch(retail.url+'/dashboard.html',{redirect:'manual'})).headers.get('location'),'/retail.html');
   assert.equal((await fetch(retail.url+'/pos.html')).status,200);
   assert.equal((await fetch(retail.url+'/market-cashier.html')).status,200);
+  assert.equal((await fetch(company.url+'/api/v1/market/snapshot')).status,404);
+  assert.equal((await fetch(retail.url+'/api/v1/payroll/cycles')).status,404);
+  assert.equal((await fetch(company.url+'/settings.html')).status,200);
+  assert.equal((await fetch(retail.url+'/settings.html')).status,200);
   const setup=await fetch(company.url+'/api/local/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({legalName:'شركة',ownerName:'مدير',username:'owner',password:'Strong-Password-123'})});assert.equal(setup.status,201);
   assert.equal((await (await fetch(retail.url+'/api/local/status')).json()).initialized,false);
  }finally{if(company)await company.close();if(retail)await retail.close();await rm(directory,{recursive:true,force:true});}

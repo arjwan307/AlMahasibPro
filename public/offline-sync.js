@@ -393,9 +393,9 @@
     try {
       try {
         account = await request('/api/v1/bootstrap');
-        localStorage.setItem('almahasib_cached_bootstrap', JSON.stringify(account));
+        localStorage.setItem((location.pathname.startsWith('/retail/')?'almahasib_retail_cached_bootstrap':'almahasib_cached_bootstrap'), JSON.stringify(account));
       } catch (error) {
-        const cached = localStorage.getItem('almahasib_cached_bootstrap');
+        const cached = localStorage.getItem((location.pathname.startsWith('/retail/')?'almahasib_retail_cached_bootstrap':'almahasib_cached_bootstrap'));
         if (!cached || error.status !== undefined) throw error;
         account = JSON.parse(cached);
         if (!account.offlineSessionExpiresAt || Date.parse(account.offlineSessionExpiresAt) <= Date.now()) throw error;

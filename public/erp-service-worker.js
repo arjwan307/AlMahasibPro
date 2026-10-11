@@ -1,5 +1,7 @@
 importScripts('/erp-shell-manifest.js');
-const CACHE='almahasib-erp-shell-1.2.7';
+const PRODUCT=new URL(self.registration.scope).pathname.startsWith('/retail/')?'retail':'company';
+const PREFIX='almahasib-erp-shell-'+PRODUCT+'-';
+const CACHE=PREFIX+'1.2.7-isolation-v1';
 // Cached redirected responses cannot satisfy Chromium navigation requests.
 // Preserve their content while removing the redirected response metadata.
 const shellResponse=response=>response.redirected?new Response(response.clone().body,{status:response.status,statusText:response.statusText,headers:response.headers}):response;
@@ -9,7 +11,7 @@ self.addEventListener('install',event=>event.waitUntil((async()=>{
  await self.skipWaiting();
 })()));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{
- for(const name of await caches.keys())if((name.startsWith('almahasib-erp-shell-')||name.startsWith('almahasib-market-shell-'))&&name!==CACHE)await caches.delete(name);
+ for(const name of await caches.keys())if((name.startsWith(PREFIX)||PRODUCT==='company'&&/^almahasib-erp-shell-\d/.test(name))&&name!==CACHE)await caches.delete(name);
  await self.clients.claim();
 })()));
 self.addEventListener('fetch',event=>{

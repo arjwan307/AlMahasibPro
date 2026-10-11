@@ -1,3 +1,4 @@
+import { tenantScope } from '../lib/tenant-scope.js';
 import { DatabaseSync } from 'node:sqlite';
 import { serialize, deserialize } from 'node:v8';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -23,6 +24,7 @@ export class SQLiteStore extends MemoryStore {
     }
     this.queue = Promise.resolve();
     const scope = new AsyncLocalStorage();
+    this.transactionScope = scope;
     const snapshot = () => fields.map(key => [key, serialize(this[key])]);
     const restore = rows => { for (const [key, bytes] of rows) this[key] = deserialize(bytes); };
     const write = this.sqlite.prepare('INSERT INTO domain_state(field,data) VALUES (?,?) ON CONFLICT(field) DO UPDATE SET data=excluded.data');
@@ -107,19 +109,20 @@ export class SQLiteStore extends MemoryStore {
     this.queue = task.catch(() => {}); return task;
   }
   async exportCompanyBackup(companyId) {
-    const task=this.queue.then(()=>{
+    const create=()=>{
       if(!this.companies.has(companyId))throw Error('الشركة غير موجودة');
       const filename=this.filename+'.'+randomUUID()+'.company-backup';let database;
       try{
         database=new DatabaseSync(filename);
         database.exec('CREATE TABLE domain_state (field TEXT PRIMARY KEY,data BLOB NOT NULL) STRICT;');
         const write=database.prepare('INSERT INTO domain_state(field,data) VALUES (?,?)');
+        const belongs=tenantScope(this,companyId);
         const knownIds=new Set();
         for(const value of Object.values(this))if(value instanceof Map)for(const [id,row] of value)if(row?.companyId===companyId)knownIds.add(String(id));
         for(const [field,value] of Object.entries(this)){
           let filtered;
           if(value instanceof Map){
-            filtered=new Map([...value].filter(([id,row])=>field==='sessions'?false:field==='companies'?id===companyId:row?.companyId===companyId||(field==='salesSettings'&&!row?.companyId&&knownIds.has(String(id).split(':').at(-1)))).map(([id,row])=>[id,structuredClone(row)]));
+            filtered=new Map([...value].filter(([id,row])=>field!=='sessions' && belongs(field,id,row)).map(([id,row])=>[id,structuredClone(row)]));
             if(field==='salesSettings')for(const row of filtered.values())if(Array.isArray(row.photos))row.photos=row.photos.map(photo=>{
               if(photo.data)return photo;
               if(!photo.filename||basename(photo.filename)!==photo.filename)throw Error('مسار صورة غير صالح');
@@ -133,11 +136,12 @@ export class SQLiteStore extends MemoryStore {
         }
         database.close();database=null;return readFileSync(filename);
       }finally{database?.close();try{unlinkSync(filename);}catch{}}
-    });
-    this.queue=task.catch(()=>{});return task;
+    };
+    if(this.transactionScope.getStore())return create();
+    const task=this.queue.then(create);this.queue=task.catch(()=>{});return task;
   }
-  async importCloudSnapshot(bytes, companyId, {initial = false} = {}) {
-    if (this.deletedCompanies?.has(companyId)) throw new Error('تم حذف الشركة نهائيًا؛ لا يمكن استيراد نسخة سحابية قديمة');
+  async importCloudSnapshot(bytes, companyId, {initial = false, discardPending = false} = {}) {
+    if (this.deletedCompanies?.has(companyId) && !(initial && this.deletedCompanies.get(companyId).localOnly)) throw new Error('تم حذف الشركة نهائيًا؛ لا يمكن استيراد نسخة سحابية قديمة');
     const filename = this.filename + '.' + randomUUID() + '.incoming';
     const {writeFileSync} = await import('node:fs');
     writeFileSync(filename,bytes);
@@ -148,15 +152,42 @@ export class SQLiteStore extends MemoryStore {
       const rows=incoming.prepare('SELECT field,data FROM domain_state').all();
       const companies=deserialize(Buffer.from(rows.find(x=>x.field==='companies')?.data||[]));
       if(!(companies instanceof Map)||companies.size!==1||!companies.has(companyId))throw Error('النسخة لا تخص الشركة المحددة');
-      return await this.transaction(()=>{
-        if(!initial&&[...this.desktopCommands.values()].some(x=>x.local&&x.status!=='acknowledged'))return false;
-        // A verified backup restores historical postings; it does not post new transactions.
-        this.importingCloudSnapshot=true;
-        for(const row of rows){
-          if(['sessions','desktopCommands','desktopIdMappings'].includes(row.field))continue;
-          if(this[row.field] instanceof Map||Array.isArray(this[row.field])||row.field==='changeSequence')this[row.field]=deserialize(Buffer.from(row.data));
+      return await this.transaction(async()=>{
+        // Recheck under the write lock: deletion may have committed while bytes were validated.
+        if(this.deletedCompanies.has(companyId) && !(initial && this.deletedCompanies.get(companyId).localOnly))throw Error('تم حذف الشركة نهائيًا');
+        if(!discardPending&&[...this.desktopCommands.values()].some(x=>x.companyId===companyId&&x.local&&x.status!=='acknowledged'))return false;
+        const state=Object.fromEntries(rows.map(row=>[row.field,deserialize(Buffer.from(row.data))]));
+        const incomingScope=tenantScope(state,companyId), localScope=tenantScope(this,companyId);
+        for(const [field,value] of Object.entries(state)) {
+          if(['sessions','desktopCommands','desktopIdMappings','deletedCompanies'].includes(field))continue;
+          if(value instanceof Map)for(const [id,row] of value)if(!incomingScope(field,id,row)||row?.platformAdmin)throw Error('النسخة تحتوي بيانات خارج الشركة');
+          if(Array.isArray(value)&&value.some(row=>row?.companyId!==companyId))throw Error('النسخة تحتوي بيانات خارج الشركة');
         }
-        if(initial){this.sessions.clear();this.desktopCommands.clear();this.desktopIdMappings.clear();}
+        this.importingCloudSnapshot=true;
+        for(const [field,value] of Object.entries(state)) {
+          if(['sessions','desktopCommands','desktopIdMappings','deletedCompanies','deletedAccounts','ownershipTransfers','auditStateBefore'].includes(field))continue;
+          if(this[field] instanceof Map && value instanceof Map) {
+            for(const [id,row] of this[field])if(localScope(field,id,row))this[field].delete(id);
+            for(const [id,row] of value){if(this[field].has(id))throw Error('تعارض معرف مع شركة أخرى');this[field].set(id,row);}
+          }else if(Array.isArray(this[field])&&Array.isArray(value))this[field]=[...this[field].filter(row=>row?.companyId!==companyId),...value];
+          else if(field==='changeSequence')this.changeSequence=Math.max(this.changeSequence,Number(value)||0);
+        }
+        if(state.deletedAccounts instanceof Map)for(const [id,row] of state.deletedAccounts) {
+          if(row.companyId!==companyId)throw Error('علامة حذف حساب خارج الشركة');
+          if(!this.deletedAccounts.has(id))this.deletedAccounts.set(id,row);
+        }
+        const incomingTransfer=state.ownershipTransfers?.get(companyId),currentTransfer=this.ownershipTransfers.get(companyId);
+        if(incomingTransfer&&(!currentTransfer||incomingTransfer.revision>currentTransfer.revision))this.ownershipTransfers.set(companyId,incomingTransfer);
+        const transfer=this.ownershipTransfers.get(companyId);
+        if(transfer){
+          if(this.users.get(transfer.newOwnerId)?.companyId!==companyId)throw Error('النسخة أقدم من نقل الملكية ولا تحتوي المالك الحالي');
+          this.companies.get(companyId).ownerUserId=transfer.newOwnerId;
+        }
+        await this.enforceAccountDeletions(companyId);
+        if(initial){
+          for(const field of ['sessions','desktopCommands','desktopIdMappings'])for(const [id,row] of this[field])if(localScope(field,id,row))this[field].delete(id);
+          if(this.deletedCompanies.get(companyId)?.localOnly)this.deletedCompanies.delete(companyId);
+        }
         return true;
       });
     } finally {this.importingCloudSnapshot=false;incoming?.close();try{unlinkSync(filename);}catch{}}

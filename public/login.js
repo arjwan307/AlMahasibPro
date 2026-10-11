@@ -11,5 +11,5 @@
   location.replace(kind==='company'?'/enterprise.html':(localMode?'/retail.html':'/retail/retail.html'));
  }
  form.onsubmit=async event=>{event.preventDefault();const button=form.querySelector(':scope > button');button.disabled=true;notice.hidden=true;try{const result=await request('/api/v1/auth/login',Object.fromEntries(new FormData(form)));route(result.account);}catch(error){notice.textContent=error.message;notice.hidden=false;}finally{button.disabled=false;}};
- (async()=>{try{const status=await request('/api/local/status');localMode=Boolean(status.local);if(localMode&&status.companyCode)form.elements.companyCode.value=status.companyCode;}catch{}try{route(await request('/api/v1/bootstrap'));}catch{}})();
+ (async()=>{try{const status=await request('/api/local/status');localMode=Boolean(status.local);const cashierLink=document.getElementById('cashierLogin');if(cashierLink)cashierLink.hidden=localMode||location.pathname.includes('retail');if(localMode&&status.companyCode)form.elements.companyCode.value=status.companyCode;}catch{}try{route(await request('/api/v1/bootstrap'));}catch{}})();
 })();
