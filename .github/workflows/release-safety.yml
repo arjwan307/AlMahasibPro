@@ -2,7 +2,7 @@ name: Release safety checks
 
 on:
   push:
-    branches: [main, integration/almahasibpro-complete, feature/enterprise-windows-local, 'fix/**', 'feature/**']
+    branches: [main, integration/almahasibpro-complete, feature/enterprise-windows-local, 'fix/**', 'feature/**', 'refactor/**']
   pull_request:
     branches: [main, integration/almahasibpro-complete, feature/enterprise-windows-local]
 
@@ -13,6 +13,11 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      mongo:
+        image: mongo:8.0
+        ports:
+          - 27017:27017
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,4 +32,6 @@ jobs:
         run: |
           node --input-type=module -e "import { MemoryStore } from './apps/api/src/store/memory-store.js'; if (typeof MemoryStore !== 'function' || Object.getOwnPropertyNames(MemoryStore.prototype).length < 5) process.exit(1)"
       - name: Run repository tests
+        env:
+          TEST_MONGODB_URI: mongodb://127.0.0.1:27017
         run: npm test

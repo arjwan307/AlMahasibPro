@@ -883,7 +883,7 @@ export function createApp({ store, localDeletionStore = null, localMode = false,
     if (typeof store.exportCompanyBackup !== 'function') throw new AppError(400,'SQLITE_BACKUP_REQUIRED','النسخ الاحتياطي غير متاح لهذا الخادم');
     const stamp=new Date().toISOString().replace(/[:.]/g,'-');
     res.setHeader('Cache-Control','private, no-store');
-    res.setHeader('Content-Disposition',`attachment; filename="AlMahasibPro-${stamp}.sqlite"`);
+    res.setHeader('Content-Disposition',`attachment; filename="AlMahasibPro-${stamp}.${store.backupExtension||'sqlite'}"`);
     res.type('application/octet-stream').send(await store.exportCompanyBackup(req.auth.company.id));
   }));
 

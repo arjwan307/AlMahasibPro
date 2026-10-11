@@ -30,7 +30,7 @@ test('three desktop signup requests reach the cloud as separate business types a
    const customer=customers[index],companyCode=['company2020','retail50','mark75'][index];
    assert.notEqual((await post(cloud.url,'/api/v1/auth/login',{companyCode:customer.code,username:'owner',password})).status,200);
    await cloud.store.approveCompany(customer.id,'test-developer',companyCode);
-   const result=await post(cloud.url,index===0?'/api/v1/auth/login':'/retail/api/v1/auth/login',{companyCode,username:'owner',password});
+   const result=await post(cloud.url,'/api/v1/auth/login',{companyCode,username:'owner',password});
    assert.equal(result.status,200);
    assert.equal(result.data.account.company.id,customer.id);
   }

@@ -17,7 +17,9 @@
     "prebuild:windows:company": "node scripts/prepare-erp-shell.mjs",
     "prebuild:windows:retail": "node scripts/prepare-erp-shell.mjs",
     "build:windows:unified": "electron-builder --config apps/desktop/unified-builder.json --win nsis --publish never",
-    "prebuild:windows:unified": "node scripts/prepare-erp-shell.mjs"
+    "prebuild:windows:unified": "node scripts/prepare-erp-shell.mjs",
+    "start:cloud:company": "ALMAHASIB_PRODUCT=company node apps/api/src/cloud-server.js",
+    "start:cloud:retail": "ALMAHASIB_PRODUCT=retail node apps/api/src/cloud-server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

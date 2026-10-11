@@ -7,21 +7,21 @@ import { join } from 'node:path';
 import { startEnterpriseCloud } from '../../apps/api/src/cloud-server.js';
 import { SQLiteStore } from '../../apps/api/src/store/sqlite-store.js';
 import { hashPassword } from '../../apps/api/src/lib/security.js';
-test('shared cloud isolates product sessions and preserves each company identity',async()=>{
+test('shared cloud keeps company and retail sessions isolated while preserving the authenticated company identity',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'shared-cloud-'));let runtime;const setupToken='test-setup-key-longer-than-24-characters';
  try{
   runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken,origin:'http://localhost',port:0});
   async function request(path,body,cookie=''){const response=await fetch(runtime.url+path,{headers:{'Content-Type':'application/json',Cookie:cookie},...(body?{method:'POST',body:JSON.stringify(body)}:{})});return {status:response.status,data:response.status===204?{}:await response.json(),cookie:response.headers.get('set-cookie')};}
-  assert.equal(runtime.store,runtime.retailStore);assert.equal(runtime.store.filename,join(directory,'enterprise.sqlite'));
+  assert.notEqual(runtime.store,runtime.retailStore);assert.equal(runtime.store.filename,join(directory,'enterprise.sqlite'));assert.equal(runtime.retailStore.filename,join(directory,'retail','enterprise.sqlite'));
   for(const prefix of ['', '/retail'])assert.equal((await request(prefix+'/api/local/setup',{setupToken,legalName:prefix?'مطعم':'شركة',ownerName:'مدير',username:'owner',password:'Strong-Password-123'})).status,201);
   const company=await request('/api/v1/auth/login',{companyCode:'company',username:'owner',password:'Strong-Password-123'}),retail=await request('/retail/api/v1/auth/login',{companyCode:'retail',username:'owner',password:'Strong-Password-123'});
-  assert.match(company.cookie,/^almahasib_session=/);assert.match(retail.cookie,/^almahasib_retail_session=/);assert.match(retail.cookie,/Path=\/retail/);
+  assert.match(company.cookie,/^almahasib_company_session=/);assert.match(retail.cookie,/^almahasib_retail_session=/);assert.match(retail.cookie,/Path=\/retail/);
   const companyCookie=company.cookie.split(';')[0],retailCookie=retail.cookie.split(';')[0];
   assert.equal((await request('/api/v1/bootstrap',null,retailCookie)).status,401);
   assert.equal((await request('/retail/api/v1/bootstrap',null,companyCookie)).status,401);
   assert.equal((await request('/retail/api/v1/bootstrap',null,'almahasib_retail_session='+company.data.token)).status,401);
-  assert.equal((await request('/api/v1/auth/login',{companyCode:'retail',username:'owner',password:'Strong-Password-123'})).status,403);
-  assert.equal((await request('/retail/api/v1/auth/login',{companyCode:'company',username:'owner',password:'Strong-Password-123'})).status,403);
+  assert.equal((await request('/api/v1/auth/login',{companyCode:'retail',username:'owner',password:'Strong-Password-123'})).status,401);
+  assert.equal((await request('/retail/api/v1/auth/login',{companyCode:'company',username:'owner',password:'Strong-Password-123'})).status,401);
   assert.notEqual(company.data.account.company.id,retail.data.account.company.id);
   assert.equal((await request('/api/v1/bootstrap',null,companyCookie)).data.company.legalName,'شركة');
   assert.equal((await request('/retail/api/v1/bootstrap',null,retailCookie)).data.company.legalName,'مطعم');
@@ -43,23 +43,24 @@ test('shared cloud isolates product sessions and preserves each company identity
  }finally{if(runtime)await runtime.close();await rm(directory,{recursive:true,force:true});}
 });
 
-test('legacy retail SQLite data is imported into the shared database and remains available after restart',async()=>{
+test('legacy retail database is served in place and survives restart without mixing with company data',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'legacy-retail-'));let runtime;
  try{
   const legacy=new SQLiteStore(join(directory,'retail','enterprise.sqlite'));
   const password='Strong-Legacy-Password-123';
-  const company=await legacy.registerCompany({code:'company',legalName:'مطعم قديم',timezone:'Asia/Baghdad',currency:'IQD',owner:{username:'legacy',displayName:'مدير',passwordHash:await hashPassword(password)}});
+  const company=await legacy.registerCompany({code:'retail',product:'retail',legalName:'مطعم قديم',timezone:'Asia/Baghdad',currency:'IQD',owner:{username:'legacy',displayName:'مدير',passwordHash:await hashPassword(password)}});
   await legacy.approveCompany(company.id,company.ownerUserId);await legacy.close();
   runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken:'test-setup-key-longer-than-24-characters',origin:'http://localhost',port:0});
-  assert.equal(runtime.store,runtime.retailStore);
-  assert.equal(runtime.store.filename,join(directory,'enterprise.sqlite'));
+  assert.notEqual(runtime.store,runtime.retailStore);
+  assert.equal(runtime.retailStore.filename,join(directory,'retail','enterprise.sqlite'));
   const status=await fetch(runtime.url+'/retail/api/local/status').then(r=>r.json());
   assert.equal(status.initialized,true);assert.equal(status.companyCode,'retail');
-  assert.equal([...runtime.store.companies.values()].find(x=>x.product==='retail').legalName,'مطعم قديم');
+  assert.equal([...runtime.retailStore.companies.values()].find(x=>x.product==='retail').legalName,'مطعم قديم');
+  assert.equal([...runtime.store.companies.values()].length,0);
   const login=await fetch(runtime.url+'/retail/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({companyCode:'retail',username:'legacy',password})});
   assert.equal(login.status,200);
   await runtime.close();
   runtime=await startEnterpriseCloud({dataDirectory:directory,setupToken:'test-setup-key-longer-than-24-characters',origin:'http://localhost',port:0});
-  assert.equal([...runtime.store.companies.values()].filter(x=>x.product==='retail').length,1);
+  assert.equal([...runtime.retailStore.companies.values()].filter(x=>x.product==='retail').length,1);
  }finally{if(runtime)await runtime.close();await rm(directory,{recursive:true,force:true});}
 });
