@@ -14,6 +14,7 @@ export class SQLiteStore extends MemoryStore {
     super();
     mkdirSync(dirname(filename), { recursive: true });
     this.filename = filename;
+    this.backupExtension = 'sqlite';
     this.sqlite = new DatabaseSync(filename);
     this.sqlite.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS domain_state (field TEXT PRIMARY KEY, data BLOB NOT NULL) STRICT;');
     const fields = Object.keys(this).filter(key => this[key] instanceof Map || Array.isArray(this[key]) || key === 'changeSequence');
@@ -162,4 +163,12 @@ export class SQLiteStore extends MemoryStore {
     } finally {this.importingCloudSnapshot=false;incoming?.close();try{unlinkSync(filename);}catch{}}
   }
   async close() { await this.queue; this.sqlite.close(); }
+  async verifyBackup(target) {
+    const file = typeof target === 'string' ? target : null;
+    if (!file) throw new Error('النسخة الاحتياطية غير سليمة');
+    const check = new DatabaseSync(file, { readOnly: true });
+    try { if (check.prepare('PRAGMA integrity_check').get().integrity_check !== 'ok') throw Error('النسخة الاحتياطية غير سليمة'); }
+    finally { check.close(); }
+    return true;
+  }
 }
