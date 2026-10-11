@@ -64,7 +64,15 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
    await store.approveCompany(company.id,company.ownerUserId);res.status(201).json({companyCode:company.code});
   }catch(error){res.status(400).json({error:{message:error.message}});}finally{configuring=false;}
  });
- app.use((req,_res,next)=>{if(req.method==='POST'&&req.path==='/api/v1/companies/register')req.productScope=req.body.product==='retail'||product==='retail'?'retail':'company';next();});
+ app.use((req,res,next)=>{
+  if(req.method==='POST'&&req.path==='/api/v1/companies/register'){
+   const requested=req.body?.product;
+   if(requested&&requested!==product)return res.status(403).json({error:{code:'PRODUCT_SCOPE_FORBIDDEN',message:'لا يمكن التسجيل في نظام آخر من هذه الخدمة'}});
+   req.productScope=product;
+   req.body.product=product;
+  }
+  next();
+ });
  const api=createApp({store,notificationSending:product==='company',secureCookies:origin.startsWith('https:'),allowedOrigins:[origin],cookieName:product==='retail'?'almahasib_retail_session':'almahasib_company_session',cookiePath:basePath||'/'});app.use(api);
  return {app,store,stopNotifications:()=>api.stopNotifications?.()};
 }
