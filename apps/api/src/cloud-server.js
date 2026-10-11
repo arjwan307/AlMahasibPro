@@ -18,7 +18,7 @@ async function createProductCloud({ dataDirectory, setupToken, origin, product =
  const store=sharedStore||new SQLiteStore(join(dataDirectory,'enterprise.sqlite'));
  // Bootstrap the first platform administrator only when the Render service owner
  // explicitly supplies credentials. Never reset or replace an existing admin.
- if(product==='company'&&process.env.PLATFORM_ADMIN_USERNAME&&process.env.PLATFORM_ADMIN_PASSWORD){
+ if(process.env.PLATFORM_ADMIN_USERNAME&&process.env.PLATFORM_ADMIN_PASSWORD){
   const admins=await store.listPlatformAdmins();
   if(admins.length===0){
    await store.seedPlatformAdmin({
@@ -97,7 +97,25 @@ export async function startEnterpriseCloud({ dataDirectory, setupToken, origin, 
  const server=await new Promise((resolve,reject)=>{const server=app.listen(port,host,()=>resolve(server));server.on('error',reject);});
  return {store:company.store,retailStore:retail.store,url:`http://127.0.0.1:${server.address().port}`,close:async()=>{company.stopNotifications();retail.stopNotifications();await backups.close();await retailBackups.close();await new Promise(resolve=>server.close(resolve));await company.store.close();await retail.store.close();}};
 }
+
+// Dedicated deployment: one process, one product, one database, one backup directory.
+// Do not mount the other product's application or API on this HTTP server.
+export async function startProductCloud({ product, dataDirectory, setupToken, origin, port = 10000, host = '0.0.0.0' }) {
+ if(!['company','retail'].includes(product))throw Error('ALMAHASIB_PRODUCT must be company or retail');
+ if(!dataDirectory)throw Error('ALMAHASIB_DATA_DIR is required');
+ const store=new SQLiteStore(join(dataDirectory,product==='retail'?'retail/enterprise.sqlite':'enterprise.sqlite'));
+ const backups=startBackupService({store,directory:process.env.ALMAHASIB_BACKUP_DIR||join(dataDirectory,'backups',product)});
+ store.backupService=backups;
+ const cloud=await createProductCloud({dataDirectory,setupToken,origin,product,sharedStore:store});
+ const app=express();app.disable('x-powered-by');
+ if(product==='retail')app.get(['/', '/index.html'],(_req,res)=>res.redirect('/retail-login.html'));
+ app.use(cloud.app);
+ const server=await new Promise((resolve,reject)=>{const listener=app.listen(port,host,()=>resolve(listener));listener.on('error',reject);});
+ return {store,url:`http://127.0.0.1:${server.address().port}`,close:async()=>{cloud.stopNotifications();await new Promise(resolve=>server.close(resolve));await backups.close();await store.close();}};
+}
+
 if(process.argv[1]?.endsWith('cloud-server.js')){
- const runtime=await startEnterpriseCloud({dataDirectory:process.env.ALMAHASIB_DATA_DIR,setupToken:process.env.ALMAHASIB_SETUP_TOKEN,origin:process.env.ALMAHASIB_PUBLIC_ORIGIN,port:Number(process.env.PORT||10000)});
+ const start=process.env.ALMAHASIB_PRODUCT?startProductCloud:startEnterpriseCloud;
+ const runtime=await start({product:process.env.ALMAHASIB_PRODUCT,dataDirectory:process.env.ALMAHASIB_DATA_DIR,setupToken:process.env.ALMAHASIB_SETUP_TOKEN,origin:process.env.ALMAHASIB_PUBLIC_ORIGIN,port:Number(process.env.PORT||10000)});
  for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>runtime.close().then(()=>process.exit(0)));
 }
