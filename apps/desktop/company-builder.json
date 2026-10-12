@@ -25,7 +25,7 @@
     "package.json"
   ],
   "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
-  "appId": "com.almahasibpro.enterprise",
+  "appId": "com.almahasibpro.companies",
   "productName": "AlMahasibPro-Companies",
   "directories": {
     "output": "releases/companies"

@@ -4,6 +4,9 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
  try{
   const modulePath=path.join(process.cwd(),'resources','app.asar','apps','local','enterprise-server.js');
   const {startEnterpriseLocal}=await import(require('node:url').pathToFileURL(modulePath).href);
+  const {companyRuntimeOptions}=require(path.join(process.cwd(),'resources','app.asar','apps','desktop','company-runtime.cjs'));
+  const isolated=companyRuntimeOptions(directory,{ALMAHASIB_DATA_DIR:path.join(directory,'legacy-cashier'),ALMAHASIB_PORT:'3211'});
+  assert.equal(isolated.dataDirectory,path.join(directory,'AlMahasibProCompanies'));assert.equal(isolated.port,3213);
   runtime=await startEnterpriseLocal({dataDirectory:directory,port:33388});
   for(const asset of ['/enterprise.html','/company-sync-ui.js','/company-messages.js','/company-responsive.css','/app-ui.css','/app-ui.js','/desktop-cloud.html','/data-import.html','/data-import.js'])assert.equal((await fetch(runtime.url+asset)).status,200,asset);
   const response=await fetch(runtime.url+'/api/local/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({legalName:'Packaged smoke test',ownerName:'Owner',username:'owner',password:'Packaged-Test-123'})});assert.equal(response.status,201);

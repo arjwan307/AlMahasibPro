@@ -36,6 +36,7 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211, product
   if(product==='unified')app.use((req,_res,next)=>{if(req.path.startsWith('/retail/api/')){req.url=req.url.slice(7);req.originalUrl=req.originalUrl.slice(7);}next();});
   app.get('/desktop-cloud.html',(req,res)=>res.sendFile(fileURLToPath(new URL('../../public/desktop-cloud.html',import.meta.url))));
   const cloud=await installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud,cloudOrigin,product});
+  if(product==='company')app.get(['/', '/index.html'],(_req,res)=>res.redirect('/enterprise.html'));
   if(product==='unified')app.get(['/', '/index.html'],(_req,res)=>res.redirect('/login.html'));
   app.use(productPages(product));
   if (product === 'retail'||product==='unified') {
