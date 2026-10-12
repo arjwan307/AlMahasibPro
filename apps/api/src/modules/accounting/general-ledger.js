@@ -19,7 +19,7 @@ export function projectGeneralLedger(journals, { accountCode, from, to, currency
   const format = units => (units < 0n ? '-' : '') + String((units < 0n ? -units : units) / scale) + '.' + String((units < 0n ? -units : units) % scale).padStart(6, '0');
   const selected = (journals || []).filter(j => j.status === 'posted').flatMap(j =>
     (j.lines || []).filter(line => String(line.accountCode || line.account || '').trim().toUpperCase() === code).map((line, index) => ({
-      journalId: j.id, entryNumber: j.entryNumber, occurredAt: j.occurredAt,
+      accountingDate:j.accountingDate||j.occurredAt.slice(0,10), documentId:j.documentId||j.openingJournalId||null, note:line.note||'', journalId: j.id, entryNumber: j.entryNumber, occurredAt: j.occurredAt,
       currency: String(j.currency || '').toUpperCase(), description: j.description || '',
       index, debit: parse(line.debit), credit: parse(line.credit)
     }))
@@ -29,14 +29,14 @@ export function projectGeneralLedger(journals, { accountCode, from, to, currency
   const opening = new Map();
   const entries = [];
   for (const row of selected) {
+    if (to && row.accountingDate > to) continue;
     const current = (balances.get(row.currency) || 0n) + row.debit - row.credit;
     balances.set(row.currency, current);
-    if (from && row.occurredAt.slice(0,10) < from) {
+    if (from && row.accountingDate < from) {
       opening.set(row.currency, current);
       continue;
     }
-    if (to && row.occurredAt.slice(0,10) > to) continue;
-    entries.push({ journalId: row.journalId, entryNumber: row.entryNumber, occurredAt: row.occurredAt, currency: row.currency, description: row.description, debit: format(row.debit), credit: format(row.credit), balance: format(current) });
+    entries.push({accountingDate:row.accountingDate,documentId:row.documentId,note:row.note, journalId: row.journalId, entryNumber: row.entryNumber, occurredAt: row.occurredAt, currency: row.currency, description: row.description, debit: format(row.debit), credit: format(row.credit), balance: format(current) });
   }
-  return { accountCode: code, openingBalances: [...opening].map(([currency, amount]) => ({ currency, balance: format(amount) })), entries };
+  return { accountCode: code, openingBalances: [...balances.keys()].map(currency => ({ currency, balance: format(opening.get(currency)||0n) })), closingBalances:[...balances].map(([currency,amount])=>({currency,balance:format(amount)})), entries };
 }

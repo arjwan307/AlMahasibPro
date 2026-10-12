@@ -1,3 +1,4 @@
+import { installAccountingRoutes } from './modules/accounting/routes.js';
 import { productApiAllowed } from './product-pages.js';
 import { settingsBackup, installSettingsRoutes } from './modules/settings/routes.js';
 import { requireMarketPermission, requireCompanyMarketScope, validateMarketCatalog } from './lib/market-security.js';
@@ -54,6 +55,7 @@ export function createApp({ store, localDeletionStore = null, localMode = false,
   installSettingsRoutes(app,{store,authenticate,permit,localMode});
   installSalesRoutes(app,{store,authenticate,permit,validateDocument:validateCommercePayload});
   installPayrollRoutes(app,{store,authenticate,permit});
+  installAccountingRoutes(app,{store,authenticate,permit});
   installTreasuryRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency});
   installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
   installDataImportRoutes(app,{store,authenticate,permit,uuid});

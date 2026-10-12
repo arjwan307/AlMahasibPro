@@ -10,7 +10,7 @@ const balanced = { period: '2026', currency: 'IQD', lines: [
 test('opening journal validates balanced double entry without floating point', () => {
   const result = validateOpeningJournal(balanced, opts);
   assert.equal(result.valid, true);
-  assert.equal(result.debit, '25000000.000');
+  assert.equal(result.debit, '25000000.000000');
 });
 test('opening journal rejects imbalance, unknown accounts and duplicate period', () => {
   const input = structuredClone(balanced);
@@ -24,6 +24,6 @@ test('opening journal rejects imbalance, unknown accounts and duplicate period',
 });
 test('opening journal rejects invalid decimal precision and zero-only entries', () => {
   const input = structuredClone(balanced);
-  input.lines[0].debit = '0.0001';
+  input.lines[0].debit = '0.0000001';
   assert.equal(validateOpeningJournal(input, opts).valid, false);
 });

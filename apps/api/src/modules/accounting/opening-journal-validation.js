@@ -1,7 +1,7 @@
 /**
  * Opening journal preflight. Pure and read-only: posting must still pass the
  * existing accounting authorization, period lock and transaction checks.
- * Amounts are integer minor units (three decimal places), never binary floats.
+ * Amounts are integer minor units (six decimal places), never binary floats.
  */
 export function validateOpeningJournal(input, { accountCodes = [], existingOpeningPeriods = [] } = {}) {
   const errors = [];
@@ -15,9 +15,9 @@ export function validateOpeningJournal(input, { accountCodes = [], existingOpeni
   if (lines.length < 2 || lines.length > 500) errors.push('INVALID_LINE_COUNT');
   const amount = value => {
     const raw = String(value ?? '0').trim();
-    if (!/^(0|[1-9]\d*)(\.\d{1,3})?$/.test(raw)) return null;
+    if (!/^(0|[1-9]\d*)(\.\d{1,6})?$/.test(raw)) return null;
     const [whole, fraction = ''] = raw.split('.');
-    return BigInt(whole) * 1000n + BigInt(fraction.padEnd(3, '0'));
+    return BigInt(whole) * 1000000n + BigInt(fraction.padEnd(6, '0'));
   };
   let debit = 0n, credit = 0n;
   for (const [index, line] of lines.entries()) {
@@ -32,6 +32,6 @@ export function validateOpeningJournal(input, { accountCodes = [], existingOpeni
     credit += cr;
   }
   if (debit !== credit || debit === 0n) errors.push('UNBALANCED_OPENING_JOURNAL');
-  const format = units => `${units / 1000n}.${String(units % 1000n).padStart(3, '0')}`;
+  const format = units => `${units / 1000000n}.${String(units % 1000000n).padStart(6, '0')}`;
   return { valid: errors.length === 0, errors, debit: format(debit), credit: format(credit), difference: (debit - credit).toString() };
 }

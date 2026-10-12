@@ -38,7 +38,7 @@ export class SQLiteStore extends MemoryStore {
           const result = await callback();
           // Check every newly persisted financial posting, including module routes.
           const previousJournals=deserialize(before.find(([key])=>key==='journalEntries')[1]);
-          if(!this.importingCloudSnapshot)for(const [id,row] of this.journalEntries)if(!previousJournals.has(id))this.assertFinancialPeriod(row.companyId,row.occurredAt);
+          if(!this.importingCloudSnapshot)for(const [id,row] of this.journalEntries)if(!previousJournals.has(id)){this.assertFinancialPeriod(row.companyId,row.occurredAt,row.id);this.assertJournalSession(row);}
           const changed = snapshot().filter(([key, bytes], index) => !bytes.equals(before[index][1]));
           if (changed.length) {
             this.sqlite.exec('BEGIN IMMEDIATE');
