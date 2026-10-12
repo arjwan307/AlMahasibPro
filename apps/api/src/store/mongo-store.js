@@ -14,11 +14,12 @@ const MAP_FIELDS = [
   'representativeCollections','custodyMovements','representativeHandovers','syncConflicts','departments',
   'employees','employeeContracts','employeeComponents','employeeAdvances','workShifts','employeeShiftAssignments',
   'attendanceEvents','overtimeRequests','leaveRequests','payrollSettings','payrollCycles','payrollPayments',
-  'payrollAdjustments','cashboxes','cashboxSessions','cashboxMovements','importShipments','importCostPostings',
+  'payrollAdjustments','cashboxes','cashboxSessions','cashboxMovements','importShipments','importCostPostings','logisticsRecords',
   'dataImportBatches','salesSettings','salesApprovals','salesReviews','deletedCompanies','deletedAccounts','ownershipTransfers'
 ];
 const ARRAY_FIELDS = ['changes','audit','serverOutbox'];
 const WRITE_METHODS = [
+  'postLogisticsJournal','reverseJournal','saveLogisticsRecord','updateImportLogistics','createImportShipment','markImportShipmentArrived','linkImportPurchaseDocument','postImportCosts','postManualJournal',
   'transferEnterpriseStock','settleEnterpriseDocument','seedPlatformAdmin','createPlatformAdmin','setCompanyStatus','updatePlatformCompany','deletePlatformCompany','registerCompany','approveCompany','createSession','revokeSession','touchSession','createUser','updateUser','createUnit',
   'createItem','addItemUnit','setPrice','createParty','createWarehouse','createDepartment','createEmployee',
   'createEmployeeContract','addEmployeeComponent','createEmployeeAdvance','createWorkShift','assignEmployeeShift',

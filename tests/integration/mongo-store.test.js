@@ -222,3 +222,16 @@ test('automatic backups verify before publishing and record failures', { skip },
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('logistics records and shipment revisions persist before acknowledging writes', {skip}, async()=>{
+ const dbName=randomDbName('logistics');let store=await openStore(dbName);
+ try{
+  const company=await newCompany(store,'logistics-mongo'),context={company,user:store.users.get(company.ownerUserId)};
+  const supplier=await store.createParty(company.id,'supplier',{code:'SUP',name:'المورد'},context.user.id);
+  const shipment=await store.createImportShipment(context,{operationId:crypto.randomUUID(),shipmentNumber:'MONGO-SHIP',containerNumber:'CONT-1',supplierId:supplier.id,currency:'IQD',logistics:{mode:'multimodal',driverPhone:'123'}});
+  const partner=await store.saveLogisticsRecord(context,{id:crypto.randomUUID(),kind:'partner',code:'SEA',name:'شركة النقل',role:'sea_carrier',createdBy:context.user.id});
+  await store.updateImportLogistics(context,shipment.id,{mode:'multimodal',seaCarrierId:partner.id,driverPhone:'456'},0,{billOfLading:'BL-MONGO'});
+  const auditLength=store.audit.length;await store.close();store=await openStore(dbName);
+  assert.equal(store.logisticsRecords.get(partner.id).name,'شركة النقل');assert.equal(store.importShipments.get(shipment.id).logistics.driverPhone,'456');assert.equal(store.importShipments.get(shipment.id).logisticsRevision,1);assert.equal(store.importShipments.get(shipment.id).billOfLading,'BL-MONGO');assert.equal(store.audit.length,auditLength);
+ }finally{await store.close();await drop(dbName);}
+});
