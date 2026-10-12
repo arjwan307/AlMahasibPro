@@ -330,4 +330,3 @@ window.AlMahasibOutput=()=>({account:state.account,view:state.view,selected:stat
 
 
 
-

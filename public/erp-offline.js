@@ -208,4 +208,3 @@
  });
  window.addEventListener('online',()=>void synchronize());window.addEventListener('offline',()=>{reachable=false;void render();});setInterval(()=>void synchronize(),60000);
 })();
-
