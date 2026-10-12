@@ -1348,7 +1348,7 @@ export class MemoryStore {
   }
 
   async listCashClosures(context,query={}) {
-    if(!context.permissions?.includes('accounting.read'))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية مراجعة الإغلاق');
+    if(!context.permissions?.some(x=>['accounting.read','treasury.read','treasury.manage'].includes(x)))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية مراجعة الإغلاق');
     if((context.scopes||[]).some(x=>x.type==='warehouse'))throw new AppError(403,'COMPANY_SCOPE_REQUIRED','يلزم نطاق الشركة أو الفرع');
     const branches=(context.scopes||[]).filter(x=>x.type==='branch').map(x=>x.id);
     const closures=[...this.cashboxSessions.values()].filter(x=>x.companyId===context.company.id&&x.status==='closed'&&(!branches.length||branches.includes(this.cashboxes.get(x.cashboxId)?.branchId))&&(!query.from||this.#financialDate(context.company.id,x.closedAt)>=query.from)&&(!query.to||this.#financialDate(context.company.id,x.closedAt)<=query.to)).map(clone);
@@ -1359,7 +1359,7 @@ export class MemoryStore {
     const box=this.cashboxes.get(cashboxId),session=this.cashboxSessions.get(sessionId);
     if(!box||!session||box.companyId!==context.company.id||session.companyId!==context.company.id||session.cashboxId!==cashboxId)throw new AppError(404,'CASHBOX_SESSION_NOT_FOUND','جلسة الصندوق غير موجودة');
     this.#openingScope(context,box.branchId);
-    if(!context.permissions?.some(x=>['accounting.post','pos.shift.close'].includes(x)))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية جرد النقد');
+    if(!context.permissions?.some(x=>['treasury.manage','accounting.post','pos.shift.close'].includes(x)))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية جرد النقد');
     if(session.status!=='open')throw new AppError(409,'CASHBOX_NOT_OPEN','الشفت مغلق');
     const countedBalance=decimalString(decimal(input.countedBalance,{nonNegative:true})),expectedBalance=decimalString(this.#cashboxExpectedBalance(session,box));
     if(countedBalance!==expectedBalance&&!String(input.reason||'').trim())throw new AppError(400,'VARIANCE_REASON_REQUIRED','سبب الفرق مطلوب');
@@ -1379,7 +1379,7 @@ export class MemoryStore {
     const expected = this.#cashboxExpectedBalance(session,box,input.closedAt);
     const variance = counted - expected;
     if(session.closingRequest&&session.closingRequest.expectedBalance!==decimalString(expected))throw new AppError(409,'CASH_COUNT_STALE','تغير رصيد الصندوق بعد الجرد؛ أعد الجرد قبل الاعتماد');
-    if(input.requireReview&&(!context.permissions?.includes('company.manage')||!context.permissions?.includes('accounting.post')))throw new AppError(403,'PERMISSION_DENIED','اعتماد سند الإغلاق يتطلب المدير وصلاحية الترحيل');
+    if(input.requireReview&&(!context.permissions?.includes('company.manage')||!context.permissions?.some(x=>['accounting.post','treasury.manage'].includes(x))))throw new AppError(403,'PERMISSION_DENIED','اعتماد سند الإغلاق يتطلب المدير وصلاحية الترحيل');
     if(input.requireReview&&variance!==ZERO&&!String(input.reason||'').trim())throw new AppError(400,'VARIANCE_REASON_REQUIRED','سبب العجز أو الزيادة مطلوب');
     let journal = null;
     if (variance > ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.closedAt},`CASH-SURPLUS-${box.code}-${session.sessionNumber}`,box.currency,[[box.accountCode,variance,ZERO],['4800-OTHER-INCOME',ZERO,variance]],{branchId:box.branchId,cashboxId:box.id});

@@ -7,7 +7,7 @@ export const PERMISSIONS = Object.freeze([
   'sales.read', 'sales.create', 'sales.approve', 'sales.return',
   'sales.discount.override', 'sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize', 'sales.invoice.template.manage', 'pos.device.manage', 'pos.shift.open', 'pos.shift.close',
   'accounting.read', 'accounting.post', 'employees.read', 'employees.manage',
-  'imports.read', 'imports.manage',
+  'imports.read', 'imports.manage', 'treasury.read', 'treasury.manage',
   'attendance.record', 'attendance.manage', 'overtime.approve', 'leaves.create', 'leaves.manage',
   'payroll.read', 'payroll.prepare', 'payroll.review', 'payroll.approve', 'payroll.pay', 'payroll.adjust', 'representatives.read', 'representatives.manage',
   'representatives.operate', 'representatives.collect', 'representatives.handover', 'representatives.review',
@@ -16,7 +16,7 @@ export const PERMISSIONS = Object.freeze([
 
 export const ROLE_TEMPLATES = Object.freeze({
   company_admin: PERMISSIONS.filter((permission) => !['company.approve','company.delete','local.data.delete','account.delete'].includes(permission)),
-  accountant: ['assistant.use', 'accounting.read', 'accounting.post', 'sales.read', 'customers.read', 'suppliers.read', 'purchasing.read', 'imports.read', 'imports.manage', 'payroll.read', 'payroll.review', 'payroll.pay', 'audit.read', 'sync.use'],
+  accountant: ['treasury.read','treasury.manage','assistant.use', 'accounting.read', 'accounting.post', 'sales.read', 'customers.read', 'suppliers.read', 'purchasing.read', 'imports.read', 'imports.manage', 'payroll.read', 'payroll.review', 'payroll.pay', 'audit.read', 'sync.use'],
   warehouse_keeper: ['assistant.use', 'catalog.read', 'suppliers.read', 'inventory.read', 'inventory.manage', 'inventory.receive', 'inventory.issue', 'purchasing.read', 'purchasing.create', 'imports.read', 'imports.manage', 'sync.use'],
   cashier: ['assistant.use', 'catalog.read', 'customers.read', 'customers.manage', 'inventory.read', 'sales.read', 'sales.create', 'sales.approve', 'sales.return', 'pos.shift.open', 'pos.shift.close', 'sync.use'],
   representative: ['assistant.use', 'catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.create', 'sales.return', 'representatives.read', 'representatives.operate', 'representatives.collect', 'representatives.handover', 'sync.use'],
@@ -27,6 +27,6 @@ export const ROLE_TEMPLATES = Object.freeze({
   general_manager: ['assistant.use', 'catalog.read', 'customers.read', 'inventory.read', 'sales.read', 'sales.approve', 'sales.wholesale.finalize', 'sales.invoice.template.manage', 'sync.use'],
   employee: ['assistant.use', 'employees.read', 'attendance.record', 'leaves.create', 'sync.use'],
   hr: ['assistant.use', 'employees.read', 'employees.manage', 'attendance.record', 'attendance.manage', 'overtime.approve', 'leaves.create', 'leaves.manage', 'payroll.prepare', 'payroll.read', 'sync.use'],
-  auditor: ['assistant.use', 'catalog.read', 'inventory.read', 'sales.read', 'accounting.read', 'employees.read', 'audit.read']
+  auditor: ['treasury.read','assistant.use', 'catalog.read', 'inventory.read', 'sales.read', 'accounting.read', 'employees.read', 'audit.read']
 });
 
