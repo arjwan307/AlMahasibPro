@@ -32,6 +32,7 @@ test('dedicated company cloud serves only company pages, isolates its database a
     assert.equal(login.status, 200);
     assert.match(login.cookie, /^almahasib_company_session=/);
     assert.equal((await request('/enterprise.html')).status, 200);
+    for(const path of ['/logistics-workspace.js','/logistics-workspace.css']){const asset=await request(path);assert.equal(asset.status,200,path+' must load behind company product filtering');assert.ok((await asset.text()).length>100);}
     assert.equal((await request('/pos.html')).status, 404);
     assert.equal((await request('/retail-login.html')).status, 404);
     assert.equal((await request('/retail/api/local/status')).status, 404);
@@ -72,6 +73,7 @@ test('dedicated retail cloud serves only retail pages, keeps its own database an
     assert.equal((await request('/pos.html')).status, 200);
     assert.equal((await request('/market-cashier.html')).status, 200);
     assert.equal((await request('/enterprise.html')).status, 404);
+    for(const path of ['/logistics-workspace.js','/logistics-workspace.css'])assert.equal((await request(path)).status,404,'company logistics assets stay unavailable in retail');
     assert.equal((await request('/representative.html')).status, 404);
     const blocked = await json(await request('/api/v1/companies/register', { product: 'company', legalName: 'شركة', ownerName: 'مالك', phone: '07700000000', username: 'shop', password: 'Strong-Password-123' }));
     assert.equal(blocked.status, 403);

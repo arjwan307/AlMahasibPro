@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {createServer} from 'node:http';
+import express from 'express';
+import {productPages} from '../../apps/api/src/product-pages.js';
 import {randomUUID} from 'node:crypto';
 import {mkdir} from 'node:fs/promises';
 import {createApp} from '../../apps/api/src/app.js';
@@ -10,7 +12,7 @@ const require=createRequire(process.env.PLAYWRIGHT_MODULE_PATH||new URL('../../p
 const store=new MemoryStore();const company=await store.registerCompany({code:'shipping-browser',legalName:'شركة اختبار الشحن',currency:'IQD',timezone:'Asia/Baghdad',owner:{username:'admin',displayName:'مدير الشحن',passwordHash:'test'}});await store.approveCompany(company.id,company.ownerUserId);
 const auth={company:store.companies.get(company.id),user:store.users.get(company.ownerUserId),permissions:PERMISSIONS,roles:[],scopes:[],session:{deviceId:'browser',expiresAt:new Date(Date.now()+86400000).toISOString()}};store.getSessionContext=async()=>auth;
 const supplier=await store.createParty(company.id,'supplier',{code:'S',name:'مصنع الأثاث'},auth.user.id);
-const origins=[],app=createApp({store,allowedOrigins:origins});const server=createServer(app);await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin='http://127.0.0.1:'+server.address().port;origins.push(origin);
+const origins=[],app=express();app.use(productPages('company'));app.use(createApp({store,allowedOrigins:origins}));const server=createServer(app);await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin='http://127.0.0.1:'+server.address().port;origins.push(origin);
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE_PATH||undefined,args:['--no-sandbox']});
 try{
  const context=await browser.newContext({viewport:{width:1440,height:1000},serviceWorkers:'block'});await context.addCookies([{name:'almahasib_session',value:'test',url:origin}]);const page=await context.newPage(),errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error('BROWSER ERROR',e.message);});page.on('response',async response=>{if(response.url().includes('/api/v1/import/')&&response.status()>=400)console.error('IMPORT RESPONSE',response.status(),await response.text());});page.on('dialog',d=>d.accept());
