@@ -1,3 +1,6 @@
+import { validateOpeningJournal } from '../modules/accounting/opening-journal-validation.js';
+import { projectGeneralLedger } from '../modules/accounting/general-ledger.js';
+import { projectFinancialStatements } from '../modules/accounting/financial-statements.js';
 import { requireMarketPermission, validateMarketCatalog } from '../lib/market-security.js';
 import { checkSales, salesRep, assignedSalesManager } from '../sales-workspace.js';
 import { randomUUID } from 'node:crypto';
@@ -21,6 +24,7 @@ export class MemoryStore {
   constructor() {
     this.companies = new Map();
     this.financialPeriods = new Map();
+    this.openingJournals = new Map();
     this.users = new Map();
     this.roles = new Map();
     this.sessions = new Map();
@@ -900,6 +904,99 @@ export class MemoryStore {
     };
   }
 
+  #openingScope(context, branchId) {
+    const scopes=context.scopes||[];
+    if(scopes.some(x=>x.type==='warehouse') || (scopes.some(x=>x.type==='branch')&&!scopes.some(x=>x.type==='branch'&&x.id===branchId))) throw new AppError(403,'BRANCH_SCOPE_DENIED','الفرع خارج نطاق الحساب');
+    if(branchId&&!(context.company.branches||[]).some(x=>x.id===branchId&&x.active!==false)) throw new AppError(400,'INVALID_BRANCH','الفرع غير موجود');
+  }
+  assertJournalSession(journal) {
+    const timestamp=Date.parse(journal.occurredAt);
+    for(const session of this.cashboxSessions.values()){
+      if(session.companyId!==journal.companyId||session.status!=='closed'||journal.id===session.closingJournalId||journal.id===session.openingJournalId)continue;
+      const box=this.cashboxes.get(session.cashboxId);
+      if(box&&journal.currency===box.currency&&timestamp>=Date.parse(session.openedAt)&&timestamp<=Date.parse(session.closedAt)&&journal.lines.some(l=>(l.accountCode||l.account)===box.accountCode&&(l.cashboxId===box.id||!l.cashboxId&&(journal.branchId||null)===(box.branchId||null))))throw new AppError(409,'CASHBOX_SESSION_CLOSED','لا يجوز إضافة قيد إلى شفت مغلق؛ سجل تصحيحاً بتاريخ جديد');
+    }
+  }
+  async listOpeningJournals(context) {
+    const branchScopes=(context.scopes||[]).filter(x=>x.type==='branch');
+    if((context.scopes||[]).some(x=>x.type==='warehouse'))throw new AppError(403,'COMPANY_SCOPE_REQUIRED','يتطلب نطاق الشركة أو الفرع');
+    return [...this.openingJournals.values()].filter(x=>x.companyId===context.company.id&&(!branchScopes.length||branchScopes.some(b=>b.id===x.branchId))).map(clone);
+  }
+  async saveOpeningJournal(context,input,id=null) {
+    if(!context.permissions?.includes('accounting.post'))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية إعداد القيد');
+    const branchId=input.branchId||null;this.#openingScope(context,branchId);
+    const before=id?this.openingJournals.get(id):null;
+    if(id&&(!before||before.companyId!==context.company.id))throw new AppError(404,'OPENING_NOT_FOUND','القيد غير موجود');
+    if(before){this.#openingScope(context,before.branchId);if(before.status!=='draft')throw new AppError(409,'OPENING_LOCKED','القيد المعتمد لا يقبل التعديل');}
+    const period=String(input.period||''),currency=String(input.currency||context.company.currency).toUpperCase();
+    if(!/^\d{4}$/.test(period)||!/^[A-Z]{3}$/.test(currency))throw new AppError(400,'INVALID_OPENING_PERIOD','السنة أو العملة غير صالحة');
+    const occurredAt=input.occurredAt||period+'-01-01T12:00:00.000Z';
+    if(this.#financialDate(context.company.id,occurredAt)!==period+'-01-01')throw new AppError(400,'INVALID_OPENING_DATE','القيد الافتتاحي بتاريخ أول السنة');
+    this.assertFinancialPeriod(context.company.id,occurredAt);
+    if(!Array.isArray(input.lines)||input.lines.length<2||input.lines.length>500)throw new AppError(400,'JOURNAL_LINES_REQUIRED','القيد يحتاج من سطرين إلى ٥٠٠ سطر');
+    const accounts=new Map(this.listChartAccounts(context.company.id).filter(x=>x.active).map(x=>[x.code,x]));
+    const lines=input.lines.map(line=>{
+      const accountCode=String(line.accountCode||'').trim().toUpperCase(),account=accounts.get(accountCode);
+      if(!account||!['asset','liability','equity'].includes(account.type))throw new AppError(400,'INVALID_OPENING_ACCOUNT','اختر حساب ميزانية فعال');
+      const debit=decimalString(decimal(line.debit||'0',{nonNegative:true})),credit=decimalString(decimal(line.credit||'0',{nonNegative:true}));
+      if(decimal(debit)>ZERO&&decimal(credit)>ZERO)throw new AppError(400,'INVALID_JOURNAL_LINE','السطر مدين أو دائن فقط');
+      return {accountCode,debit,credit,note:String(line.note||'').slice(0,500),source:String(line.source||'').trim().slice(0,500)};
+    });
+    const row={id:id||randomUUID(),companyId:context.company.id,period,currency,branchId,occurredAt,description:String(input.description||'قيد افتتاحي').slice(0,500),lines,status:'draft',createdBy:before?.createdBy||context.user.id,createdAt:before?.createdAt||new Date().toISOString(),updatedBy:context.user.id,updatedAt:new Date().toISOString()};
+    this.openingJournals.set(row.id,row);this.#audit(context.company.id,context.user.id,'opening.saved','opening_journal',row.id,{before,after:row});this.#change(context.company.id,'opening_journal',row.id,'upsert',row);return clone(row);
+  }
+  async cancelOpeningJournal(context,id,reason) {
+    if(!context.permissions?.includes('accounting.post'))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية إلغاء المسودة');
+    const row=this.openingJournals.get(id);if(!row||row.companyId!==context.company.id)throw new AppError(404,'OPENING_NOT_FOUND','القيد غير موجود');this.#openingScope(context,row.branchId);
+    if(row.status!=='draft'||!String(reason||'').trim())throw new AppError(409,'OPENING_LOCKED','الإلغاء لمسودة فقط مع ذكر السبب');
+    const cancelled={...row,status:'cancelled',cancelledBy:context.user.id,cancelledAt:new Date().toISOString(),cancelReason:String(reason).slice(0,1000)};this.openingJournals.set(id,cancelled);this.#audit(row.companyId,context.user.id,'opening.cancelled','opening_journal',id,{reason});this.#change(row.companyId,'opening_journal',id,'upsert',cancelled);return clone(cancelled);
+  }
+  async approveOpeningJournal(context,id) {
+    if(!context.permissions?.includes('accounting.post')||!context.permissions?.includes('company.manage'))throw new AppError(403,'PERMISSION_DENIED','الاعتماد يتطلب المدير وصلاحية الترحيل');
+    const row=this.openingJournals.get(id);
+    if(!row||row.companyId!==context.company.id)throw new AppError(404,'OPENING_NOT_FOUND','القيد غير موجود');
+    this.#openingScope(context,row.branchId);
+    if(row.status==='posted')return clone(row);
+    if(row.status!=='draft')throw new AppError(409,'OPENING_LOCKED','القيد ملغى');
+    if([...this.openingJournals.values()].some(x=>x.id!==id&&x.companyId===row.companyId&&x.period===row.period&&x.currency===row.currency&&x.branchId===row.branchId&&x.status==='posted'))throw new AppError(409,'OPENING_PERIOD_EXISTS','سبق ترحيل افتتاحي لهذا الفرع والسنة');
+    if(row.lines.some(x=>!x.source))throw new AppError(400,'OPENING_SOURCE_REQUIRED','وثق مصدر كل رصيد قبل الاعتماد');
+    const validation=validateOpeningJournal(row,{accountCodes:this.listChartAccounts(row.companyId).filter(a=>a.active&&['asset','liability','equity'].includes(a.type)).map(a=>a.code)});
+    if(!validation.valid)throw new AppError(400,validation.errors.includes('UNBALANCED_OPENING_JOURNAL')?'UNBALANCED_JOURNAL':'INVALID_OPENING_JOURNAL','القيد الافتتاحي غير صالح أو غير متوازن');
+    const journal=await this.postManualJournal(context,{...row,operationId:'opening:'+id,entryNumber:'OB-'+row.period+'-'+id,lines:row.lines},{allowForeignCurrency:true});
+    const tagged={...journal,kind:'opening',openingJournalId:id,period:row.period};this.journalEntries.set(journal.id,Object.freeze(tagged));this.#change(row.companyId,'journal_entry',journal.id,'upsert',tagged);
+    const posted={...row,status:'posted',journalEntryId:journal.id,approvedBy:context.user.id,approvedAt:new Date().toISOString()};this.openingJournals.set(id,posted);this.#audit(row.companyId,context.user.id,'opening.approved','opening_journal',id,{journalEntryId:journal.id});this.#change(row.companyId,'opening_journal',id,'upsert',posted);return clone(posted);
+  }
+  async accountingReport(context,query={}) {
+    if(!context.permissions?.includes('accounting.read'))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية قراءة الحسابات');
+    const {from,to}=query;
+    const valid=x=>!x||/^\d{4}-\d{2}-\d{2}$/.test(x)&&Number.isFinite(Date.parse(x))&&new Date(x).toISOString().slice(0,10)===x;
+    if(!valid(from)||!valid(to)||from&&to&&from>to)throw new AppError(400,'INVALID_DATE_RANGE','نطاق التاريخ غير صالح');
+    if(query.branchId)this.#openingScope(context,query.branchId);
+    const data=await this.listEnterpriseData(context.company.id,context);
+    const journals=data.journals.filter(j=>j.status==='posted'&&(!query.branchId||j.branchId===query.branchId)&&(!query.currency||j.currency===query.currency));
+    const date=j=>this.#financialDate(context.company.id,j.occurredAt);
+    if(query.accountCode){
+      if(!data.chartAccounts.some(x=>x.code===query.accountCode))throw new AppError(400,'ACCOUNT_NOT_FOUND','الحساب غير موجود');
+      return {ledger:projectGeneralLedger(journals.map(j=>({...j,accountingDate:date(j)})),query)};
+    }
+    const through=journals.filter(j=>!to||date(j)<=to),activity=through.filter(j=>(!from||date(j)>=from)&&j.kind!=='opening'&&j.kind!=='closing');
+    const balance=projectFinancialStatements(this.trialBalance(context.company.id,through));
+    // Period performance uses revenue and expense activity; the balance sheet uses cumulative balances.
+    const activityRows=this.trialBalance(context.company.id,activity);
+    for(const result of balance){let revenue=ZERO,expense=ZERO;for(const r of activityRows.filter(x=>x.currency===result.currency)){if(r.type==='revenue')revenue+=decimal(r.credit)-decimal(r.debit);if(r.type==='contra_revenue')revenue-=decimal(r.debit)-decimal(r.credit);if(r.type==='expense')expense+=decimal(r.debit)-decimal(r.credit);}result.profitAndLoss={revenue:decimalString(revenue),expenses:decimalString(expense),netProfit:decimalString(revenue-expense)};}
+    const cashAccounts=new Set(data.chartAccounts.filter(a=>/^1000-|^1010-/.test(a.code)||a.cashEquivalent===true).map(a=>a.code));
+    const cash=new Map();const bucket=currency=>{if(!cash.has(currency))cash.set(currency,{currency,opening:ZERO,operating:ZERO,investing:ZERO,financing:ZERO,unclassified:ZERO,closing:ZERO,details:[]});return cash.get(currency);};
+    for(const j of through){const delta=j.lines.filter(l=>cashAccounts.has(l.accountCode||l.account)).reduce((n,l)=>n+decimal(l.debit||'0')-decimal(l.credit||'0'),ZERO),b=bucket(j.currency);b.closing+=delta;if(j.kind==='opening'||from&&date(j)<from){b.opening+=delta;continue;}if(delta===ZERO)continue;const kind=['operating','investing','financing'].includes(j.cashFlowCategory)?j.cashFlowCategory:'unclassified';b[kind]+=delta;b.details.push({journalId:j.id,entryNumber:j.entryNumber,category:kind,amount:decimalString(delta)});}
+    const cashFlow=[...cash.values()].map(b=>({...b,opening:decimalString(b.opening),operating:decimalString(b.operating),investing:decimalString(b.investing),financing:decimalString(b.financing),unclassified:decimalString(b.unclassified),closing:decimalString(b.closing),difference:decimalString(b.closing-b.opening-b.operating-b.investing-b.financing-b.unclassified),complete:b.unclassified===ZERO&&!b.details.some(x=>x.category==='unclassified')}));
+    return {from:from||null,to:to||null,statements:balance,cashFlow,trialBalance:this.trialBalance(context.company.id,through)};
+  }
+  async classifyCashFlow(context,id,category,reason) {
+    if(!context.permissions?.includes('accounting.post'))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية تصنيف');
+    const row=this.journalEntries.get(id);if(!row||row.companyId!==context.company.id)throw new AppError(404,'JOURNAL_NOT_FOUND','القيد غير موجود');this.#openingScope(context,row.branchId);
+    if(!['operating','investing','financing'].includes(category)||!String(reason||'').trim())throw new AppError(400,'INVALID_CLASSIFICATION','التصنيف وسببه مطلوبان');
+    const after={...row,cashFlowCategory:category};this.journalEntries.set(id,Object.freeze(after));this.#audit(context.company.id,context.user.id,'journal.cashflow.classified','journal_entry',id,{before:row.cashFlowCategory,after:category,reason});this.#change(context.company.id,'journal_entry',id,'upsert',after);return clone(after);
+  }
+
   async listFinancialPeriods(companyId){return [...this.financialPeriods.values()].filter(x=>x.companyId===companyId).map(clone);}
   #financialDate(companyId,occurredAt){
     const stamp=String(occurredAt||''),raw=stamp.slice(0,10),time=Date.parse(stamp);
@@ -907,9 +1004,9 @@ export class MemoryStore {
     const parts=new Intl.DateTimeFormat('en-CA',{timeZone:this.companies.get(companyId)?.timezone||'Asia/Baghdad',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(time));
     const value=type=>parts.find(x=>x.type===type).value;return value('year')+'-'+value('month')+'-'+value('day');
   }
-  assertFinancialPeriod(companyId, occurredAt){
+  assertFinancialPeriod(companyId, occurredAt, journalId=null){
     const date=this.#financialDate(companyId,occurredAt);
-    if([...this.financialPeriods.values()].some(x=>x.companyId===companyId&&x.status==='closed'&&date>=x.startDate&&date<=x.endDate))throw new AppError(409,'FINANCIAL_PERIOD_CLOSED','الفترة المالية مقفلة؛ لم تُحفظ العملية');
+    if([...this.financialPeriods.values()].some(x=>x.companyId===companyId&&x.status==='closed'&&date>=x.startDate&&date<=x.endDate&&(!journalId||!(x.closingJournalIds||[]).includes(journalId))))throw new AppError(409,'FINANCIAL_PERIOD_CLOSED','الفترة المالية مقفلة؛ لم تُحفظ العملية');
   }
   async closeFinancialPeriod(context,input){
     if(!context.permissions.includes('company.manage'))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية لإقفال الفترة');
@@ -920,12 +1017,24 @@ export class MemoryStore {
     if([...this.financialPeriods.values()].some(x=>x.companyId===companyId&&x.status==='closed'&&x.startDate<=input.endDate&&x.endDate>=input.startDate))throw new AppError(409,'PERIOD_OVERLAP','الفترة تتداخل مع فترة مقفلة');
     const journals=[...this.journalEntries.values()].filter(x=>x.companyId===companyId&&this.#financialDate(companyId,x.occurredAt)>=input.startDate&&this.#financialDate(companyId,x.occurredAt)<=input.endDate);
     for(const journal of journals)if(journal.lines.reduce((sum,x)=>sum+decimal(x.debit||'0')-decimal(x.credit||'0'),ZERO)!==ZERO)throw new AppError(409,'UNBALANCED_JOURNAL','لا يمكن إقفال فترة تحتوي قيدًا غير متوازن');
-    const row={id:randomUUID(),companyId,startDate:input.startDate,endDate:input.endDate,status:'closed',reason:String(input.reason).trim().slice(0,1000),closedAt:new Date().toISOString(),closedBy:context.user.id,journalIds:journals.map(x=>x.id),trialBalance:this.trialBalance(companyId,[...this.journalEntries.values()].filter(x=>x.companyId===companyId&&this.#financialDate(companyId,x.occurredAt)<=input.endDate))};
+    const closingJournalIds=[];
+    const statements=projectFinancialStatements(this.trialBalance(companyId,journals.filter(j=>j.status==='posted')));
+    if(input.generateClosing===true){
+      if(!context.permissions.includes('accounting.post'))throw new AppError(403,'PERMISSION_DENIED','قيد الإقفال يحتاج صلاحية الترحيل');
+      if([...this.openingJournals.values()].some(x=>x.companyId===companyId&&x.status==='draft'&&x.occurredAt.slice(0,10)<=input.endDate))throw new AppError(409,'PENDING_OPENING','يوجد افتتاحي غير معتمد');
+      if([...this.cashboxSessions.values()].some(x=>x.companyId===companyId&&x.status==='open'&&this.#financialDate(companyId,x.openedAt)<=input.endDate))throw new AppError(409,'OPEN_CASHBOX_SESSION','أغلق الشفتات وراجع النقد قبل الإقفال');
+      const rows=this.trialBalance(companyId,[...this.journalEntries.values()].filter(x=>x.companyId===companyId&&this.#financialDate(companyId,x.occurredAt)<=input.endDate));
+      const groups=new Map();
+      for(const row of rows.filter(x=>['revenue','expense','contra_revenue'].includes(x.type))){const balance=decimal(row.debit)-decimal(row.credit);if(balance===ZERO)continue;if(!groups.has(row.currency))groups.set(row.currency,[]);groups.get(row.currency).push([row.accountCode,balance<ZERO?-balance:ZERO,balance>ZERO?balance:ZERO]);}
+      for(const [currency,lines] of groups){const difference=lines.reduce((n,l)=>n+l[1]-l[2],ZERO);if(difference!==ZERO)lines.push(['3100-RETAINED-EARNINGS',difference<ZERO?-difference:ZERO,difference>ZERO?difference:ZERO]);const id=randomUUID(),journal=this.#simpleJournal(context,{operationId:'period-close:'+id,occurredAt:input.endDate+'T12:00:00.000Z'},'CLOSE-'+id,currency,lines);const tagged={...journal,kind:'closing',periodStart:input.startDate,periodEnd:input.endDate};this.journalEntries.set(journal.id,Object.freeze(tagged));this.#change(companyId,'journal_entry',journal.id,'upsert',tagged);closingJournalIds.push(journal.id);}
+    }
+    const row={id:randomUUID(),companyId,startDate:input.startDate,endDate:input.endDate,status:'closed',closingJournalIds,statements,reason:String(input.reason).trim().slice(0,1000),closedAt:new Date().toISOString(),closedBy:context.user.id,journalIds:journals.map(x=>x.id),trialBalance:this.trialBalance(companyId,[...this.journalEntries.values()].filter(x=>x.companyId===companyId&&this.#financialDate(companyId,x.occurredAt)<=input.endDate))};
     this.financialPeriods.set(row.id,Object.freeze(row));this.#audit(companyId,context.user.id,'financial.period.closed','financial_period',row.id,{after:row});this.#change(companyId,'financial_period',row.id,'upsert',row);return clone(row);
   }
   async reopenFinancialPeriod(context,id,reason){
     if(!context.permissions.includes('company.manage')||(context.scopes||[]).some(x=>['branch','warehouse'].includes(x.type)))throw new AppError(403,'PERMISSION_DENIED','إعادة الفتح تتطلب إدارة الشركة بنطاق كامل');
     const before=this.financialPeriods.get(id);if(!before||before.companyId!==context.company.id)throw new AppError(404,'PERIOD_NOT_FOUND','الفترة غير موجودة');
+    if(before.closingJournalIds?.length)throw new AppError(409,'CLOSING_JOURNAL_LOCKED','فترة ذات قيود ختامية؛ التصحيح بسند مستقل في فترة مفتوحة');
     if(!String(reason||'').trim())throw new AppError(400,'REASON_REQUIRED','سبب إعادة الفتح إلزامي');
     if(before.status!=='closed')throw new AppError(409,'PERIOD_ALREADY_OPEN','الفترة مفتوحة');
     const after={...before,status:'open',reopenedAt:new Date().toISOString(),reopenedBy:context.user.id,reopenReason:String(reason).trim().slice(0,1000)};
@@ -961,7 +1070,8 @@ export class MemoryStore {
       ['1150-REP-CASH-CUSTODY','عهدة نقد المندوبين','asset'],['1200-INVENTORY','المخزون','asset'],
       ['1300-EMPLOYEE-ADVANCES','سلف الموظفين','asset'],['1400-EMPLOYEE-RECEIVABLE','ذمم الموظفين','asset'],
       ['2100-AP','ذمم الموردين','liability'],['2200-PAYROLL-DEDUCTIONS','استقطاعات الرواتب','liability'],['2205-CUSTOMER-CREDITS','أرصدة العملاء الدائنة','liability'],
-      ['2300-PAYROLL-PAYABLE','رواتب مستحقة','liability'],['3000-EQUITY','حقوق الملكية','equity'],
+      ['2300-PAYROLL-PAYABLE','رواتب مستحقة','liability'],['3000-EQUITY','حقوق الملكية','equity'],['3100-RETAINED-EARNINGS','الأرباح المرحلة','equity'],
+      ['4900-INVENTORY-COUNT-SURPLUS','فائض الجرد','revenue'],['5300-INVENTORY-SHRINKAGE','عجز الجرد','expense'],['5300-DAMAGED-STOCK','تالف المخزون','expense'],
       ['4100-SALES','المبيعات','revenue'],['4200-SALES-RETURNS','مردودات المبيعات','contra_revenue'],['4800-OTHER-INCOME','إيرادات أخرى','revenue'],['6150-CASH-SHORTAGE','عجز الصندوق','expense'],
       ['6120-LOGISTICS-EXPENSE','مصروفات الشحن والنقل والتخليص','expense'],['5100-COGS','كلفة البضاعة المباعة','expense'],['6100-PAYROLL-EXPENSE','مصروف الرواتب','expense'],
       ['6150-PAYROLL-RECOVERY','استردادات الرواتب','revenue']
@@ -989,7 +1099,7 @@ export class MemoryStore {
     this.chartAccounts.set(row.id,row); this.#audit(companyId,actorUserId,'account.created','chart_account',row.id,{code}); this.#change(companyId,'chart_account',row.id,'upsert',row); return clone(row);
   }
 
-  async postManualJournal(context, input) {
+  async postManualJournal(context, input, {allowForeignCurrency=false}={}) {
     const companyId = context.company.id;
     const branchScopes=(context.scopes||[]).filter(x=>x.type==='branch');
     const branchId=input.branchId||(branchScopes.length===1?branchScopes[0].id:null);
@@ -1023,7 +1133,7 @@ export class MemoryStore {
       if (!samePayload) throw new AppError(409, 'OPERATION_ID_REUSED', 'معرف العملية مستخدم لبيانات أخرى');
       return clone(existing);
     }
-    if (currency !== context.company.currency) throw new AppError(400, 'DOCUMENT_CURRENCY_MISMATCH', 'القيد يجب أن يكون بعملة الشركة');
+    if (!allowForeignCurrency && currency !== context.company.currency) throw new AppError(400, 'DOCUMENT_CURRENCY_MISMATCH', 'القيد يجب أن يكون بعملة الشركة');
     const accounts = new Set(this.listChartAccounts(companyId).filter(account => account.active).map(account => account.code));
     for (const line of lines) {
       if (!accounts.has(line.accountCode)) throw new AppError(400, 'ACCOUNT_NOT_FOUND', 'الحساب غير موجود');
@@ -1041,6 +1151,7 @@ export class MemoryStore {
       description, occurredAt, createdBy: context.user.id, branchId, lines
     };
     this.assertFinancialPeriod(companyId,occurredAt);
+    this.assertJournalSession(row);
     this.journalEntries.set(row.id, Object.freeze(row));
     this.#audit(companyId, context.user.id, 'journal.posted', 'journal_entry', row.id, {});
     this.#change(companyId, 'journal_entry', row.id, 'upsert', row);
@@ -1195,7 +1306,10 @@ export class MemoryStore {
     const opening = decimal(input.openingBalance,{nonNegative:true});
     const previous = [...this.cashboxSessions.values()].filter(x => x.companyId === companyId && x.cashboxId === box.id && x.status === 'closed').sort((a,b) => String(b.closedAt).localeCompare(String(a.closedAt)))[0];
     let journal = null;
-    if (!previous && opening > ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-${box.code}-${input.sessionNumber}`,box.currency,[[box.accountCode,opening,ZERO],['3000-EQUITY',ZERO,opening]],{branchId:box.branchId,cashboxId:box.id});
+    const priorCash=[...this.journalEntries.values()].filter(j=>j.companyId===companyId&&j.status==='posted'&&j.currency===box.currency&&j.occurredAt<=input.openedAt&&(j.cashboxId===box.id||!j.cashboxId&&(j.branchId||null)===(box.branchId||null))).flatMap(j=>j.lines).filter(l=>(l.accountCode||l.account)===box.accountCode);
+    const hasOpening=[...this.journalEntries.values()].some(j=>j.companyId===companyId&&j.kind==='opening'&&j.currency===box.currency&&(j.branchId||null)===(box.branchId||null)&&j.lines.some(l=>l.accountCode===box.accountCode));
+    if(!previous&&hasOpening&&opening!==priorCash.reduce((n,l)=>n+decimal(l.debit||'0')-decimal(l.credit||'0'),ZERO))throw new AppError(409,'OPENING_CASH_MISMATCH','نقد الاستلام لا يطابق رصيد الحساب؛ يلزم سند تسوية معتمد');
+    if (!previous && !hasOpening && opening > ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-${box.code}-${input.sessionNumber}`,box.currency,[[box.accountCode,opening,ZERO],['3000-EQUITY',ZERO,opening]],{branchId:box.branchId,cashboxId:box.id});
     let openingVariance=ZERO;
     if(previous){const later=[...this.journalEntries.values()].filter(j=>j.companyId===companyId&&j.currency===box.currency&&j.id!==previous.closingJournalId&&String(j.occurredAt)>previous.closedAt&&String(j.occurredAt)<=input.openedAt&&j.status==='posted').flatMap(j=>j.lines).filter(line=>(line.accountCode||line.account)===box.accountCode&&(line.cashboxId===box.id||(!line.cashboxId&&!box.branchId))).reduce((sum,line)=>sum+decimal(line.debit||'0')-decimal(line.credit||'0'),ZERO);const book=decimal(previous.countedBalance)+later;openingVariance=opening-book;if(openingVariance>ZERO)journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-SURPLUS-${box.code}-${input.sessionNumber}`,box.currency,[[box.accountCode,openingVariance,ZERO],['4800-OTHER-INCOME',ZERO,openingVariance]],{branchId:box.branchId,cashboxId:box.id});else if(openingVariance<ZERO)journal=this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.openedAt},`CASH-OPEN-SHORT-${box.code}-${input.sessionNumber}`,box.currency,[['6150-CASH-SHORTAGE',-openingVariance,ZERO],[box.accountCode,ZERO,-openingVariance]],{branchId:box.branchId,cashboxId:box.id});}
     const row = { id: input.sessionId || randomUUID(), companyId, cashboxId: box.id, sessionNumber: input.sessionNumber, status: 'open', currency: box.currency, openingBalance: decimalString(opening), openingVariance: decimalString(openingVariance), openingJournalId: journal?.id || null, openOperationId: input.operationId, openedAt: input.openedAt, openedBy: context.user.id, expectedBalance: decimalString(opening), countedBalance: null, variance: null };
@@ -1233,21 +1347,48 @@ export class MemoryStore {
     return clone(row);
   }
 
+  async listCashClosures(context,query={}) {
+    if(!context.permissions?.includes('accounting.read'))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية مراجعة الإغلاق');
+    if((context.scopes||[]).some(x=>x.type==='warehouse'))throw new AppError(403,'COMPANY_SCOPE_REQUIRED','يلزم نطاق الشركة أو الفرع');
+    const branches=(context.scopes||[]).filter(x=>x.type==='branch').map(x=>x.id);
+    const closures=[...this.cashboxSessions.values()].filter(x=>x.companyId===context.company.id&&x.status==='closed'&&(!branches.length||branches.includes(this.cashboxes.get(x.cashboxId)?.branchId))&&(!query.from||this.#financialDate(context.company.id,x.closedAt)>=query.from)&&(!query.to||this.#financialDate(context.company.id,x.closedAt)<=query.to)).map(clone);
+    const totals=new Map();for(const row of closures){const date=this.#financialDate(context.company.id,row.closedAt),key=date+':'+row.currency;if(!totals.has(key))totals.set(key,{date,currency:row.currency,count:0,expectedBalance:ZERO,countedBalance:ZERO,variance:ZERO});const b=totals.get(key);b.count++;for(const key of ['expectedBalance','countedBalance','variance'])b[key]+=decimal(row[key]||'0');}
+    return {closures,dailyTotals:[...totals.values()].map(x=>({...x,expectedBalance:decimalString(x.expectedBalance),countedBalance:decimalString(x.countedBalance),variance:decimalString(x.variance)}))};
+  }
+  async requestCashboxClose(context,cashboxId,sessionId,input) {
+    const box=this.cashboxes.get(cashboxId),session=this.cashboxSessions.get(sessionId);
+    if(!box||!session||box.companyId!==context.company.id||session.companyId!==context.company.id||session.cashboxId!==cashboxId)throw new AppError(404,'CASHBOX_SESSION_NOT_FOUND','جلسة الصندوق غير موجودة');
+    this.#openingScope(context,box.branchId);
+    if(!context.permissions?.some(x=>['accounting.post','pos.shift.close'].includes(x)))throw new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية جرد النقد');
+    if(session.status!=='open')throw new AppError(409,'CASHBOX_NOT_OPEN','الشفت مغلق');
+    const countedBalance=decimalString(decimal(input.countedBalance,{nonNegative:true})),expectedBalance=decimalString(this.#cashboxExpectedBalance(session,box));
+    if(countedBalance!==expectedBalance&&!String(input.reason||'').trim())throw new AppError(400,'VARIANCE_REASON_REQUIRED','سبب الفرق مطلوب');
+    session.closingRequest={countedBalance,expectedBalance,reason:String(input.reason||'').slice(0,1000),requestedAt:new Date().toISOString(),requestedBy:context.user.id};
+    this.#audit(context.company.id,context.user.id,'cashbox.close.requested','cashbox_session',session.id,{request:session.closingRequest});this.#change(context.company.id,'cashbox_session',session.id,'upsert',session);return clone(session);
+  }
   async closeCashbox(context, cashboxId, sessionId, input) {
     const companyId = context.company.id, box = this.cashboxes.get(cashboxId), session = this.cashboxSessions.get(sessionId);
     if (!box || box.companyId !== companyId || !session || session.companyId !== companyId || session.cashboxId !== box.id) throw new AppError(404,'CASHBOX_SESSION_NOT_FOUND','جلسة الصندوق غير موجودة');
     if (session.status === 'closed' && session.closeOperationId === input.operationId) {
-      if (session.countedBalance !== decimalString(decimal(input.countedBalance,{nonNegative:true}))) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
+      if (session.countedBalance !== decimalString(decimal(input.countedBalance,{nonNegative:true})) || input.requireReview&&session.closingVoucher?.reason!==String(input.reason||'')) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
       return clone(session);
     }
     if (session.status !== 'open') throw new AppError(409,'CASHBOX_NOT_OPEN','جلسة الصندوق مغلقة');
     if (!input.closedAt || input.closedAt < session.openedAt || Date.parse(input.closedAt) > Date.now()) throw new AppError(400,'CASH_CLOSE_OUTSIDE_SESSION','وقت الإغلاق خارج فترة الشفت');
     const counted = decimal(input.countedBalance,{nonNegative:true});
-    const expected = this.#cashboxExpectedBalance(session,box);
+    const expected = this.#cashboxExpectedBalance(session,box,input.closedAt);
     const variance = counted - expected;
+    if(session.closingRequest&&session.closingRequest.expectedBalance!==decimalString(expected))throw new AppError(409,'CASH_COUNT_STALE','تغير رصيد الصندوق بعد الجرد؛ أعد الجرد قبل الاعتماد');
+    if(input.requireReview&&(!context.permissions?.includes('company.manage')||!context.permissions?.includes('accounting.post')))throw new AppError(403,'PERMISSION_DENIED','اعتماد سند الإغلاق يتطلب المدير وصلاحية الترحيل');
+    if(input.requireReview&&variance!==ZERO&&!String(input.reason||'').trim())throw new AppError(400,'VARIANCE_REASON_REQUIRED','سبب العجز أو الزيادة مطلوب');
     let journal = null;
     if (variance > ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.closedAt},`CASH-SURPLUS-${box.code}-${session.sessionNumber}`,box.currency,[[box.accountCode,variance,ZERO],['4800-OTHER-INCOME',ZERO,variance]],{branchId:box.branchId,cashboxId:box.id});
     else if (variance < ZERO) journal = this.#simpleJournal(context,{operationId:input.operationId,occurredAt:input.closedAt},`CASH-SHORT-${box.code}-${session.sessionNumber}`,box.currency,[['6150-CASH-SHORTAGE',-variance,ZERO],[box.accountCode,ZERO,-variance]],{branchId:box.branchId,cashboxId:box.id});
+    const details=[...this.journalEntries.values()].filter(j=>j.companyId===companyId&&j.status==='posted'&&j.currency===box.currency&&j.id!==session.openingJournalId&&j.id!==journal?.id&&j.occurredAt>=session.openedAt&&j.occurredAt<=input.closedAt).flatMap(j=>j.lines.filter(l=>(l.accountCode||l.account)===box.accountCode&&(l.cashboxId===box.id||(!l.cashboxId&&!box.branchId))).map(l=>({journalId:j.id,entryNumber:j.entryNumber,debit:l.debit,credit:l.credit,occurredAt:j.occurredAt,counterAccounts:j.lines.filter(x=>x!==l).map(x=>x.accountCode||x.account)})));
+    const receiptTotal=details.reduce((n,l)=>n+decimal(l.debit||'0'),ZERO),paymentTotal=details.reduce((n,l)=>n+decimal(l.credit||'0'),ZERO);
+    const cashCodes=new Set(this.listChartAccounts(companyId).filter(x=>/^1000-|^1010-/.test(x.code)).map(x=>x.code)),expenseCodes=new Set(this.listChartAccounts(companyId).filter(x=>x.type==='expense').map(x=>x.code));
+    const total=(predicate,key)=>decimalString(details.filter(predicate).reduce((n,l)=>n+decimal(l[key]||'0'),ZERO)),isTransfer=l=>l.counterAccounts.some(code=>cashCodes.has(code));
+    session.closingVoucher={expenses:total(l=>!isTransfer(l)&&l.counterAccounts.some(code=>expenseCodes.has(code)),'credit'),transfersIn:total(isTransfer,'debit'),transfersOut:total(isTransfer,'credit'),number:'CC-'+session.id,companyId,companyName:context.company.name,branchId:box.branchId,cashboxId:box.id,cashboxName:box.name,currency:box.currency,custodianId:session.openedBy,countedBy:session.closingRequest?.countedBalance===decimalString(counted)?session.closingRequest.requestedBy:context.user.id,reviewedBy:context.user.id,approvedAt:input.closedAt,openedAt:session.openedAt,closedAt:input.closedAt,openingBalance:session.openingBalance,receipts:decimalString(receiptTotal),payments:decimalString(paymentTotal),expectedBalance:decimalString(expected),countedBalance:decimalString(counted),variance:decimalString(variance),reason:String(input.reason||''),details};
     session.status = 'closed'; session.expectedBalance = decimalString(expected); session.countedBalance = decimalString(counted); session.variance = decimalString(variance); session.closeOperationId = input.operationId; session.closingJournalId = journal?.id || null; session.closedAt = input.closedAt; session.closedBy = context.user.id;
     this.#audit(companyId,context.user.id,'cashbox.closed','cashbox_session',session.id,{variance:session.variance});
     this.#change(companyId,'cashbox_session',session.id,'upsert',session);
@@ -1356,7 +1497,7 @@ export class MemoryStore {
     return [...this.importShipments.values()].filter(x => x.companyId === companyId).map(clone);
   }
 
-  #cashboxExpectedBalance(session,box){const delta=[...this.journalEntries.values()].filter(j=>j.companyId===session.companyId&&j.currency===box.currency&&j.id!==session.openingJournalId&&String(j.occurredAt)>=session.openedAt&&j.status==='posted').flatMap(j=>j.lines).filter(line=>(line.accountCode||line.account)===box.accountCode&&(line.cashboxId===box.id||(!line.cashboxId&&!box.branchId))).reduce((sum,line)=>sum+decimal(line.debit||'0')-decimal(line.credit||'0'),ZERO);return decimal(session.openingBalance)+delta;}
+  #cashboxExpectedBalance(session,box,to=null){const delta=[...this.journalEntries.values()].filter(j=>j.companyId===session.companyId&&j.currency===box.currency&&j.id!==session.openingJournalId&&String(j.occurredAt)>=session.openedAt&&(!to||String(j.occurredAt)<=to)&&j.status==='posted').flatMap(j=>j.lines).filter(line=>(line.accountCode||line.account)===box.accountCode&&(line.cashboxId===box.id||(!line.cashboxId&&!box.branchId))).reduce((sum,line)=>sum+decimal(line.debit||'0')-decimal(line.credit||'0'),ZERO);return decimal(session.openingBalance)+delta;}
 
   async listCustomerAccountSummaries(companyId) {
     const company = this.companies.get(companyId), currency = company?.currency || 'IQD', result = {};
@@ -1788,6 +1929,7 @@ export class MemoryStore {
     const journal = { id: randomUUID(), companyId, entryNumber: number, operationId: operation.operationId || null, status: 'posted', currency, branchId:dimensions.branchId||null, cashboxId:dimensions.cashboxId||null, description: number, occurredAt: operation.occurredAt, createdBy: context.user.id, lines: normalized };
     const debit = journal.lines.reduce((sum,row) => sum + decimal(row.debit),ZERO), credit = journal.lines.reduce((sum,row) => sum + decimal(row.credit),ZERO);
     if (debit !== credit) throw new AppError(500,'UNBALANCED_JOURNAL','القيد غير متوازن');
+    this.assertJournalSession(journal);
     this.journalEntries.set(journal.id,Object.freeze(journal));
     this.#audit(companyId,context.user.id,'journal.posted','journal_entry',journal.id,{});
     this.#change(companyId,'journal_entry',journal.id,'upsert',journal);

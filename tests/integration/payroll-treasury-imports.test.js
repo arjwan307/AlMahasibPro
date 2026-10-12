@@ -93,7 +93,7 @@ test('payroll approval, cashbox closing, and import landed costs post once to SQ
     assert.equal((await request(`/api/v1/treasury/cashboxes/${box.id}/movements`,{...movementInput,amount:'26'})).status,409);
     const insufficient=await request(`/api/v1/treasury/cashboxes/${box.id}/movements`,{...movementInput,operationId:crypto.randomUUID(),movementNumber:'CASH-TOO-MUCH',amount:'100'});
     assert.equal(insufficient.status,409);assert.equal(insufficient.data.error.code,'INSUFFICIENT_CASH');
-    const closeInput={operationId:crypto.randomUUID(),countedBalance:'70'};
+    const closeInput={operationId:crypto.randomUUID(),countedBalance:'70',reason:'عجز مثبت بالجرد'};
     const closed=(await request(`/api/v1/treasury/cashboxes/${box.id}/sessions/${opened.id}/close`,closeInput));
     assert.equal(closed.status,200,JSON.stringify(closed.data));
     assert.equal(closed.data.session.expectedBalance,'75.000000');

@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { MemoryStore } from './memory-store.js';
 
 const MAP_FIELDS = [
-  'companies','financialPeriods','users','roles','sessions','customerNotifications','desktopCommands','desktopIdMappings',
+  'openingJournals','companies','financialPeriods','users','roles','sessions','customerNotifications','desktopCommands','desktopIdMappings',
   'operations','financialRecords','units','items','itemUnits','prices','customers','suppliers','warehouses','stockBalances',
   'stocktakes','stockReceipts','stockIssues','stockWriteoffs','deliveryLoads','commerceDocuments','journalEntries','chartAccounts',
   'itemBarcodes','posDevices','posShifts','offlineAllocations','posReceipts','posDiscountPolicies','representatives',
@@ -19,6 +19,7 @@ const MAP_FIELDS = [
 ];
 const ARRAY_FIELDS = ['changes','audit','serverOutbox'];
 const WRITE_METHODS = [
+  'requestCashboxClose','closeCashbox','openCashbox','postCashboxMovement','createCashbox','cancelOpeningJournal','saveOpeningJournal','approveOpeningJournal','classifyCashFlow','closeFinancialPeriod','reopenFinancialPeriod',
   'postLogisticsJournal','reverseJournal','saveLogisticsRecord','updateImportLogistics','createImportShipment','markImportShipmentArrived','linkImportPurchaseDocument','postImportCosts','postManualJournal',
   'transferEnterpriseStock','settleEnterpriseDocument','seedPlatformAdmin','createPlatformAdmin','setCompanyStatus','updatePlatformCompany','deletePlatformCompany','registerCompany','approveCompany','createSession','revokeSession','touchSession','createUser','updateUser','createUnit',
   'createItem','addItemUnit','setPrice','createParty','createWarehouse','createDepartment','createEmployee',
@@ -126,7 +127,7 @@ export class MongoStore extends MemoryStore {
       try {
         const result = await callback();
         // Enforce closed financial periods on every new posting, as the SQLite store does.
-        if (!this.importingCloudSnapshot) for (const [id, row] of this.journalEntries) if (!previous.get('journalEntries').has(id)) this.assertFinancialPeriod(row.companyId, row.occurredAt);
+        if (!this.importingCloudSnapshot) for (const [id, row] of this.journalEntries) if (!previous.get('journalEntries').has(id)) {this.assertFinancialPeriod(row.companyId, row.occurredAt,row.id);this.assertJournalSession(row);}
         await this.#persist();
         return result;
       } catch (error) {
