@@ -2,7 +2,7 @@
 const companyFiles = new Set(['logistics-workspace.js','logistics-workspace.css','sales-workspace.js','sales-workspace.css','enterprise.html','enterprise.js','enterprise.css','representative.html','representative-ui.js','offline-sync.js','customers.html','customers-ui.js','wholesale-sales.html','wholesale-invoice.html','wholesale-invoice.js','wholesale-invoice.css','assistant.js','assistant.css','developer.html','register.html','password-visibility.js']);
 const retailFiles = new Set(['retail-developer.html','retail.html','retail-login.html','retail-login.js','retail-scope.js','enterprise.css','pos.html','pos-ui.js','offline-sync.js','restaurant-pos.js','restaurant-warehouse.js','market-cashier.html','market-admin.html','market-offline.js','market-cashier-ledger.js','scanner-qrcode.js','market-scanner.html','market-trial-catalog.json','market-service-worker.js','register.html','password-visibility.js']);
 export function productApiAllowed(product,path) {
- const retailOnly=/^\/api\/v1\/(market|pos)(\/|$)/.test(path);
+ const retailOnly=/^\/api\/v1\/(market|pos)(\/|$)/.test(path) && path !== '/api/v1/market/fx';
  const companyOnly=/^\/api\/v1\/(hr|payroll|representatives|imports|wholesale|sales-workspace|assistant)(\/|$)/.test(path);
  return !(product==='company'&&retailOnly||product==='retail'&&companyOnly);
 }
