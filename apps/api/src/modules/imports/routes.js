@@ -1,3 +1,4 @@
+import { installLogisticsRoutes, normalizeLogistics } from './logistics.js';
 import { AppError, asyncRoute, requireFields } from '../../lib/http.js';
 
 const anyPermission = permissions => (req,res,next) => permissions.some(x=>req.auth.permissions.includes(x)) ? next() : next(new AppError(403,'PERMISSION_DENIED','لا توجد صلاحية لهذه العملية'));
@@ -12,10 +13,11 @@ export function installImportRoutes(app,{store,authenticate,permit,uuid,entityCo
     if(!document&&shipment.createdBy===req.auth.user.id)return;
     throw new AppError(403,'WAREHOUSE_SCOPE_DENIED','الشحنة خارج نطاق حسابك');
   };
+  installLogisticsRoutes(app,{store,authenticate,permit,uuid,decimalInput,currency,assertShipmentScope,warehouseScopeAllows});
   app.get('/api/v1/import/shipments',authenticate(store),anyPermission(['imports.read','imports.manage']),asyncRoute(async(req,res)=>{const shipments=await store.listImportShipments(req.auth.company.id);res.json({shipments:shipments.filter(shipment=>{try{assertShipmentScope(req,shipment);return true;}catch{return false;}})});}));
   app.post('/api/v1/import/shipments',authenticate(store),permit('imports.manage'),asyncRoute(async(req,res)=>{
-    requireFields(req.body,['operationId','shipmentNumber','containerNumber','supplierId','currency']);
-    const shipment=await store.createImportShipment(req.auth,{operationId:uuid(req.body.operationId,'operationId'),shipmentNumber:entityCode(req.body.shipmentNumber),containerNumber:String(req.body.containerNumber).trim().slice(0,80),supplierId:uuid(req.body.supplierId,'supplierId'),currency:currency(req.body.currency),origin:String(req.body.origin||'').trim().slice(0,120),billOfLading:String(req.body.billOfLading||'').trim().slice(0,120),shippedAt:req.body.shippedAt?timestamp(req.body.shippedAt):null,expectedAt:req.body.expectedAt?timestamp(req.body.expectedAt):null});
+    requireFields(req.body,['operationId','shipmentNumber','supplierId','currency']);
+    const shipment=await store.createImportShipment(req.auth,{operationId:uuid(req.body.operationId,'operationId'),shipmentNumber:entityCode(req.body.shipmentNumber),containerNumber:String(req.body.containerNumber||'').trim().slice(0,80),supplierId:uuid(req.body.supplierId,'supplierId'),currency:currency(req.body.currency),origin:String(req.body.origin||'').trim().slice(0,120),billOfLading:String(req.body.billOfLading||'').trim().slice(0,120),shippedAt:req.body.shippedAt?timestamp(req.body.shippedAt):null,expectedAt:req.body.expectedAt?timestamp(req.body.expectedAt):null,logistics:normalizeLogistics(req.body.logistics||{}, {store,auth:req.auth,uuid,decimalInput})});
     res.status(201).json({shipment});
   }));
   app.post('/api/v1/import/shipments/:shipmentId/arrival',authenticate(store),permit('imports.manage'),asyncRoute(async(req,res)=>{
@@ -30,7 +32,7 @@ export function installImportRoutes(app,{store,authenticate,permit,uuid,entityCo
     if(purchaseDocument&&!warehouseScopeAllows(req.auth,store.warehouses.get(purchaseDocument.warehouseId)))throw new AppError(403,'WAREHOUSE_SCOPE_DENIED','فاتورة الشراء خارج نطاق حسابك');
     res.json({shipment:await store.linkImportPurchaseDocument(req.auth,uuid(req.params.shipmentId,'shipmentId'),{operationId:uuid(req.body.operationId,'operationId'),purchaseDocumentId:uuid(req.body.purchaseDocumentId,'purchaseDocumentId')})});
   }));
-  app.post('/api/v1/import/shipments/:shipmentId/costs',authenticate(store),permit('imports.manage'),asyncRoute(async(req,res)=>{
+  app.post('/api/v1/import/shipments/:shipmentId/costs',authenticate(store),permit('imports.manage'),permit('accounting.post'),asyncRoute(async(req,res)=>{
     requireFields(req.body,['operationId','currency']);
     assertShipmentScope(req,store.importShipments.get(uuid(req.params.shipmentId,'shipmentId')));
     if(!Array.isArray(req.body.charges)||!req.body.charges.length||req.body.charges.length>50||!Array.isArray(req.body.allocations)||!req.body.allocations.length||req.body.allocations.length>500) throw new AppError(400,'INVALID_IMPORT_COSTS','بنود التكاليف والتوزيع غير صالحة');

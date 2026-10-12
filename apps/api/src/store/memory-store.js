@@ -70,7 +70,7 @@ export class MemoryStore {
     this.leaveRequests = new Map(); this.payrollSettings = new Map(); this.payrollCycles = new Map();
     this.payrollPayments = new Map(); this.payrollAdjustments = new Map();
     this.cashboxes = new Map(); this.cashboxSessions = new Map(); this.cashboxMovements = new Map();
-    this.importShipments = new Map(); this.importCostPostings = new Map();
+    this.logisticsRecords = new Map(); this.importShipments = new Map(); this.importCostPostings = new Map();
     this.dataImportBatches = new Map();
     this.salesSettings = new Map(); this.salesApprovals = new Map(); this.salesReviews = new Map();
     // Deletion tombstones survive across restarts and prevent a stale device or a
@@ -963,7 +963,7 @@ export class MemoryStore {
       ['2100-AP','ذمم الموردين','liability'],['2200-PAYROLL-DEDUCTIONS','استقطاعات الرواتب','liability'],['2205-CUSTOMER-CREDITS','أرصدة العملاء الدائنة','liability'],
       ['2300-PAYROLL-PAYABLE','رواتب مستحقة','liability'],['3000-EQUITY','حقوق الملكية','equity'],
       ['4100-SALES','المبيعات','revenue'],['4200-SALES-RETURNS','مردودات المبيعات','contra_revenue'],['4800-OTHER-INCOME','إيرادات أخرى','revenue'],['6150-CASH-SHORTAGE','عجز الصندوق','expense'],
-      ['5100-COGS','كلفة البضاعة المباعة','expense'],['6100-PAYROLL-EXPENSE','مصروف الرواتب','expense'],
+      ['6120-LOGISTICS-EXPENSE','مصروفات الشحن والنقل والتخليص','expense'],['5100-COGS','كلفة البضاعة المباعة','expense'],['6100-PAYROLL-EXPENSE','مصروف الرواتب','expense'],
       ['6150-PAYROLL-RECOVERY','استردادات الرواتب','revenue']
     ];
     const custom=[...this.chartAccounts.values()].filter(x=>x.companyId===companyId);
@@ -1060,7 +1060,11 @@ export class MemoryStore {
       throw new AppError(409, 'JOURNAL_ALREADY_REVERSED', 'القيد معكوس سابقًا');
     }
     const branches=(context.scopes||[]).filter(x=>x.type==='branch');if(branches.length&&!branches.some(x=>x.id===original.branchId))throw new AppError(403,'BRANCH_SCOPE_DENIED','القيد خارج نطاق حسابك');
-    const reversal = await this.postManualJournal(context, {branchId:original.branchId,
+    const charge=[...this.logisticsRecords.values()].find(x=>x.kind==='charge'&&x.journalEntryId===id);
+    if(charge&&[...this.logisticsRecords.values()].some(x=>x.kind==='payment'&&x.chargeId===charge.id&&!this.journalEntries.get(x.journalEntryId)?.reversedByJournalId))throw new AppError(409,'LOGISTICS_PAYMENTS_EXIST','اعكس سندات سداد الأجر قبل عكس قيد المصروف');
+    if([...this.importCostPostings.values()].some(x=>x.journalEntryId===id))throw new AppError(409,'IMPORT_COST_REVERSAL_REQUIRED','رسملة الشحن مرتبطة بتقييم المخزون؛ يلزم تسوية كلفة المخزون قبل العكس');
+    const post=original.source==='logistics'?this.postLogisticsJournal.bind(this):this.postManualJournal.bind(this);
+    const reversal = await post(context, {branchId:original.branchId,cashboxId:original.cashboxId,
       operationId: input.operationId, entryNumber: input.entryNumber, currency: original.currency,
       description: `عكس ${original.entryNumber || original.id}`, occurredAt: input.occurredAt,
       lines: original.lines.map(line => ({ accountCode: line.accountCode || line.account, debit: line.credit, credit: line.debit, note: 'عكس القيد' }))
@@ -1250,18 +1254,50 @@ export class MemoryStore {
     return clone(session);
   }
 
+  async postLogisticsJournal(context, input) {
+    const branchScopes=(context.scopes||[]).filter(x=>x.type==='branch');
+    if(!context.permissions?.includes('accounting.post')||(context.scopes||[]).some(x=>x.type==='warehouse'))throw new AppError(403,'PERMISSION_DENIED','الترحيل يحتاج صلاحية محاسبية ونطاق الشركة أو الفرع');
+    if(branchScopes.length&&!branchScopes.some(x=>x.id===input.branchId))throw new AppError(403,'BRANCH_SCOPE_DENIED','الفرع خارج نطاق الحساب');
+    if(!['IQD','USD'].includes(input.currency))throw new AppError(400,'INVALID_CURRENCY','العملة غير مدعومة');
+    const accounts=new Set(this.listChartAccounts(context.company.id).filter(x=>x.active!==false).map(x=>x.code));
+    const lines=input.lines.map(x=>{const debit=decimal(x.debit||'0',{nonNegative:true}),credit=decimal(x.credit||'0',{nonNegative:true});if(!accounts.has(x.accountCode)||(debit>ZERO)===(credit>ZERO))throw new AppError(400,'INVALID_JOURNAL_LINE','طرف القيد غير صالح');return[x.accountCode,debit,credit];});
+    if(lines.length<2||lines.reduce((n,[,d])=>n+d,ZERO)!==lines.reduce((n,[,,c])=>n+c,ZERO))throw new AppError(400,'UNBALANCED_JOURNAL','القيد غير متوازن');
+    const journal=this.#simpleJournal(context,input,input.entryNumber,input.currency,lines,{branchId:input.branchId,cashboxId:input.cashboxId});
+    const updated={...journal,source:'logistics',description:input.description};
+    this.journalEntries.set(updated.id,Object.freeze(updated));this.#audit(context.company.id,context.user.id,'logistics.journal.posted','journal_entry',updated.id,{});this.#change(context.company.id,'journal_entry',updated.id,'upsert',updated);return clone(updated);
+  }
+
+  async saveLogisticsRecord(context, record) {
+    const row = {...clone(record), companyId:context.company.id, updatedAt:new Date().toISOString(), updatedBy:context.user.id};
+    this.logisticsRecords.set(row.id, row);
+    this.#audit(context.company.id,context.user.id,'logistics.'+row.kind+'.saved','logistics_record',row.id,{});
+    this.#change(context.company.id,'logistics_record',row.id,'upsert',row);
+    return clone(row);
+  }
+
+  async updateImportLogistics(context, id, logistics, revision, details={}) {
+    const row=this.importShipments.get(id);
+    if(!row||row.companyId!==context.company.id)throw new AppError(404,'SHIPMENT_NOT_FOUND','الشحنة غير موجودة');
+    if((row.logisticsRevision||0)!==revision)throw new AppError(409,'SHIPMENT_CHANGED','تم تعديل ملف الشحنة بواسطة مستخدم آخر؛ افتحه مجددًا');
+    const updated={...row,...clone(details),logistics:clone(logistics),logisticsRevision:revision+1,updatedAt:new Date().toISOString()};
+    this.importShipments.set(id,updated);
+    this.#audit(context.company.id,context.user.id,'import.logistics.updated','import_shipment',id,{});
+    this.#change(context.company.id,'import_shipment',id,'upsert',updated);
+    return clone(updated);
+  }
+
   async createImportShipment(context, input) {
     const companyId = context.company.id;
     const existing = [...this.importShipments.values()].find(x => x.companyId === companyId && x.operationId === input.operationId);
     if (existing) {
-      if (existing.shipmentNumber !== input.shipmentNumber || existing.supplierId !== input.supplierId || existing.containerNumber !== input.containerNumber || existing.currency !== input.currency || existing.origin !== (input.origin || '') || existing.billOfLading !== (input.billOfLading || '') || existing.shippedAt !== (input.shippedAt || null) || existing.expectedAt !== (input.expectedAt || null)) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
+      if (existing.shipmentNumber !== input.shipmentNumber || existing.supplierId !== input.supplierId || existing.containerNumber !== input.containerNumber || existing.currency !== input.currency || existing.origin !== (input.origin || '') || existing.billOfLading !== (input.billOfLading || '') || existing.shippedAt !== (input.shippedAt || null) || existing.expectedAt !== (input.expectedAt || null) || JSON.stringify(existing.logistics||{})!==JSON.stringify(input.logistics||{})) throw new AppError(409,'OPERATION_ID_REUSED','معرف العملية مستخدم لبيانات أخرى');
       return clone(existing);
     }
     const supplier=this.suppliers.get(input.supplierId);
     if(!supplier||supplier.companyId!==companyId||supplier.active===false)throw new AppError(400,'SUPPLIER_NOT_FOUND','المورد غير موجود أو موقوف');
     if ([...this.importShipments.values()].some(x => x.companyId === companyId && x.shipmentNumber === input.shipmentNumber)) throw new AppError(409,'SHIPMENT_NUMBER_EXISTS','رقم الشحنة مستخدم');
     if(!['IQD','USD'].includes(input.currency))throw new AppError(400,'INVALID_CURRENCY','عملة الشحنة غير مدعومة');
-    const row = { id: randomUUID(), companyId, operationId: input.operationId, shipmentNumber: input.shipmentNumber, containerNumber: input.containerNumber, supplierId: supplier.id, purchaseDocumentId: null, currency: input.currency, origin: input.origin || '', billOfLading: input.billOfLading || '', shippedAt: input.shippedAt || null, expectedAt: input.expectedAt || null, arrivedAt: null, status: 'in_transit', createdBy: context.user.id, createdAt: new Date().toISOString() };
+    const row = { id: randomUUID(), companyId, operationId: input.operationId, shipmentNumber: input.shipmentNumber, containerNumber: input.containerNumber, supplierId: supplier.id, purchaseDocumentId: null, logistics: clone(input.logistics||{}), logisticsRevision:0, currency: input.currency, origin: input.origin || '', billOfLading: input.billOfLading || '', shippedAt: input.shippedAt || null, expectedAt: input.expectedAt || null, arrivedAt: null, status: 'in_transit', createdBy: context.user.id, createdAt: new Date().toISOString() };
     this.importShipments.set(row.id,row);
     this.#audit(companyId,context.user.id,'import.shipment.created','import_shipment',row.id,{supplierId:supplier.id});
     this.#change(companyId,'import_shipment',row.id,'upsert',row);

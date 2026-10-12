@@ -51,11 +51,11 @@ try{
   ['customers','#editor [name="name"]'],['suppliers','#editor [name="name"]'],['branches','#branchEditor [name="name"]'],
   ['users','#userEditor [name="username"]'],['ledger','#manualJournal [name="description"]'],
   ['inventory','#stockReceiptForm [name="counterparty"]'],['payroll','#payrollEmployee [name="fullName"]'],
-  ['treasury','#cashboxCreate [name="name"]'],['imports','#shipmentCreate [name="shipmentNumber"]'],
+  ['treasury','#cashboxCreate [name="name"]'],['imports','#lgShipmentCreate [name="shipmentNumber"]'],
   ['purchase','#commerce [name="documentNumber"]']
  ];
  for(const [view,selector] of cases){
-  await go(view);const input=page.locator(selector);await input.waitFor();const value='مسودة '+view;
+  await go(view);if(view==='imports')await page.locator('[data-lg-action="new"]').click();const input=page.locator(selector);await input.waitFor();const value='مسودة '+view;
   await input.fill(value);await page.locator('#pageTitle').click();
   await synchronize();assert.equal(await input.inputValue(),value,view+' fields survive synchronization after blur');
  }
