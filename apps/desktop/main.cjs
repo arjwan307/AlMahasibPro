@@ -1,10 +1,7 @@
 const { app, BrowserWindow, dialog, Menu, net, shell, safeStorage } = require('electron');
 const path = require('node:path');
-const { companyRuntimeOptions } = require('./company-runtime.cjs');
-const companyRuntime = companyRuntimeOptions(app.getPath('appData'));
-app.setName(companyRuntime.name);
-app.setAppUserModelId(companyRuntime.appId);
-app.setPath('userData', companyRuntime.dataDirectory);
+const { prepareCompanyRuntime } = require('./company-runtime.cjs');
+const companyRuntime = prepareCompanyRuntime(app);
 let runtime;
 app.on('second-instance',()=>{const current=BrowserWindow.getAllWindows()[0];if(current){if(current.isMinimized())current.restore();current.show();current.focus();}});
 if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async () => {

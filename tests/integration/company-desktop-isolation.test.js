@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {join} from 'node:path';
+import {statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {SQLiteStore} from '../../apps/api/src/store/sqlite-store.js';
 import {createApp} from '../../apps/api/src/app.js';
 import {startEnterpriseLocal} from '../../apps/local/enterprise-server.js';
 import {hashPassword} from '../../apps/api/src/lib/security.js';
-const {companyRuntimeOptions}=createRequire(import.meta.url)('../../apps/desktop/company-runtime.cjs');
+const {companyRuntimeOptions,prepareCompanyRuntime}=createRequire(import.meta.url)('../../apps/desktop/company-runtime.cjs');
 
 test('company desktop ignores legacy shared data and port environment settings',()=>{
  const options=companyRuntimeOptions('/application-data',{ALMAHASIB_DATA_DIR:'/cashier-data',ALMAHASIB_PORT:'3211'});
@@ -41,4 +42,12 @@ test('fresh company desktop binds co11 directly while retaining legacy cashier m
   assert.equal((await (await fetch(runtime.url+'/api/local/status')).json()).companyCode,'co11');
   assert.deepEqual(await readFile(join(legacyDir,'enterprise.sqlite')),oldDatabase);assert.equal(await readFile(join(legacyDir,'cloud-connection.json'),'utf8'),oldConfig);
  }finally{await runtime?.close();if(cloudServer)await new Promise(r=>cloudServer.close(r));await cloud?.close();await rm(dir,{recursive:true,force:true});}
+});
+
+
+test('fresh Electron startup creates isolated data and browser directories before overriding paths',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'company-electron-paths-'));const paths={};
+ try{const app={getPath:name=>{assert.equal(name,'appData');return directory;},setName:()=>{},setAppUserModelId:id=>assert.equal(id,'com.almahasibpro.companies'),setPath:(name,value)=>{assert.ok(statSync(value).isDirectory());paths[name]=value;}};
+ const options=prepareCompanyRuntime(app,{});assert.equal(paths.userData,options.dataDirectory);assert.equal(paths.sessionData,join(options.dataDirectory,'Browser'));
+ }finally{await rm(directory,{recursive:true,force:true});}
 });
