@@ -17,7 +17,7 @@
  }
  async function manual(){
   if(running)return;running=true;const button=$('companySyncNow');button.disabled=true;
-  try{const client=await engine(),result=await client.synchronize();if(result?.state==='failed')throw Error(result.message);if(result?.state==='offline')throw Error('لا يوجد اتصال؛ العمليات المحفوظة تبقى بانتظار الإرسال');if(result?.state==='busy')return;if(result?.state!=='complete')throw Error('المزامنة غير جاهزة');await context().refresh();notify(result.conflicts?'اكتملت المزامنة؛ توجد عمليات تحتاج مراجعة':'اكتملت المزامنة');await update();}catch(error){notify(error.message);}finally{button.disabled=false;running=false;}
+  try{const client=await engine(),result=await client.synchronize();if(result?.state==='failed')throw Error(result.message);if(result?.state==='offline')throw Error('لا يوجد اتصال؛ العمليات المحفوظة تبقى بانتظار الإرسال');if(result?.state==='busy')return;if(result?.state!=='complete')throw Error('المزامنة غير جاهزة');await context().refresh({background:true});notify(result.conflicts?'اكتملت المزامنة؛ توجد عمليات تحتاج مراجعة':'اكتملت المزامنة');await update();}catch(error){notify(error.message);}finally{button.disabled=false;running=false;}
  }
  function decorate(){
   const c=context(),heading=document.querySelector('.page-heading');if(!c?.account||$('workspace')?.hidden||!heading)return;
