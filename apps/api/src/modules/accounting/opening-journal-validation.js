@@ -6,7 +6,7 @@
 export function validateOpeningJournal(input, { accountCodes = [], existingOpeningPeriods = [] } = {}) {
   const errors = [];
   const period = String(input?.period || '').trim();
-  if (!/^\\d{4}$/.test(period)) errors.push('INVALID_OPENING_PERIOD');
+  if (!/^\d{4}$/.test(period)) errors.push('INVALID_OPENING_PERIOD');
   if (existingOpeningPeriods.includes(period)) errors.push('OPENING_PERIOD_EXISTS');
   const currency = String(input?.currency || '').trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(currency)) errors.push('INVALID_CURRENCY');
@@ -15,7 +15,7 @@ export function validateOpeningJournal(input, { accountCodes = [], existingOpeni
   if (lines.length < 2 || lines.length > 500) errors.push('INVALID_LINE_COUNT');
   const amount = value => {
     const raw = String(value ?? '0').trim();
-    if (!/^(0|[1-9]\\d*)(\\.\\d{1,3})?$/.test(raw)) return null;
+    if (!/^(0|[1-9]\d*)(\.\d{1,3})?$/.test(raw)) return null;
     const [whole, fraction = ''] = raw.split('.');
     return BigInt(whole) * 1000n + BigInt(fraction.padEnd(3, '0'));
   };
