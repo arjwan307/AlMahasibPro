@@ -51,7 +51,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Publish verified company installer
-        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish_release
+        if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.publish_release) || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release company desktop ')))
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -67,6 +67,6 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             Write-Output 'This version is already published; bump the version for a new release.'
           } else {
-            gh release create $releaseTag $installerPath $hashPath --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "AlMahasibPro Companies $releaseVersion" --notes-file 'docs/company-desktop-1.2.1.md'
+            gh release create $releaseTag $installerPath $hashPath --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "AlMahasibPro Companies $releaseVersion" --notes-file "docs/company-desktop-$releaseVersion.md"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
