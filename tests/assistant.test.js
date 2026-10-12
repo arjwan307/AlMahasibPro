@@ -297,7 +297,7 @@ test('assistant lets sales users search items with their channel price and does 
     assert.equal(chat.body.report.rows.length, 1);
     assert.equal(chat.body.report.rows[0][3], '1000');
     assert.equal(chat.body.report.rows[0][5], '10');
-    assert.equal(chat.body.report.actions[0].itemId, 'item-1');
+    assert.equal(chat.body.report.actions, undefined);
     assert.doesNotMatch(JSON.stringify(chat.body), /500|averageCost/);
   } finally {
     globalThis.fetch = originalFetch;
@@ -659,23 +659,20 @@ test('assistant prepares a local sales invoice draft preview only with user perm
       permissions: ['assistant.use', 'sales.create', 'catalog.read', 'inventory.read'], scopes: [] };
     const response = capture();
     await routes['POST /api/v1/assistant/chat'].handler({ auth, body: { messages: [
-      { role: 'user', content: 'أنشئ فاتورة مفرد: 3 سكر' }
+      { role: 'user', content: 'جهز معاينة فاتورة مفرد: 3 سكر' }
     ] } }, response);
     assert.equal(response.statusCode, 200);
     assert.equal(response.body.localOnly, true);
     assert.match(response.body.answer, /لم أحفظ أو أعتمد أو أرحّل/);
     assert.equal(response.body.report.rows[0][1], 'سكر');
     assert.equal(response.body.report.rows[0][3], '3');
-    assert.deepEqual(response.body.report.actions[0], {
-      itemId: 'item-sugar', unitId: 'unit-kg', quantity: '3', invoiceType: 'retail',
-      label: 'أضف 3 إلى مسودة الفاتورة'
-    });
+    assert.equal(response.body.report.actions, undefined);
     assert.equal(reads, 1);
 
     const denied = capture();
     await routes['POST /api/v1/assistant/chat'].handler({ auth: {
       ...auth, permissions: ['assistant.use', 'catalog.read', 'inventory.read']
-    }, body: { messages: [{ role: 'user', content: 'أنشئ فاتورة مفرد: 3 سكر' }] } }, denied);
+    }, body: { messages: [{ role: 'user', content: 'جهز معاينة فاتورة مفرد: 3 سكر' }] } }, denied);
     assert.equal(denied.statusCode, 403);
     assert.equal(denied.body.error.code, 'PERMISSION_DENIED');
     assert.equal(reads, 1);
@@ -686,54 +683,18 @@ test('assistant prepares a local sales invoice draft preview only with user perm
 });
 
 
-test('assistant prepares a balanced journal preview locally and requires accounting permissions', async () => {
-  const oldKey = process.env.GROQ_API_KEY;
-  const originalFetch = globalThis.fetch;
-  try {
-    delete process.env.GROQ_API_KEY;
-    globalThis.fetch = async () => { throw new Error('journal preview must stay local'); };
-    let reads = 0;
-    const store = { listChartAccounts: async companyId => {
-      assert.equal(companyId, 'journal-company');
-      reads++;
-      return [
-        { code: '1000', name: 'الصندوق', active: true },
-        { code: '4000', name: 'المبيعات', active: true }
-      ];
-    } };
-    const routes = setup(undefined, store);
-    const auth = { company: { id: 'journal-company' }, permissions: ['assistant.use', 'accounting.read', 'accounting.post'] };
-    const balanced = capture();
-    await routes['POST /api/v1/assistant/chat'].handler({
-      auth, body: { messages: [{ role: 'user', content: 'جهز مسودة قيد: مدين الصندوق ١٠٠٠؛ دائن المبيعات ١٠٠٠' }] }
-    }, balanced);
-    assert.equal(balanced.statusCode, 200);
-    assert.equal(balanced.body.localOnly, true);
-    assert.match(balanced.body.answer, /لم أحفظ أو أعتمد أو أرحّل القيد/);
-    assert.equal(balanced.body.report.rows[0][1], '1000');
-    assert.equal(balanced.body.report.rows.at(-1)[4], 'متوازن مبدئيًا');
-    assert.equal(reads, 1);
-
-    const unbalanced = capture();
-    await routes['POST /api/v1/assistant/chat'].handler({
-      auth, body: { messages: [{ role: 'user', content: 'جهز مسودة قيد: مدين الصندوق 1000؛ دائن المبيعات 900' }] }
-    }, unbalanced);
-    assert.equal(unbalanced.body.report.rows.at(-1)[4], 'غير متوازن');
-    assert.match(unbalanced.body.answer, /لم أحفظ أو أرحّل أي قيد/);
-
-    const denied = capture();
-    await routes['POST /api/v1/assistant/chat'].handler({
-      auth: { ...auth, permissions: ['assistant.use', 'accounting.read'] },
-      body: { messages: [{ role: 'user', content: 'جهز مسودة قيد: مدين الصندوق 1000؛ دائن المبيعات 1000' }] }
-    }, denied);
-    assert.equal(denied.statusCode, 403);
-    assert.equal(reads, 2);
-  } finally {
-    globalThis.fetch = originalFetch;
-    if (oldKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldKey;
+test('assistant refuses journal creation and journal drafts even for a posting administrator', async () => {
+  let reads=0;
+  const store={listChartAccounts:async()=>{reads++;return [];}};
+  const routes=setup(undefined,store);
+  for(const message of ['جهز مسودة قيد: مدين الصندوق 1000؛ دائن المبيعات 1000','أنشئ قيد يومية','اكتب قيد ثم رحله']){
+    const response=capture();
+    await routes['POST /api/v1/assistant/chat'].handler({auth:{company:{id:'co'},permissions:['assistant.use','accounting.read','accounting.post','company.manage']},body:{messages:[{role:'user',content:message}]}},response);
+    assert.equal(response.statusCode,403);
+    assert.equal(response.body.error.code,'ASSISTANT_READ_ONLY');
   }
+  assert.equal(reads,0);
 });
-
 
 test('assistant previews stock receipt lines locally, honors warehouse scope and purchasing permission', async () => {
   const oldKey = process.env.GROQ_API_KEY;
