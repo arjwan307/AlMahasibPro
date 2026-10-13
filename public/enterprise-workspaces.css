@@ -1,0 +1,64 @@
+:root{--erp-navy:#17354e;--erp-teal:#087d76;--erp-surface:#fff;--erp-border:#dce6ed}
+#workspace main{background:#f4f7fa}
+#workspace .page-heading{align-items:flex-start;flex-wrap:wrap;gap:16px}
+.erp-context-links{display:flex;flex-wrap:wrap;gap:6px;max-width:100%}
+.erp-context-links button{font-size:12px;padding:9px 12px;background:#fff;color:#53697c;border:1px solid var(--erp-border);font-weight:600}
+.erp-context-links button.is-current{color:#fff;background:var(--erp-navy);border-color:var(--erp-navy)}
+.erp-dashboard-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:30px 32px;margin-bottom:24px;background:linear-gradient(120deg,#15364f,#11685f);color:#fff;border-radius:20px;box-shadow:0 10px 28px #15364f16}
+.erp-eyebrow{display:block;font-size:12px;font-weight:700;letter-spacing:.2px;color:#688091;margin-bottom:8px}
+.erp-dashboard-hero .erp-eyebrow{color:#a2ded5}
+.erp-dashboard-hero h2{font-size:28px;margin:0 0 10px;line-height:1.5}
+.erp-dashboard-hero p{margin:0;color:#d7e8ec;font-size:14px}
+.erp-hero-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.erp-hero-actions button{background:#fff;color:#143b4a;font-size:13px;white-space:nowrap}
+.erp-module-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:24px}
+.erp-module-card{background:var(--erp-surface);border:1px solid var(--erp-border);border-radius:18px;padding:24px;min-width:0}
+.erp-card-icon{display:grid;place-items:center;width:42px;height:42px;background:#e8f5f2;color:var(--erp-teal);border-radius:12px;font-size:24px;margin-bottom:16px}
+.erp-module-card h2{margin:0 0 8px;font-size:19px;color:var(--erp-navy)}
+.erp-module-card p{margin:0 0 18px;color:#6b7e8c;font-size:13px;line-height:1.8}
+.erp-module-shortcuts{display:flex;flex-wrap:wrap;gap:6px}
+.erp-module-shortcuts button{padding:8px 10px;font-size:12px;background:#f1f6f9;color:#35576f;font-weight:600}
+.erp-module-shortcuts button:first-child{background:#e8f5f2;color:#08695f}
+.erp-manager-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start;margin-bottom:24px}
+.erp-management-tools{display:grid;gap:12px}
+.erp-fold{background:#fff;border:1px solid var(--erp-border);border-radius:15px;overflow:hidden}
+.erp-fold>summary{padding:18px 20px;color:var(--erp-navy);font-weight:700;cursor:pointer}
+.erp-fold>.panel{margin:0;border:0;border-radius:0;box-shadow:none}
+.erp-manager-row .personal-board{margin:0!important}
+#content.erp-workspace{display:grid;gap:20px;min-width:0}
+#content.erp-workspace.items-page{grid-template-columns:repeat(2,minmax(0,1fr))}
+#content.erp-workspace>.panel{margin:0;padding:24px;border:1px solid var(--erp-border);border-radius:18px;box-shadow:0 4px 20px #1c3d5005}
+#content.erp-workspace>.panel>h2{margin-top:0;padding-bottom:15px;border-bottom:1px solid #edf2f5;font-size:18px;color:var(--erp-navy)}
+#content.erp-workspace .form-grid{gap:16px}
+#content.erp-workspace .table-wrap{border:1px solid #e4ecf1;border-radius:12px;max-width:100%;overflow:auto}
+#content.erp-workspace table{margin:0}
+#content.erp-workspace th{background:#f1f6f9;color:#527086;font-size:12px;white-space:nowrap}
+#content.erp-workspace td{font-size:13px}
+.erp-warehouse-directory{padding:24px;background:#fff;border:1px solid var(--erp-border);border-radius:18px;min-width:0}
+.erp-section-heading{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:20px}
+.erp-section-heading h2{margin:0;font-size:22px;color:var(--erp-navy)}
+.erp-section-heading label{width:min(300px,100%)}
+.erp-warehouse-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.erp-warehouse-cards button{display:flex;flex-direction:column;align-items:flex-start;gap:10px;text-align:right;padding:20px;background:#f7fafc;border:1px solid #dce6ed;border-radius:14px;color:var(--erp-navy)}
+.erp-warehouse-cards button>span{font-size:11px;color:#718999;background:#eaf0f4;padding:4px 8px;border-radius:6px}
+.erp-warehouse-cards button>strong{font-size:17px}
+.erp-warehouse-cards button>small{font-size:12px;color:#687f90;font-weight:400}
+.erp-warehouse-cards button.is-selected{border-color:var(--erp-teal);background:#edf8f5;box-shadow:0 0 0 2px #087d7612}
+.erp-stock-filter-status{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px;color:#5d7789;font-size:13px}
+.erp-stock-filter-status button{font-size:12px;padding:8px 12px}
+.erp-finance-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.erp-finance-summary>div{display:grid;gap:12px;padding:24px;border:1px solid var(--erp-border);border-radius:16px;background:#fff}
+.erp-finance-summary span{color:#617c8e;font-size:13px}
+.erp-finance-summary strong{color:var(--erp-navy);font-size:27px;font-variant-numeric:tabular-nums}
+.erp-finance-summary small{color:#768b99;font-size:12px}
+#content[data-view="sale"] .sales-identity{background:linear-gradient(120deg,#17354e,#11685f);color:#fff}
+#content[data-view="sale"] .sales-identity h2{color:#fff;border:0;padding:0;font-size:22px}
+#content[data-view="sale"] .sales-identity p{color:#d5e8e8;margin-bottom:0}
+#content[data-view="sale"] .sales-invoice-launcher{border:1px solid #cde3df;background:#eff8f5;border-radius:16px}
+#content[data-view="sale"] .sales-card{box-shadow:none;border-color:#e0e9ee;border-radius:14px}
+#content[data-view="sale"] .sales-approval-request{border-radius:14px;border:1px solid #dce6ed;padding:18px}
+#content[data-view="sale"] .personal-board{margin:0}
+@media(min-width:1400px){#content[data-view="warehouses"],#content[data-view="accounting"]{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#content[data-view="warehouses"]>.erp-warehouse-directory,#content[data-view="warehouses"]>.erp-stock-panel,#content[data-view="accounting"]>.erp-finance-summary,#content[data-view="accounting"]>.panel:last-child{grid-column:1/-1}}
+@media(max-width:1100px){.erp-module-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.erp-dashboard-hero{align-items:flex-start;flex-direction:column}.erp-hero-actions{justify-content:flex-start}.erp-manager-row{grid-template-columns:1fr}}
+@media(max-width:650px){.erp-module-grid,.erp-finance-summary,#content.erp-workspace.items-page{grid-template-columns:1fr}.erp-dashboard-hero{padding:24px}.erp-dashboard-hero h2{font-size:23px}.erp-section-heading{align-items:stretch;flex-direction:column}.erp-section-heading label{width:100%}.erp-warehouse-directory,#content.erp-workspace>.panel{padding:18px}.erp-warehouse-cards{grid-template-columns:1fr}.erp-context-links{width:100%;flex-wrap:nowrap;overflow-x:auto;padding-bottom:6px}.erp-context-links button{flex-shrink:0}.erp-module-card{padding:20px}}
+@media print{.erp-context-links,.erp-module-grid,.erp-dashboard-hero,.erp-management-tools,.erp-warehouse-directory{display:none!important}#content.erp-workspace{display:block}.erp-finance-summary{break-inside:avoid}}
