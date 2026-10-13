@@ -1,3 +1,4 @@
+import { installWorkbenchRoutes } from './modules/assistant/workbench.js';
 import { warehouseScopeAllows, assertWarehouseScope, documentScopeAllows } from './lib/warehouse-scope.js';
 import { installAccountingRoutes } from './modules/accounting/routes.js';
 import { productApiAllowed } from './product-pages.js';
@@ -61,6 +62,7 @@ export function createApp({ store, localDeletionStore = null, localMode = false,
   installImportRoutes(app,{store,authenticate,permit,uuid,entityCode,decimalInput,currency,warehouseScopeAllows});
   installDataImportRoutes(app,{store,authenticate,permit,uuid});
   installAssistantRoutes(app,{authenticate:authenticate(store),store});
+  installWorkbenchRoutes(app,{authenticate:authenticate(store),store,validateDocument:validateCommercePayload});
   installNotificationRoutes(app,{store,authenticate,permit,sending:notificationSending});
   installDesktopSync(app,{store,authenticate,permit});
   app.get('/api/v1/health', (req, res) => res.json({ status: 'ok', service: 'almahasib-pro' }));
