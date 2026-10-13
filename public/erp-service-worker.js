@@ -1,7 +1,7 @@
 importScripts('/erp-shell-manifest.js');
 const PRODUCT=new URL(self.registration.scope).pathname.startsWith('/retail/')?'retail':'company';
 const PREFIX='almahasib-erp-shell-'+PRODUCT+'-';
-const CACHE=PREFIX+(PRODUCT==='company'?'1.2.14-fresh-user-lists':'1.2.7-logistics-v6');
+const CACHE=PREFIX+(PRODUCT==='company'?'1.2.15-confirmed-local-results':'1.2.7-logistics-v6');
 // Cached redirected responses cannot satisfy Chromium navigation requests.
 // Preserve their content while removing the redirected response metadata.
 const shellResponse=response=>response.redirected?new Response(response.clone().body,{status:response.status,statusText:response.statusText,headers:response.headers}):response;

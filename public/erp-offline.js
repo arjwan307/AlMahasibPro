@@ -104,7 +104,16 @@
   if(url.origin!==location.origin||!url.pathname.startsWith('/api/'))return rawFetch(input,options);
   await ready;
   if(method==='POST'&&routes.has(url.pathname)&&valid()){
-   const saved=await queue(url.pathname,JSON.parse(options.body||'{}'));if(saved.status===202)void synchronize();return saved;
+   const body=JSON.parse(options.body||'{}'),saved=await queue(url.pathname,body);
+   if(saved.status===202){
+    if(reachable){
+     await synchronize();
+     const completed=db&&await read(db.transaction('outbox').objectStore('outbox').get(body.operationId));
+     if(completed?.state==='acknowledged')return json(completed.result,completed.responseStatus||200);
+     if(completed?.state==='conflict')return json(completed.result,completed.responseStatus>=400?completed.responseStatus:409);
+    }else void synchronize();
+   }
+   return saved;
   }
   // Read the server first so local writes and downloaded cloud snapshots appear
   // immediately. Matching cached data remains a fallback in the catch below.
@@ -163,7 +172,7 @@
     if(response.status===401){row.state='pending';await put('outbox',row);reset();break;}
     if(response.status>=500){row.state='pending';await put('outbox',row);break;}
     const rejected=!response.ok||result.result?.status==='rejected';
-    row.state=rejected?'conflict':'acknowledged';row.result=result;row.completedAt=new Date().toISOString();await put('outbox',row);
+    row.state=rejected?'conflict':'acknowledged';row.result=result;row.responseStatus=response.status;row.completedAt=new Date().toISOString();await put('outbox',row);
     if(rejected)break;
    }
    for(const path of readPaths){if(path==='/api/v1/bootstrap')continue;try{const response=await transport(path,{credentials:'same-origin'});if(response.ok)await put('reads',{path,data:await response.json(),savedAt:new Date().toISOString(),signature:account.offlineSignature});}catch{break;}}
