@@ -49,6 +49,10 @@ for(const format of ['sqlite','mongo','mongo-existing'])test(`fresh company desk
   }
   const linked=await fetch(runtime.url+'/api/local/cloud/connect',{method:'POST',headers:{'Content-Type':'application/json',Connection:'close',Cookie:localCookie},body:JSON.stringify({url:cloudOrigin,companyCode:'co11',username:'cloud_owner',password,adopt:true})});
   const response=await linked.json();assert.equal(linked.status,200,JSON.stringify(response));assert.equal(response.companyCode,'co11');
+  const linkedCookie=linked.headers.get('set-cookie').split(';')[0];
+  const linkedAccount=await (await fetch(runtime.url+'/api/v1/bootstrap',{headers:{Cookie:linkedCookie,Connection:'close'}})).json();assert.equal(linkedAccount.company.code,'co11');assert.equal(linkedAccount.user.username,'cloud_owner');
+  const relinked=await fetch(runtime.url+'/api/local/cloud/connect',{method:'POST',headers:{'Content-Type':'application/json',Connection:'close',Cookie:linkedCookie},body:JSON.stringify({url:cloudOrigin,companyCode:'co11',username:'cloud_owner',password,adopt:true})});assert.equal(relinked.status,200,JSON.stringify(await relinked.json()));
+
   const login=await fetch(runtime.url+'/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json',Connection:'close'},body:JSON.stringify({companyCode:'co11',username:'cloud_owner',password})});
   const loggedIn=await login.json();assert.equal(login.status,200,JSON.stringify(loggedIn));assert.ok(loggedIn.account.permissions.includes('company.manage'));
   const cookie=login.headers.get('set-cookie').split(';')[0];

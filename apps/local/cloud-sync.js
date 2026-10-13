@@ -2,7 +2,7 @@ import { assertSettingsScope, confirmSettingsOperation, settingsBackup } from '.
 import { randomUUID } from 'node:crypto';
 import { readFile,writeFile,rename } from 'node:fs/promises';
 import { join } from 'node:path';
-import { hashToken } from '../api/src/lib/security.js';
+import { hashToken, newSessionToken } from '../api/src/lib/security.js';
 import { commandPathAllowed } from '../api/src/lib/desktop-sync.js';
 
 const defaultCloud='https://shenoo-menoo-tak-tak.onrender.com';
@@ -161,7 +161,13 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
       }catch(error){config=previous;throw error;}
       const backup=await store.exportBackup();await writeFile(join(dataDirectory,'before-cloud-'+Date.now()+'.sqlite'),backup);
       await store.importCloudSnapshot(bytes,account.company.id,{initial:true});
-      config={...config,companyId:account.company.id,companyCode:account.company.code,directorId:account.user.id};tokens=new Map([[account.user.id,token]]);await save();res.json({connected:true,companyCode:account.company.code});
+      config={...config,companyId:account.company.id,companyCode:account.company.code,directorId:account.user.id};tokens=new Map([[account.user.id,token]]);await save();
+      if(typeof res.cookie==='function') {
+        const sessionToken=newSessionToken(),days=30;
+        await store.createSession({tokenHash:hashToken(sessionToken),userId:account.user.id,deviceId:'desktop-cloud-link',expiresAt:new Date(Date.now()+days*86400000).toISOString()});
+        res.cookie(product==='retail'?'almahasib_retail_session':'almahasib_session',sessionToken,{httpOnly:true,sameSite:'strict',secure:req.secure===true,path:'/',maxAge:days*86400000});
+      }
+      res.json({connected:true,companyCode:account.company.code});
     }catch(error){res.status(400).json({error:{message:error.message}});}finally{if(ownsLock)connecting=false;}
   }
   app.post('/api/local/cloud/connect',connectAccount);
