@@ -44,7 +44,7 @@ try{
  page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>dialog.accept());
  await page.goto(origin+'/enterprise.html');await page.waitForFunction(()=>!document.getElementById('workspace').hidden);
  const synchronize=()=>page.evaluate(async()=>{await AlMahasibERP.synchronize();await AlMahasibOutput().refresh({background:true});});
- const go=async view=>{await page.locator('nav [data-view="'+view+'"]').evaluate(button=>{const group=button.closest('details');if(group)group.open=true;});await page.locator('nav [data-view="'+view+'"]').click();await page.waitForFunction(view=>AlMahasibOutput().view===view,view);if(view==='warehouses')await page.locator('#warehouseCreateFold').evaluate(details=>details.open=true);};
+ const go=async view=>{await page.locator('nav [data-view="'+view+'"]').evaluate(button=>{const group=button.closest('details');if(group)group.open=true;});await page.locator('nav [data-view="'+view+'"]').click();await page.waitForFunction(view=>AlMahasibOutput().view===view,view);if(view==='inventory')await page.locator('[data-inventory-tab="receipts"]').click();if(view==='warehouses')await page.locator('#warehouseCreateFold').evaluate(details=>details.open=true);};
  await synchronize();
  const cases=[
   ['items','#editor [name="name"]'],['units','#editor [name="name"]'],['warehouses','#editor [name="name"]'],
