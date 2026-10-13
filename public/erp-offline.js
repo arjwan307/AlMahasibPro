@@ -106,12 +106,8 @@
   if(method==='POST'&&routes.has(url.pathname)&&valid()){
    const saved=await queue(url.pathname,JSON.parse(options.body||'{}'));if(saved.status===202)void synchronize();return saved;
   }
-  // Master data must reflect confirmed writes (including newly saved suppliers).
-  // Keep the cached snapshot below as a fallback when the server is unavailable.
-  if(method==='GET'&&valid()&&readPaths.has(url.pathname)&&!['/api/v1/master-data','/api/v1/import/shipments','/api/v1/import/logistics','/api/v1/enterprise/reports'].includes(url.pathname)){
-   const cached=url.pathname==='/api/v1/bootstrap'?{data:account,signature:account.offlineSignature}:await read(db.transaction('reads').objectStore('reads').get(url.pathname+url.search));
-   if(cached?.signature===account.offlineSignature)return json(cached.data,200,true);
-  }
+  // Read the server first so local writes and downloaded cloud snapshots appear
+  // immediately. Matching cached data remains a fallback in the catch below.
   try{
    const response=await transport(input,options);
    reachable=true;
