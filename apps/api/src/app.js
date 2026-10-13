@@ -1,3 +1,4 @@
+import { warehouseScopeAllows, assertWarehouseScope, documentScopeAllows } from './lib/warehouse-scope.js';
 import { installAccountingRoutes } from './modules/accounting/routes.js';
 import { productApiAllowed } from './product-pages.js';
 import { settingsBackup, installSettingsRoutes } from './modules/settings/routes.js';
@@ -581,7 +582,7 @@ export function createApp({ store, localDeletionStore = null, localMode = false,
 
   app.get('/api/v1/commerce/documents', authenticate(store), permitAny(['sales.read', 'purchasing.read']), asyncRoute(async (req, res) => {
     let documents=await store.listCommerceDocuments(req.auth.company.id);
-    documents=documents.filter(document=>warehouseScopeAllows(req.auth,store.warehouses.get(document.warehouseId))&&(!document.branchId||branchScopeAllows(req.auth,document.branchId)));
+    documents=documents.filter(document=>documentScopeAllows(store,req.auth,document));
     if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';documents=documents.filter(x=>x.documentType.startsWith('sale')&&x.customerId&&(store.salesSettings.get('customer:'+x.customerId)?.channel||'retail')===channel).map(x=>({...x,lines:x.lines.map(({unitCost,...line})=>line)}));}
     res.json({documents});
   }));
@@ -685,6 +686,7 @@ export function createApp({ store, localDeletionStore = null, localMode = false,
       if(['unit','item','item_unit','price','chart_account'].includes(change.entityType))return true;
       if(change.entityType.startsWith('market.'))return false;
       const row=change.payload||change.data||{},doc=store.commerceDocuments.get(row.documentId),warehouse=store.warehouses.get(row.warehouseId||doc?.warehouseId||row.id);
+      if((change.entityType==='commerce_document'&&!documentScopeAllows(store,req.auth,row))||(doc&&!documentScopeAllows(store,req.auth,doc)))return false;
       if(warehouse)return warehouseScopeAllows(req.auth,warehouse)&&branchScopeAllows(req.auth,row.branchId||doc?.branchId||warehouse.branchId);
       if((req.auth.scopes||[]).some(x=>x.type==='warehouse'))return false;
       return Boolean(row.branchId)&&branchScopeAllows(req.auth,row.branchId);
@@ -1172,22 +1174,8 @@ function validateOperation(operation) {
   };
 }
 
-function warehouseScopeAllows(context, warehouse) {
-  if (!warehouse || warehouse.companyId !== context.company.id) return false;
-  const scopes = context.scopes || [];
-  const warehouseScopes = scopes.filter(scope => scope.type === 'warehouse');
-  const branchScopes = scopes.filter(scope => scope.type === 'branch');
-  return (!warehouseScopes.length || warehouseScopes.some(scope => scope.id === warehouse.id)) &&
-    (!branchScopes.length || branchScopes.some(scope => scope.id === warehouse.branchId));
-}
-
 function branchScopeAllows(context, branchId) { const scopes=(context.scopes||[]).filter(scope=>scope.type==='branch'); return !scopes.length||scopes.some(scope=>scope.id===branchId); }
 function assertBranchScope(context, branchId) { const branch=(context.company.branches||[]).find(row=>row.id===branchId&&row.active!==false); if(!branch)throw new AppError(404,'BRANCH_NOT_FOUND','الفرع غير موجود'); if(!branchScopeAllows(context,branchId))throw new AppError(403,'BRANCH_SCOPE_DENIED','الفرع خارج نطاق حسابك'); }
-function assertWarehouseScope(context, warehouse) {
-  if (!warehouse || warehouse.companyId !== context.company.id) throw new AppError(404, 'WAREHOUSE_NOT_FOUND', 'المخزن غير موجود');
-  if (!warehouseScopeAllows(context, warehouse)) throw new AppError(403, 'WAREHOUSE_SCOPE_DENIED', 'المخزن خارج نطاق حسابك');
-}
-
 function filterWarehouseScope(context, masterData) {
   const scoped = (context.scopes || []).some(scope => scope.type === 'warehouse' || scope.type === 'branch');
   if (!scoped) return masterData;

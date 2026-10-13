@@ -43,3 +43,4 @@ jobs:
         run: |
           node tests/browser/sales-discount-approval.mjs
           node tests/browser/workspace-draft-preservation.mjs
+          node tests/browser/logistics-workspace.mjs

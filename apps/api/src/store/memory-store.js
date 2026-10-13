@@ -1,3 +1,4 @@
+import { assertDocumentScope } from '../lib/warehouse-scope.js';
 import { validateOpeningJournal } from '../modules/accounting/opening-journal-validation.js';
 import { projectGeneralLedger } from '../modules/accounting/general-ledger.js';
 import { projectFinancialStatements } from '../modules/accounting/financial-statements.js';
@@ -2041,6 +2042,7 @@ export class MemoryStore {
     this.assertFinancialPeriod(context.company.id,operation.occurredAt);
     const companyId = context.company.id;
     const payload = operation.payload;
+    assertDocumentScope(this, context, payload);
     const assignedManager = payload.documentType==='sale'&&salesRep(context)?assignedSalesManager(this,context):null;
     const salesApproval = !payload.representativeId ? checkSales(this,context,payload) : null;
     const warehouse = this.warehouses.get(payload.warehouseId);
