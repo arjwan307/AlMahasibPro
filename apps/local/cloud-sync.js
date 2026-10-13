@@ -1,3 +1,4 @@
+import {createConnectivityProbe} from './connectivity.js';
 import { assertSettingsScope, confirmSettingsOperation, settingsBackup } from '../api/src/modules/settings/routes.js';
 import { randomUUID } from 'node:crypto';
 import { readFile,writeFile,rename } from 'node:fs/promises';
@@ -131,6 +132,8 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
     }catch(error){if(error.status>=400&&error.status<500&&config.deletionPending){delete config.deletionPending;await save();}res.status(error.status||400).json({error:{code:error.code,message:error.message}});}finally{if(ownsLock)connecting=false;}
   });
 
+  const checkConnectivity=createConnectivityProbe({cloudURL:()=>config.url});
+  app.get('/api/local/connectivity',async(req,res)=>{try{const connection=await checkConnectivity();res.setHeader('Cache-Control','no-store');res.json({...connection,linked:!!config.companyId,automatic:config.automatic,lastSuccessfulSync:lastSync,synchronizationError:!!lastError});}catch{res.status(503).json({internet:false,cloud:false,checkedAt:new Date().toISOString()});}});
   app.get('/api/local/cloud/status',async(req,res)=>{if(await authorized(req,res,'sync.use'))res.json(status());});
   app.post('/api/local/cloud/synchronize',async(req,res)=>{if(await authorized(req,res,'sync.use'))res.json(await synchronize());});
   app.put('/api/local/cloud/settings',async(req,res)=>{if(!await authorized(req,res,'company.manage'))return;if(typeof req.body.automatic!=='boolean')return res.status(400).json({error:{message:'إعداد غير صالح'}});config.automatic=req.body.automatic;await save();res.json(status());});

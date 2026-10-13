@@ -40,6 +40,12 @@ test('sales workspace isolates channels, enforces exact approvals, reservations,
   assert.equal((await request('/api/v1/sales/bootstrap',null,wholeCookie)).data.personalCards.length,0);
   assert.equal((await request('/api/v1/sales/bootstrap',null,manager)).data.personalCards.length,0);
   assert.equal((await request('/api/v1/sales/personal-board',{cards:[{id:'bad',kind:'reminder',text:'bad',dueAt:'invalid'}]},seller,'PUT')).status,400);
+  const managerCards=[{id:'director-note',kind:'note',text:'ملاحظة المدير الخاصة',dueAt:null,done:false}];
+  assert.equal((await request('/api/v1/sales/personal-board',{cards:managerCards},manager,'PUT')).status,200);
+  assert.deepEqual((await request('/api/v1/sales/personal-board',null,manager)).data.cards,managerCards);
+  assert.equal((await request('/api/v1/sales/personal-board?userId='+other.id,null,seller)).data.cards.length,2);
+  assert.equal((await request('/api/v1/sales/personal-board',null,wholeCookie)).data.cards.length,0);
+  assert.equal((await request('/api/v1/sales/bootstrap',null,manager)).data.personalCards[0].text,'ملاحظة المدير الخاصة');
   const commit=async(document,cookie=manager,id=crypto.randomUUID())=>request('/api/v1/commerce/commit',{operationId:id,deviceId:'test',clientSequence:Date.now(),occurredAt:new Date().toISOString(),document},cookie);
   const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=';
   const photo=await request('/api/v1/sales/items/'+item.id+'/photos',{image:png},manager);assert.equal(photo.status,201,JSON.stringify(photo.data));

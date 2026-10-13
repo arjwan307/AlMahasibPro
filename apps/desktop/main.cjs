@@ -1,6 +1,6 @@
-const { app, BrowserWindow, dialog, Menu, net, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, Menu, net, shell, safeStorage, ipcMain } = require('electron');
 const path = require('node:path');
-const { prepareCompanyRuntime } = require('./company-runtime.cjs');
+const { prepareCompanyRuntime, refreshCompanyShell } = require('./company-runtime.cjs');
 const companyRuntime = prepareCompanyRuntime(app);
 let runtime;
 app.on('second-instance',()=>{const current=BrowserWindow.getAllWindows()[0];if(current){if(current.isMinimized())current.restore();current.show();current.focus();}});
@@ -8,8 +8,10 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async (
   try {
     const { startEnterpriseLocal } = await import('../local/enterprise-server.js');
     runtime = await startEnterpriseLocal({ dataDirectory: app.getPath('userData'), port: companyRuntime.port, product: 'company', bindHost:process.env.ALMAHASIB_BIND_HOST||'127.0.0.1',lanHost:process.env.ALMAHASIB_LAN_HOST,tlsKey:process.env.ALMAHASIB_TLS_KEY,tlsCert:process.env.ALMAHASIB_TLS_CERT, protect: bytes => { if(!safeStorage.isEncryptionAvailable()) throw Error('تعذر حماية جلسة السحابة على الجهاز'); return safeStorage.encryptString(bytes.toString()); }, unprotect: bytes => Buffer.from(safeStorage.decryptString(bytes)) });
-    const window = new BrowserWindow({ show: process.env.ALMAHASIB_SMOKE_TEST !== '1', width: 1440, height: 950, minWidth: 960, minHeight: 640, title: 'المحاسب برو', webPreferences: { partition: companyRuntime.partition, nodeIntegration: false, contextIsolation: true, sandbox: true } });
+    const window = new BrowserWindow({ show: process.env.ALMAHASIB_SMOKE_TEST !== '1', width: 1440, height: 950, minWidth: 960, minHeight: 640, title: 'المحاسب برو', webPreferences: { preload: path.join(__dirname,'preload.cjs'), partition: companyRuntime.partition, nodeIntegration: false, contextIsolation: true, sandbox: true } });
+    require('./input-focus.cjs').installDesktopInputFocus({window,ipcMain,dialog,origin:new URL(runtime.url).origin});
     if(runtime.cleanInstallation)await window.webContents.session.clearStorageData();
+    else await refreshCompanyShell(window.webContents.session);
     window.webContents.setWindowOpenHandler(({url}) => {
       try{const target=new URL(url);if(target.protocol==='https:'&&target.hostname==='wa.me'&&/^\/\d{8,15}$/.test(target.pathname))shell.openExternal(target.href).catch(()=>dialog.showErrorBox('واتساب','تعذر فتح واتساب على هذا الجهاز'));}catch{}
       return {action:'deny'};

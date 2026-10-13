@@ -51,7 +51,7 @@
   search.oninput=select.onchange=apply;tools.append(search,select);container.before(details);details.append(summary,tools,container);apply();
  }
  function decorate(){
-  document.querySelectorAll('.main-icon-card[onclick]:not([role]),.sub-icon-card[onclick]:not(a):not([role])').forEach(card=>{card.setAttribute('role','button');card.tabIndex=0;card.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();card.click()}})});
+  document.querySelectorAll('.main-icon-card[onclick]:not([role]),.sub-icon-card[onclick]:not(a):not([role])').forEach(card=>{card.setAttribute('role','button');card.tabIndex=0;card.addEventListener('keydown',e=>{if(e.target===card&&(e.key==='Enter'||e.key===' ')){e.preventDefault();card.click()}})});
   document.querySelectorAll('.supplier-list').forEach(supplierList);
   document.querySelectorAll('table').forEach(list);
   document.querySelectorAll('p[data-ui-help],p.muted:not([id])').forEach(node=>{
@@ -80,3 +80,5 @@
 
 
 
+
+if((window.AlMahasibDesktop||(!location.pathname.startsWith('/retail/')&&/\/(enterprise|settings|data-import|safety-center|wholesale-invoice|wholesale-sales|desktop-cloud)\.html$/.test(location.pathname)))&&!window.AlMahasibRuntimeUI&&!document.querySelector('script[src="/company-runtime-ui.js"]')){const script=document.createElement('script');script.src='/company-runtime-ui.js';document.head.append(script);}

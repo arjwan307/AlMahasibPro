@@ -29,4 +29,8 @@ function prepareCompanyRuntime(app, env = process.env) {
   app.setPath('sessionData', sessionDirectory);
   return options;
 }
-module.exports = { companyRuntimeOptions, prepareCompanyRuntime };
+async function refreshCompanyShell(session){
+ await session.clearCache();
+ await session.clearStorageData({storages:['serviceworkers','cachestorage']});
+}
+module.exports = { companyRuntimeOptions, prepareCompanyRuntime, refreshCompanyShell };
