@@ -40,6 +40,7 @@ for(const format of ['sqlite','mongo','mongo-existing'])test(`fresh company desk
   const cloudOrigin='http://127.0.0.1:'+cloudServer.address().port;
   const options=companyRuntimeOptions(dir,{});
   runtime=await startEnterpriseLocal({dataDirectory:options.dataDirectory,port:33241,product:'company',allowTestCloud:true,cloudOrigin});
+  assert.equal((await fetch(runtime.url+'/company-runtime-ui.js')).status,200);
   const initial=await (await fetch(runtime.url+'/api/local/status')).json();assert.equal(initial.initialized,false);assert.equal(initial.companyCode,undefined);
   const landing=await fetch(runtime.url+'/index.html',{redirect:'manual'});assert.equal(landing.status,302);assert.equal(landing.headers.get('location'),'/enterprise.html');
   let localCookie='';
