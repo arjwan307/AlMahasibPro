@@ -41,7 +41,7 @@ try{
  await resumed.evaluate(()=>{window.prompt=()=>{throw Error('prompt is unavailable in Electron');};void PosUI.openShift();});await resumed.locator('dialog[open] input').fill('كاشير الاختبار');await resumed.locator('dialog[open] button').first().click();await resumed.waitForFunction(()=>document.getElementById('marketShiftInfo').textContent.includes('الشفت مفتوح'));
  await context.setOffline(true);await resumed.reload();await resumed.waitForFunction(()=>window.PosUI);assert((await resumed.locator('#cashierName').innerText()).includes('كاشير الاختبار'));
  await resumed.screenshot({path:'outputs/ERP-1.2.3-offline-cashier.png',fullPage:true});
- assert.deepEqual(errors,[]);const checks=['ERP reload offline','scoped local data','durable pending operation','idempotent reconnect','local stock reservation','verified LAN fallback (mock HTTPS endpoint)','cashier shift without native prompt','cashier reload offline'];fs.writeFileSync('outputs/ERP-1.2.3-browser-checks.json',JSON.stringify({passed:true,checks,errors},null,2));console.log('PASS',checks.join('; '));
+ assert.deepEqual(errors,[]);const checks=['ERP reload offline','scoped local data','durable pending operation','idempotent reconnect','local stock reservation','verified LAN fallback (mock HTTPS endpoint)','cashier shift without native prompt','cashier reload offline'];fs.writeFileSync('outputs/ERP-1.2.3-browser-checks.json',JSON.stringify({passed:true,checks,errors},null,2));console.log('PASS',checks.join('; '));await context.unrouteAll({behavior:'wait'});await context.close();
 }finally{await browser?.close();await new Promise(r=>server.close(r));}
 
 
