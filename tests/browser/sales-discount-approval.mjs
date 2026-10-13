@@ -2,7 +2,10 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {createServer} from 'node:http';
+import express from 'express';
+import {productPages} from '../../apps/api/src/product-pages.js';
 import {randomUUID} from 'node:crypto';
+import {mkdir} from 'node:fs/promises';
 import {createApp} from '../../apps/api/src/app.js';
 import {MemoryStore} from '../../apps/api/src/store/memory-store.js';
 import {hashToken} from '../../apps/api/src/lib/security.js';
@@ -25,7 +28,7 @@ const warehouse=await store.createWarehouse(company.id,{code:'MAIN',name:'الم
 const customer=await store.createParty(company.id,'customer',{code:'C',name:'الزبون',creditLimit:'1000'},owner.id);
 store.stockBalances.set(company.id+':'+warehouse.id+':'+item.id,{companyId:company.id,warehouseId:warehouse.id,itemId:item.id,quantity:'50',averageCost:'10',version:1});
 const priceId=randomUUID();store.prices.set(priceId,{id:priceId,companyId:company.id,itemId:item.id,unitId:unit.id,priceType:'sale_retail',amount:'100',currency:'IQD',active:true});
-const origins=[],app=createApp({store,allowedOrigins:origins}),server=createServer(app);
+const origins=[],app=express();app.use(productPages('company'));app.use(createApp({store,allowedOrigins:origins}));const server=createServer(app);
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin='http://127.0.0.1:'+server.address().port;origins.push(origin);
 let browser;
 try{
@@ -50,5 +53,15 @@ try{
  assert.equal(Number(await page.locator('[name="salesDiscount"]').inputValue()),12);await page.locator('#salesCommit').click();
  await page.waitForFunction(()=>document.querySelector('#salesApprovals').textContent.includes('تم التنفيذ'));
  const posted=[...store.commerceDocuments.values()].find(d=>d.documentNumber==='DISCOUNT-12');assert.ok(posted);assert.equal(posted.subtotal,'176.000000');assert.equal(posted.paidAmount,'176.000000');assert.equal(posted.approvalId,approval.id);assert.equal(store.salesApprovals.get(approval.id).status,'used');assert.equal(store.stockBalances.get(company.id+':'+warehouse.id+':'+item.id).quantity,'48.000000');
+ const adminContext=await browser.newContext({extraHTTPHeaders:{Authorization:'Bearer admin'},viewport:{width:1440,height:1000}}),dashboard=await adminContext.newPage();dashboard.on('pageerror',e=>errors.push(e.message));
+ const credit=await fetch(origin+'/api/v1/commerce/commit',{method:'POST',headers,body:JSON.stringify({operationId:randomUUID(),deviceId:'browser-credit',clientSequence:99,occurredAt:new Date().toISOString(),document:{...approval.document,documentNumber:'CREDIT-DASHBOARD',approvalId:null,discountAmount:'0',lines:approval.document.lines.map(line=>({...line,quantity:'1'})),payments:[]}})});assert.equal(credit.status,201);
+ const secondWarehouse=await store.createWarehouse(company.id,{code:'SECOND',name:'مخزن ثانٍ'},owner.id);store.stockBalances.set(company.id+':'+secondWarehouse.id+':'+item.id,{companyId:company.id,warehouseId:secondWarehouse.id,itemId:item.id,quantity:'7.000000',averageCost:'10',version:1});
+ await dashboard.goto(origin+'/enterprise.html');await dashboard.waitForFunction(()=>!document.querySelector('#workspace').hidden);await dashboard.locator('.erp-module-card').first().waitFor();assert.equal(await dashboard.locator('.erp-module-card').count(),6);assert.equal(await dashboard.locator('.erp-dashboard-hero h2').textContent(),company.legalName);
+ await mkdir('/tmp/erp-redesign',{recursive:true});await dashboard.screenshot({path:'/tmp/erp-redesign/dashboard.png',fullPage:true});
+ await dashboard.locator('.erp-module-card [data-go="warehouses"]').click();const stockPanel=dashboard.locator('#content > .panel').filter({has:dashboard.getByRole('heading',{name:'أرصدة المخزون',exact:true})});await stockPanel.waitFor();await dashboard.locator('[data-warehouse-filter="'+warehouse.id+'"]').click();assert.equal(await stockPanel.locator('tbody tr:visible').count(),1);await dashboard.locator('#warehouseStockSearch').fill('لا يوجد');assert.equal(await stockPanel.locator('tbody tr:visible').count(),0);await dashboard.locator('#warehouseStockSearch').fill('');await dashboard.locator('#warehouseStockReset').click();assert.equal(await stockPanel.locator('tbody tr:visible').count(),2);await dashboard.screenshot({path:'/tmp/erp-redesign/warehouses.png',fullPage:true});
+ await dashboard.locator('#workspaceLinks [data-go="inventory"]').click();await dashboard.locator('#stockReceiptForm').waitFor();
+ await dashboard.locator('nav [data-view="overview"]').click();await dashboard.locator('.erp-module-card [data-go="accounting"]').click();await dashboard.locator('#settlement').waitFor();assert.equal(Number(await dashboard.locator('.erp-finance-summary strong').first().textContent()),100);await dashboard.locator('#workspaceLinks [data-go="ledger"]').click();await dashboard.locator('#manualJournal').waitFor();
+ await dashboard.locator('nav [data-view="overview"]').click();await dashboard.setViewportSize({width:390,height:844});await dashboard.screenshot({path:'/tmp/erp-redesign/dashboard-mobile.png',fullPage:true});assert.ok(await dashboard.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2));
+ await dashboard.locator('.erp-module-card [data-go="warehouses"]').click();assert.ok(await dashboard.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2));await dashboard.screenshot({path:'/tmp/erp-redesign/warehouses-mobile.png',fullPage:true});await adminContext.close();console.log('PASS: dashboard shortcuts, warehouse selection/search, inventory/accounting/ledger links and mobile layout');
  assert.deepEqual(errors,[]);console.log('PASS: six-section navigation, 12% discount preview/payment, pending visibility, approval, posting and stock impact');
 }finally{await browser?.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
