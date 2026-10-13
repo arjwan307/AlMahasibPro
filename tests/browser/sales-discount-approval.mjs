@@ -1,0 +1,54 @@
+// Real UI and API on an isolated in-memory company; no production data.
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {createServer} from 'node:http';
+import {randomUUID} from 'node:crypto';
+import {createApp} from '../../apps/api/src/app.js';
+import {MemoryStore} from '../../apps/api/src/store/memory-store.js';
+import {hashToken} from '../../apps/api/src/lib/security.js';
+import {PERMISSIONS,ROLE_TEMPLATES} from '../../apps/api/src/permissions.js';
+const require=createRequire(process.env.PLAYWRIGHT_MODULE_PATH||new URL('../../package.json',import.meta.url));
+const {chromium}=require('playwright');
+const store=new MemoryStore();
+const company=await store.registerCompany({code:'approval-test',legalName:'شركة اختبار',currency:'IQD',timezone:'Asia/Baghdad',owner:{username:'admin',displayName:'مدير',passwordHash:'test'}});
+await store.approveCompany(company.id,company.ownerUserId);
+const owner=store.users.get(company.ownerUserId);
+const seller=await store.createUser(company.id,{username:'seller',displayName:'مندوب',roleCode:'representative',passwordHash:'test'},owner.id);
+const session={expiresAt:new Date(Date.now()+86400000).toISOString(),deviceId:'test'};
+const admin={company,user:owner,permissions:PERMISSIONS,roles:[],scopes:[],session};
+const rep={company,user:seller,permissions:ROLE_TEMPLATES.representative,roles:[{code:'representative'}],scopes:[],session};
+store.getSessionContext=async hash=>hash===hashToken('seller')?rep:admin;
+await store.saveSalesSetting('user:'+seller.id,{companyId:company.id,channel:'retail',maxDiscountPercent:'5'},owner.id);
+const unit=await store.createUnit(company.id,{code:'PC',name:'قطعة',decimalPlaces:6},owner.id);
+const item=await store.createItem(company.id,{sku:'A',name:'مادة الاختبار',baseUnitId:unit.id},owner.id);
+const warehouse=await store.createWarehouse(company.id,{code:'MAIN',name:'المخزن'},owner.id);
+const customer=await store.createParty(company.id,'customer',{code:'C',name:'الزبون',creditLimit:'1000'},owner.id);
+store.stockBalances.set(company.id+':'+warehouse.id+':'+item.id,{companyId:company.id,warehouseId:warehouse.id,itemId:item.id,quantity:'50',averageCost:'10',version:1});
+const priceId=randomUUID();store.prices.set(priceId,{id:priceId,companyId:company.id,itemId:item.id,unitId:unit.id,priceType:'sale_retail',amount:'100',currency:'IQD',active:true});
+const origins=[],app=createApp({store,allowedOrigins:origins}),server=createServer(app);
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin='http://127.0.0.1:'+server.address().port;origins.push(origin);
+let browser;
+try{
+ const options={headless:true};
+ if(process.env.CHROMIUM_EXECUTABLE_PATH){options.executablePath=process.env.CHROMIUM_EXECUTABLE_PATH;options.args=['--no-sandbox'];}
+ browser=await chromium.launch(options);
+ const context=await browser.newContext({extraHTTPHeaders:{Authorization:'Bearer seller'},viewport:{width:1400,height:1000}}),page=await context.newPage(),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(origin+'/enterprise.html');await page.waitForFunction(()=>!document.getElementById('workspace').hidden);
+ const salesGroup=page.locator('.erp-nav-group').filter({has:page.locator('[data-view="sale"]')});if(!await salesGroup.evaluate(el=>el.open))await salesGroup.locator('summary').click();await page.locator('nav [data-view="sale"]').click();
+ await page.locator('#startSalesInvoice').click();await page.locator('#saleCustomerMode').selectOption('registered');await page.locator('#saleCustomer').selectOption(customer.id);await page.locator('[data-item="'+item.id+'"]').click();
+ await page.locator('#salesLines [data-quantity]').fill('2');await page.locator('#salesLines [data-quantity]').dispatchEvent('change');await page.locator('[name="saleNumber"]').fill('DISCOUNT-12');
+ await page.locator('[name="salesDiscount"]').fill('12');assert.equal(await page.locator('[name="salesPaid"]').inputValue(),'176');
+ await page.locator('#salesPreview').click();assert.ok((await page.locator('.invoice-preview-totals').textContent()).includes('١٧٦'));await page.locator('#salesStatementClose').click();
+ await page.locator('#salesAsk').click();await page.waitForFunction(()=>document.querySelector('#salesApprovals').textContent.includes('DISCOUNT-12'));
+ const approval=[...store.salesApprovals.values()].find(a=>a.document.documentNumber==='DISCOUNT-12');assert.ok(approval);assert.equal(approval.status,'pending');assert.equal(approval.document.discountAmount,'24.000000');assert.equal(approval.document.payments[0].amount,'176.000000');assert.equal(store.commerceDocuments.size,0);
+ const headers={Authorization:'Bearer admin','Content-Type':'application/json'};
+ const pending=await (await fetch(origin+'/api/v1/sales/bootstrap',{headers})).json();assert.ok(pending.approvals.some(a=>a.id===approval.id));
+ const decision=await fetch(origin+'/api/v1/sales/approvals/'+approval.id+'/decision',{method:'POST',headers,body:JSON.stringify({status:'approved'})});assert.equal(decision.status,200);
+ await page.waitForFunction(id=>document.querySelector('[data-load="'+id+'"]').closest('article').querySelector('p').textContent.endsWith('— موافق'),approval.id);
+ await page.locator('[data-load="'+approval.id+'"]').click();await page.waitForFunction(()=>!document.querySelector('#salesCommit').hidden);
+ assert.equal(Number(await page.locator('[name="salesDiscount"]').inputValue()),12);await page.locator('#salesCommit').click();
+ await page.waitForFunction(()=>document.querySelector('#salesApprovals').textContent.includes('تم التنفيذ'));
+ const posted=[...store.commerceDocuments.values()].find(d=>d.documentNumber==='DISCOUNT-12');assert.ok(posted);assert.equal(posted.subtotal,'176.000000');assert.equal(posted.paidAmount,'176.000000');assert.equal(posted.approvalId,approval.id);assert.equal(store.salesApprovals.get(approval.id).status,'used');assert.equal(store.stockBalances.get(company.id+':'+warehouse.id+':'+item.id).quantity,'48.000000');
+ assert.deepEqual(errors,[]);console.log('PASS: six-section navigation, 12% discount preview/payment, pending visibility, approval, posting and stock impact');
+}finally{await browser?.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}

@@ -43,8 +43,8 @@ export function checkSales(s,c,d){
  if(discount>gross)fail('DISCOUNT_EXCEEDS_TOTAL','الخصم يتجاوز الإجمالي');
  if(discount>multiply(gross,divide(decimal(p.maxDiscountPercent||'0'),decimal('100'))))reasons.push('تجاوز حد الخصم');
  const approval=d.approvalId?s.salesApprovals.get(d.approvalId):null;
- if(reasons.length&&(!approval||approval.companyId!==cid||approval.userId!==c.user.id||approval.profile.channel!==p.channel||approval.status!=='approved'||approval.fingerprint!==fp(d)))fail('MANAGER_APPROVAL_REQUIRED','تحتاج موافقة المدير: '+reasons.join('، '));
- return reasons.length?approval:null;
+ if((reasons.length||d.approvalId)&&(!approval||approval.companyId!==cid||approval.userId!==c.user.id||approval.profile.channel!==p.channel||approval.status!=='approved'||approval.fingerprint!==fp(d)))fail('MANAGER_APPROVAL_REQUIRED','تحتاج موافقة المدير: '+reasons.join('، '));
+ return approval||null;
 }
 export function salesReasons(s,c,d){try{checkSales(s,c,{...d,approvalId:null});return [];}catch(e){if(e.code==='MANAGER_APPROVAL_REQUIRED')return [e.message];throw e;}}
 export function installSalesRoutes(app,{store:s,authenticate,permit,validateDocument}){

@@ -35,3 +35,11 @@ jobs:
         env:
           TEST_MONGODB_URI: mongodb://127.0.0.1:27017
         run: npm test
+      - name: Install browser test runtime
+        run: |
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium
+      - name: Verify invoice approval and draft preservation in Chromium
+        run: |
+          node tests/browser/sales-discount-approval.mjs
+          node tests/browser/workspace-draft-preservation.mjs
