@@ -150,7 +150,7 @@ function decorateWorkspace(){
  }
  if(state.view==='accounting'){
   const totals=kind=>state.documents.filter(doc=>doc.documentType===kind).reduce((amount,doc)=>amount+Math.max(0,outstanding(doc)),0);
-  const summary=document.createElement('section');summary.className='erp-finance-summary';summary.innerHTML=`<div><span>ذمم العملاء المتبقية</span><strong>${money(totals('sale'))}</strong><small>${escape(state.account.company.currency)}</small></div><div><span>التزامات الموردين المتبقية</span><strong>${money(totals('purchase'))}</strong><small>${escape(state.account.company.currency)}</small></div><div><span>القيود المتاحة لحسابك</span><strong>${state.reports.journals?.length||0}</strong><small>قيد محاسبي</small></div>`;content.prepend(summary);
+  const summary=document.createElement('section');summary.className='erp-finance-summary';summary.innerHTML=`<div><span>متبقي فواتير العملاء</span><strong>${money(totals('sale'))}</strong><small>${escape(state.account.company.currency)}</small></div><div><span>متبقي فواتير الموردين</span><strong>${money(totals('purchase'))}</strong><small>${escape(state.account.company.currency)}</small></div><div><span>القيود المتاحة لحسابك</span><strong>${state.reports.journals?.length||0}</strong><small>قيد محاسبي</small></div>`;content.prepend(summary);
  }
 }
 
