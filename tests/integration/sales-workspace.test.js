@@ -59,16 +59,17 @@ test('sales workspace isolates channels, enforces exact approvals, reservations,
   assert.equal((await commit(purchase)).status,201);
   const boot=(await request('/api/v1/sales/bootstrap',null,seller)).data;assert.deepEqual(boot.customers.map(x=>x.id),[customer.id]);assert.deepEqual(boot.prices.map(x=>x.priceType),['sale_retail']);const wholesaleBoot=(await request('/api/v1/sales/bootstrap',null,wholeCookie)).data;assert.deepEqual(wholesaleBoot.prices.map(x=>x.priceType),['sale_wholesale']);assert.equal(boot.profile.phone,'0771');assert.equal(boot.stock[0].averageCost,undefined);assert.equal(boot.items[0].hasPhotos,true);assert.equal(boot.items[0].photos,undefined);assert.equal(boot.warehouses[0].placeType,'showroom');
   const master=(await request('/api/v1/master-data',null,seller)).data;assert.deepEqual(master.customers.map(x=>x.id),[customer.id]);assert.deepEqual(master.prices.map(x=>x.priceType),['sale_retail']);
-  const sale={documentType:'sale',documentNumber:'S1',warehouseId:warehouse.id,partyId:customer.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'4',unitPrice:'10'}],discountAmount:'4',delivery:{mode:'both',deliveryAt:'2026-10-08T12:00:00Z',serviceAt:'2026-10-08T14:00:00Z'},payments:[{method:'cash',amount:'10'}]};
+  const sale={documentType:'sale',documentNumber:'S1',warehouseId:warehouse.id,partyId:customer.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'4',unitPrice:'10'}],discountAmount:'4.8',delivery:{mode:'both',deliveryAt:'2026-10-08T12:00:00Z',serviceAt:'2026-10-08T14:00:00Z'},payments:[{method:'cash',amount:'10'}]};
   assert.equal((await commit(sale,seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
   assert.equal((await commit({...sale,partyId:wholesale.id},seller)).data.result.code,'CUSTOMER_SCOPE');
   assert.equal((await commit({...sale,lines:[{...sale.lines[0],unitPrice:'8'}]},seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
   const asked=await request('/api/v1/sales/approvals',{document:sale},seller);assert.equal(asked.status,201,JSON.stringify(asked.data));const id=asked.data.approval.id;
+  for(const cookie of [seller,manager,retailManagerCookie])assert.ok((await request('/api/v1/sales/bootstrap',null,cookie)).data.approvals.some(a=>a.id===id&&a.status==='pending'&&a.document.discountAmount==='4.800000'));
   assert.equal((await request('/api/v1/sales/approvals/'+id+'/decision',{status:'approved'},seller)).status,403);
   assert.equal(asked.data.approval.managerUserId,retailManager.id);assert.equal((await request('/api/v1/sales/bootstrap',null,wholeManagerCookie)).data.approvals.length,0);assert.equal((await request('/api/v1/sales/approvals/'+id+'/decision',{status:'approved'},wholeManagerCookie)).status,403);assert.equal((await request('/api/v1/sales/approvals/'+id+'/decision',{status:'approved'},retailManagerCookie)).status,200);
   assert.equal((await commit({...sale,approvalId:id,lines:[{...sale.lines[0],quantity:'5'}]},seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
   assert.equal((await commit({...sale,approvalId:id,partyId:wholesale.id},wholeCookie)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
-  const op=crypto.randomUUID(),posted=await commit({...sale,approvalId:id},seller,op);assert.equal(posted.status,201,JSON.stringify(posted.data));assert.equal(posted.data.result.document.assignedSalesManagerId,retailManager.id);assert.equal(posted.data.result.document.subtotal,'36.000000');assert.equal(posted.data.result.document.dueAmount,'26.000000');assert.equal(posted.data.result.document.delivery.mode,'both');
+  const op=crypto.randomUUID(),posted=await commit({...sale,approvalId:id},seller,op);assert.equal(posted.status,201,JSON.stringify(posted.data));assert.equal(posted.data.result.document.assignedSalesManagerId,retailManager.id);assert.equal(posted.data.result.document.subtotal,'35.200000');assert.equal(posted.data.result.document.dueAmount,'25.200000');assert.equal(posted.data.result.document.delivery.mode,'both');
   assert.equal((await commit({...sale,approvalId:id},seller,op)).data.result.entityId,posted.data.result.entityId);
   assert.equal((await commit({...sale,approvalId:id,documentNumber:'REUSE'},seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
   assert.equal((await request('/api/v1/sales/customer-review',{customerId:wholesale.id},seller)).status,403);
@@ -78,6 +79,15 @@ test('sales workspace isolates channels, enforces exact approvals, reservations,
   const sync=(await request('/api/v1/sync/pull?cursor=0',null,seller)).data;assert.ok(!sync.changes.some(x=>x.entityType==='price'&&x.payload.priceType==='sale_wholesale'));
   await rt.close();rt=await startEnterpriseCloud({dataDirectory:dir,setupToken:'sales-test-key-123456789012345678',origin:'https://example.test',port:0});
   const persisted=(await request('/api/v1/sales/bootstrap',null,seller)).data;assert.equal(persisted.items[0].hasPhotos,true);assert.equal((await fetch(rt.url+images[0].url,{headers:{Cookie:seller}})).status,200);assert.equal(persisted.personalCards.length,2);assert.equal(persisted.personalCards[1].dueAt,'2026-10-08T10:00:00.000Z');assert.equal(persisted.profile.location,'بغداد');assert.equal(persisted.approvals[0].status,'used');assert.equal(persisted.items[0].reserved[warehouse.id],'4.000000','sale consumes two of the six reserved units');assert.equal(persisted.customers.find(x=>x.id===customer.id).risk,'yellow');assert.equal(persisted.reviews.length,1);assert.equal(persisted.documents[0].delivery.serviceAt,'2026-10-08T14:00:00.000Z');
+  await setting('item',item.id,{channel:'both',movement:'strong',maxDiscountPercent:'100',warehouseId:warehouse.id,reservedQuantity:'0'});
+  const ordinary={...sale,documentNumber:'NORMAL-APPROVAL',discountAmount:'0',lines:[{...sale.lines[0],quantity:'1'}],payments:[]};
+  const ordinaryRequest=await request('/api/v1/sales/approvals',{document:ordinary},seller);assert.equal(ordinaryRequest.status,201);
+  const ordinaryId=ordinaryRequest.data.approval.id;
+  assert.equal((await commit({...ordinary,approvalId:ordinaryId},seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED','pending approval is mandatory even when no price override exists');
+  assert.equal((await request('/api/v1/sales/approvals/'+ordinaryId+'/decision',{status:'approved'},retailManagerCookie)).status,200);
+  assert.equal((await commit({...ordinary,approvalId:ordinaryId},seller)).status,201);
+  assert.equal((await request('/api/v1/sales/bootstrap',null,seller)).data.approvals.find(a=>a.id===ordinaryId).status,'used');
+  assert.equal((await commit({...ordinary,documentNumber:'NORMAL-REUSE',approvalId:ordinaryId},seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
   await setting('warehouse',warehouse.id,{damaged:true});assert.equal((await commit({...sale,documentNumber:'DAMAGE'},seller)).data.result.code,'DAMAGED_WAREHOUSE');
  }finally{if(rt)await rt.close();await rm(dir,{recursive:true,force:true});}
 });
