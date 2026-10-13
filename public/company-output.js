@@ -19,11 +19,12 @@
   copy.querySelectorAll('form,button,input,select,textarea,.output-actions,.toolbar,dialog,.assistant-root,.ui-help,.ui-list-tools,.ui-list-empty').forEach(x=>x.remove());
   for(const t of copy.querySelectorAll('table'))t.replaceWith(cleanTable(t));
   copy.querySelectorAll('details').forEach(x=>x.open=true);
-  if(invoice)copy.querySelector('h1')?.remove();
+  const salesPaper=!!copy.querySelector('.sales-paper');if(invoice&&!salesPaper)copy.querySelector('h1')?.remove();
   copy.querySelectorAll('.panel').forEach(p=>{if(!p.querySelector('table,p,img'))p.remove();});
   const holder=document.createElement('div');holder.className='print-output';holder.dir='rtl';
   holder.style.setProperty('--invoice-color',design.color||'#126b65');
   holder.innerHTML=`<div class="print-brand">${design.logo?`<img src="${escape(design.logo)}" alt="شعار الشركة">`:''}<div><h1>${escape(company.legalName)}</h1><p>${escape(design.address||company.address||'')} · ${escape(design.phone||company.phone||'')}</p></div></div>${invoice?'':`<h2>${escape(title)}</h2><p>تاريخ الطباعة: ${escape(new Date().toLocaleString('ar-IQ'))}</p>`}${copy.innerHTML}<footer>${escape(design.footer||'')}<br><small>جهة التطوير: شركة الأرجوان للبرمجيات — المطور: محمد العبيدي — الهاتف: ٠٧٨٠٧٨٠٧٤٩١ — بغداد</small></footer>`;
+  holder.classList.toggle('sales-paper-output',salesPaper);
   holder.classList.toggle('invoice-classic',design.layout==='classic');
   document.querySelector('.print-output')?.remove();document.body.append(holder);document.body.classList.add('printing-output');
   const finish=()=>{document.body.classList.remove('printing-output');holder.remove();};
