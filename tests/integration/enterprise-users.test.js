@@ -8,7 +8,7 @@ import { startEnterpriseLocal } from '../../apps/local/enterprise-server.js';
 test('user administration enforces permissions, revokes access and persists edits', async()=>{
  const directory=await mkdtemp(join(tmpdir(),'users-test-'));let runtime;
  try{
-  runtime=await startEnterpriseLocal({dataDirectory:directory,port:33221});
+  runtime=await startEnterpriseLocal({dataDirectory:directory,port:13221});
   async function request(path,body,method='POST',cookie=''){
    const response=await fetch(runtime.url+path,{headers:{'Content-Type':'application/json',Cookie:cookie},...(body?{method,body:JSON.stringify(body)}:{})});
    return {status:response.status,data:response.status===204?null:await response.json(),cookie:response.headers.get('set-cookie')?.split(';')[0]};
@@ -45,7 +45,7 @@ test('user administration enforces permissions, revokes access and persists edit
   assert.equal((await request('/api/v1/presence/online-users',null,'GET',ownerCookie)).data.count,2);
   assert.equal((await request('/api/v1/bootstrap',null,'GET',sellerCookie)).status,401);
   assert.equal((await request('/api/v1/auth/login',{companyCode:'local',username:'حسن كاظم',password:'Changed-Seller-123'})).status,403);
-  await runtime.close();runtime=await startEnterpriseLocal({dataDirectory:directory,port:33221});
+  await runtime.close();runtime=await startEnterpriseLocal({dataDirectory:directory,port:13221});
   assert.ok((await request('/api/v1/roles',null,'GET',ownerCookie)).data.roles.some(role=>role.code===customCode));
   const stored=(await request('/api/v1/users',null,'GET',ownerCookie)).data.users.find(row=>row.id===id);assert.equal(stored.status,'disabled');assert.equal(stored.displayName,'الاسم الجديد');assert.deepEqual(stored.permissions,body.permissions);
   assert.equal((await request('/api/v1/users/'+id,{...body,password:'',status:'active'},'PUT',ownerCookie)).status,200);
