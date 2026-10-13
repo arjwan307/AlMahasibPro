@@ -43,6 +43,7 @@ test('sales post to selected branch cashbox and reject out of scope legacy boxes
  const warehouse=await store.createWarehouse(context.company.id,{code:'W',name:'مخزن',branchId:first.branchId},context.user.id);
  const unit=await store.createUnit(context.company.id,{code:'U',name:'قطعة'},context.user.id);
  const item=await store.createItem(context.company.id,{sku:'I',name:'مادة',baseUnitId:unit.id},context.user.id);
+ await store.setPrice(context.company.id,{itemId:item.id,unitId:unit.id,priceType:'sale',currency:'IQD',amount:'10'},context.user.id);
  store.stockBalances.set(`${context.company.id}:${warehouse.id}:${item.id}`,{companyId:context.company.id,warehouseId:warehouse.id,itemId:item.id,quantity:'10.000000',averageCost:'2.000000',version:1});
  const payload={documentType:'sale',documentNumber:'S1',branchId:first.branchId,cashboxId:first.id,warehouseId:warehouse.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'1',unitPrice:'10'}],payments:[{method:'cash',amount:'10'}]};
  const operation=(p)=>({operationId:randomUUID(),payloadHash:randomUUID(),type:'commerce.commit',occurredAt:at(-50000),payload:p});

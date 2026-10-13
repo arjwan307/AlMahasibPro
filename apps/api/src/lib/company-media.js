@@ -18,6 +18,7 @@ export function invoiceDesign(body) {
     if (typeof body[key] !== 'string' || body[key].length > limit) throw new AppError(400, 'INVALID_DESIGN', 'بيانات تصميم الفاتورة أطول من المسموح');
     result[key] = body[key].trim();
   }
+  for(const [key,limit] of Object.entries({englishName:160,representatives:1600})){const value=body[key]??'';if(typeof value!=='string'||value.length>limit)throw new AppError(400,'INVALID_DESIGN','بيانات رأس أو تذييل الشركة غير صالحة');result[key]=value.trim();}
   if (!/^#[0-9a-f]{6}$/i.test(body.color)) throw new AppError(400, 'INVALID_DESIGN', 'لون الفاتورة غير صالح');
   result.color = body.color;
   result.layout = ['modern','classic'].includes(body.layout) ? body.layout : 'modern';

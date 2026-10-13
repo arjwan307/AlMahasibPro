@@ -33,9 +33,10 @@ before(async () => {
 
   unit = (await create('/api/v1/catalog/units', { code: 'PC', name: 'قطعة', decimalPlaces: 0 })).unit;
   item = (await create('/api/v1/catalog/items', { sku: 'ITEM-001', name: 'صنف اختبار', baseUnitId: unit.id })).item;
+  await create('/api/v1/catalog/prices',{itemId:item.id,unitId:unit.id,priceType:'sale_wholesale',currency:'IQD',amount:'5'});
   warehouse = (await create('/api/v1/warehouses', { code: 'MAIN', name: 'مخزن المحافظة الثانية' })).warehouse;
   customer = (await create('/api/v1/customers', {
-    code: 'C-001', name: 'عميل الاختبار', phone: '07700000000', province: 'نينوى', district: 'الموصل', creditLimit: '1000'
+    code: 'C-001', salesChannel:'wholesale', name: 'عميل الاختبار', phone: '07700000000', province: 'نينوى', district: 'الموصل', creditLimit: '1000'
   })).customer;
   const openingPurchase = await request('/api/v1/commerce/commit', {
     method: 'POST', token: adminToken,

@@ -36,6 +36,7 @@ test('desktop replays offline edits with ID mapping, atomic receipts, conflict r
   const replay=await fetch(url+'/api/v1/desktop/commands',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+login.token},body:JSON.stringify(command.transmitted)});assert.equal(replay.status,200);assert.equal(cloud.units.size,1);
   const changed=await fetch(url+'/api/v1/desktop/commands',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+login.token},body:JSON.stringify({...command.transmitted,body:{code:'CHANGED',name:'changed'}})});assert.equal(changed.status,409);assert.equal(cloud.units.size,1);
   const warehouse=await cloud.createWarehouse(company.id,{code:'CLOUD-WH',name:'مخزن',branchId:company.branches[0].id},company.ownerUserId);
+  await cloud.setPrice(company.id,{itemId:remoteItem.id,unitId:remoteItem.baseUnitId,priceType:'sale',currency:'IQD',amount:'50'},company.ownerUserId);
   const supplier=await cloud.createParty(company.id,'supplier',{code:'SUP',name:'مورد'},company.ownerUserId);
   const customer=await cloud.createParty(company.id,'customer',{code:'CUS',name:'زبون',phone:'07807807491',creditLimit:'10000'},company.ownerUserId);
   assert.equal((await request('/api/local/cloud/synchronize',{})).data.state,'complete');

@@ -1,3 +1,4 @@
+import { installCustomerStatementRoutes } from './customer-statement.js';
 import { installWorkbenchRoutes } from './modules/assistant/workbench.js';
 import { warehouseScopeAllows, assertWarehouseScope, documentScopeAllows } from './lib/warehouse-scope.js';
 import { installAccountingRoutes } from './modules/accounting/routes.js';
@@ -5,7 +6,7 @@ import { productApiAllowed } from './product-pages.js';
 import { settingsBackup, installSettingsRoutes } from './modules/settings/routes.js';
 import { requireMarketPermission, requireCompanyMarketScope, validateMarketCatalog } from './lib/market-security.js';
 import { approvedCompanyCode } from './lib/company-code.js';
-import { installSalesRoutes, salesRep, salesScoped } from './sales-workspace.js';
+import { installSalesRoutes, salesRep, salesScoped, assertSaleAvailability } from './sales-workspace.js';
 import express from 'express';
 import { PERMISSIONS } from './permissions.js';
 import cors from 'cors';
@@ -55,6 +56,7 @@ export function createApp({ store, localDeletionStore = null, localMode = false,
   app.use(express.static(publicDirectory, { extensions: ['html'], etag: true }));
 
   installSettingsRoutes(app,{store,authenticate,permit,localMode});
+  installCustomerStatementRoutes(app,{store,authenticate});
   installSalesRoutes(app,{store,authenticate,permit,validateDocument:validateCommercePayload});
   installPayrollRoutes(app,{store,authenticate,permit});
   installAccountingRoutes(app,{store,authenticate,permit});
@@ -389,6 +391,7 @@ export function createApp({ store, localDeletionStore = null, localMode = false,
   app.get('/api/v1/master-data', authenticate(store), permitAny(['catalog.read', 'customers.read', 'suppliers.read', 'inventory.read', 'inventory.manage', 'inventory.receive', 'inventory.issue']), asyncRoute(async (req, res) => {
     const m=await store.listMasterData(req.auth.company.id);
     filterWarehouseScope(req.auth, m);
+    m.customers=m.customers.map(c=>{const cfg=store.salesSettings?.get('customer:'+c.id)||{};return {...c,salesChannel:cfg.channel||c.salesChannel,address:c.address||cfg.neighborhood||'',province:c.province||cfg.governorate||'',district:c.district||cfg.district||''};});
     if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';m.customers=m.customers.filter(x=>(store.salesSettings.get('customer:'+x.id)?.channel||'retail')===channel);m.suppliers=[];m.prices=m.prices.filter(x=>['sale','sale_'+channel].includes(x.priceType));m.stock=m.stock.map(({averageCost,...x})=>x);}
     res.json(m);
   }));
@@ -582,9 +585,10 @@ export function createApp({ store, localDeletionStore = null, localMode = false,
     res.status(result.status === 'acknowledged' ? 201 : 409).json({ result });
   }));
 
-  app.get('/api/v1/commerce/documents', authenticate(store), permitAny(['sales.read', 'purchasing.read']), asyncRoute(async (req, res) => {
+  app.get('/api/v1/commerce/documents', authenticate(store), permitAny(['sales.read', 'purchasing.read','inventory.read','inventory.manage']), asyncRoute(async (req, res) => {
     let documents=await store.listCommerceDocuments(req.auth.company.id);
     documents=documents.filter(document=>documentScopeAllows(store,req.auth,document));
+    if(!req.auth.permissions.some(p=>['sales.read','purchasing.read'].includes(p)))documents=documents.filter(d=>d.documentType==='sale').map(d=>({...d,lines:d.lines.map(({unitCost,...line})=>line)}));
     if(salesScoped(store,req.auth)&&store.salesSettings){const channel=store.salesSettings.get('user:'+req.auth.user.id)?.channel||'retail';documents=documents.filter(x=>x.documentType.startsWith('sale')&&x.customerId&&(store.salesSettings.get('customer:'+x.customerId)?.channel||'retail')===channel).map(x=>({...x,lines:x.lines.map(({unitCost,...line})=>line)}));}
     res.json({documents});
   }));
@@ -982,6 +986,7 @@ export function createApp({ store, localDeletionStore = null, localMode = false,
       const unit = master.units.find((x) => x.id === unitId);
       return { itemId, unitId, sku: item.sku, name: item.name, unitName: unit?.name || '', quantity, unitPrice, lineTotal: decimalString(decimal(quantity) * decimal(unitPrice) / 1000000n) };
     });
+    assertSaleAvailability(store,req.auth,{documentType:'sale',warehouseId:warehouse.id,partyId:customer.id,currency:currency(b.currency),lines});
     const subtotal = lines.reduce((sum, line) => sum + decimal(line.lineTotal), 0n);
     const discountAmount = decimalInput(b.discountAmount || '0', { nonNegative: true });
     const total = subtotal - decimal(discountAmount);
