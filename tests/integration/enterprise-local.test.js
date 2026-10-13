@@ -24,6 +24,7 @@ test('company-owned SQLite installation persists accounting, stock, users and ba
   const target=(await create('/api/v1/warehouses',{code:'BRANCH',name:'الفرع'})).warehouse;
   const surplusWarehouse=(await create('/api/v1/warehouses',{code:'SURPLUS',name:'مخزن فائض الجرد'})).warehouse;
   const item=(await create('/api/v1/catalog/items',{sku:'ITEM-001',name:'كرسي',baseUnitId:unit.id})).item;
+  await create('/api/v1/catalog/prices',{itemId:item.id,unitId:unit.id,priceType:'sale',currency:'IQD',amount:'150'});
   const customer=(await create('/api/v1/customers',{code:'C001',name:'عميل',creditLimit:'100000'})).customer;
   const commit=async document=>create('/api/v1/commerce/commit',{operationId:crypto.randomUUID(),deviceId:'desktop',clientSequence:Date.now(),occurredAt:new Date().toISOString(),document});
   await commit({documentType:'purchase',documentNumber:'P1',warehouseId:source.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'10',unitPrice:'100'}],payments:[{method:'cash',amount:'1000'}]});

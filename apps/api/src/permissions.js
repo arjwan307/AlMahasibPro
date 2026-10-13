@@ -1,10 +1,10 @@
 export const PERMISSIONS = Object.freeze([
   'company.delete', 'local.data.delete', 'account.delete', 'company.manage', 'company.approve', 'users.manage', 'roles.manage',
   'assistant.use',
-  'catalog.read', 'catalog.manage', 'customers.read', 'customers.manage', 'suppliers.read', 'suppliers.manage',
+  'catalog.read', 'catalog.manage', 'customers.read', 'customers.manage', 'customers.statement.edit', 'suppliers.read', 'suppliers.manage',
   'inventory.read', 'inventory.manage', 'inventory.receive', 'inventory.issue',
   'purchasing.read', 'purchasing.create', 'purchasing.approve', 'purchasing.return',
-  'sales.read', 'sales.create', 'sales.approve', 'sales.return',
+  'sales.read', 'sales.create', 'sales.approve', 'sales.edit', 'sales.return',
   'sales.discount.override', 'sales.wholesale.submit', 'sales.retail.submit', 'sales.wholesale.review', 'sales.wholesale.finalize', 'sales.invoice.template.manage', 'pos.device.manage', 'pos.shift.open', 'pos.shift.close',
   'accounting.read', 'accounting.post', 'employees.read', 'employees.manage',
   'imports.read', 'imports.manage', 'treasury.read', 'treasury.manage',

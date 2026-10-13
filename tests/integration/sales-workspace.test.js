@@ -88,6 +88,23 @@ test('sales workspace isolates channels, enforces exact approvals, reservations,
   assert.equal((await commit({...ordinary,approvalId:ordinaryId},seller)).status,201);
   assert.equal((await request('/api/v1/sales/bootstrap',null,seller)).data.approvals.find(a=>a.id===ordinaryId).status,'used');
   assert.equal((await commit({...ordinary,documentNumber:'NORMAL-REUSE',approvalId:ordinaryId},seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
+  const first=await request('/api/v1/sales/walk-in',{name:'زبون دائم'},seller);assert.equal(first.status,201);assert.equal(first.data.customer.channel,'retail');assert.equal(first.data.customer.oneTime,false);assert.equal(first.data.customer.phone,null);
+  const wholeFirst=await request('/api/v1/sales/walk-in',{name:'زبون جملة دائم'},wholeCookie);assert.equal(wholeFirst.status,201);assert.equal(wholeFirst.data.customer.channel,'wholesale');
+  const doc={...ordinary,partyId:first.data.customer.id,documentNumber:'FIRST-PERSISTED'},pending=await request('/api/v1/sales/approvals',{document:doc},seller),pendingId=pending.data.approval.id;
+  assert.equal((await commit({...doc,documentNumber:'UNAPPROVED'},seller)).data.result.code,'MANAGER_APPROVAL_REQUIRED');
+  const revised=await request('/api/v1/sales/approvals/'+pendingId,{document:{...doc,documentNumber:'FIRST-REVISED'}},seller,'PUT');assert.equal(revised.status,200,JSON.stringify(revised.data));assert.equal(revised.data.approval.id,pendingId);
+  assert.equal((await request('/api/v1/sales/approvals/'+pendingId,{document:doc},wholeCookie,'PUT')).status,403);
+  const managerRevised=await request('/api/v1/sales/approvals/'+pendingId,{document:revised.data.approval.document},retailManagerCookie,'PUT');assert.equal(managerRevised.status,200);
+  const keeper=(await create('/api/v1/users',{username:'invoice-keeper',displayName:'مدير مخازن مخول',roleCode:'warehouse_keeper',permissions:['catalog.read','inventory.read','inventory.manage','sales.edit'],password:'Strong-Keeper-123'})).user;
+  const keeperCookie=(await request('/api/v1/auth/login',{companyCode:'company',username:'invoice-keeper',password:'Strong-Keeper-123'})).cookie;
+  assert.equal((await request('/api/v1/sales/bootstrap',null,keeperCookie)).status,200);
+  assert.equal((await request('/api/v1/sales/approvals/'+pendingId,{document:revised.data.approval.document},keeperCookie,'PUT')).status,200);
+  assert.equal((await request('/api/v1/sales/approvals/'+pendingId+'/decision',{status:'approved',post:true},keeperCookie)).status,403);
+  const postedByManager=await request('/api/v1/sales/approvals/'+pendingId+'/decision',{status:'approved',post:true},retailManagerCookie);assert.equal(postedByManager.status,200,JSON.stringify(postedByManager.data));assert.equal(postedByManager.data.approval.status,'used');assert.equal(postedByManager.data.document.createdBy,rep.id);
+  const repeatedPost=await request('/api/v1/sales/approvals/'+pendingId+'/decision',{status:'approved',post:true},retailManagerCookie);assert.equal(repeatedPost.data.document.id,postedByManager.data.document.id);
+  assert.equal((await request('/api/v1/sales/approvals/'+pendingId,{document:doc},seller,'PUT')).status,409);
+  const later=await request('/api/v1/sales/approvals',{document:{...doc,documentNumber:'SECOND-PERSISTED'}},seller);assert.equal(later.status,201);assert.equal((await request('/api/v1/sales/approvals/'+later.data.approval.id+'/decision',{status:'approved',post:true},retailManagerCookie)).status,200);
+  const history=(await request('/api/v1/sales/bootstrap',null,seller)).data;assert.equal(history.customers.filter(c=>c.id===first.data.customer.id).length,1);assert.equal(history.documents.filter(d=>d.customerId===first.data.customer.id).length,2);
   await setting('warehouse',warehouse.id,{damaged:true});assert.equal((await commit({...sale,documentNumber:'DAMAGE'},seller)).data.result.code,'DAMAGED_WAREHOUSE');
  }finally{if(rt)await rt.close();await rm(dir,{recursive:true,force:true});}
 });

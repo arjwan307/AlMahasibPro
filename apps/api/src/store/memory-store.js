@@ -3,7 +3,7 @@ import { validateOpeningJournal } from '../modules/accounting/opening-journal-va
 import { projectGeneralLedger } from '../modules/accounting/general-ledger.js';
 import { projectFinancialStatements } from '../modules/accounting/financial-statements.js';
 import { requireMarketPermission, validateMarketCatalog } from '../lib/market-security.js';
-import { checkSales, salesRep, assignedSalesManager } from '../sales-workspace.js';
+import { checkSales, salesRep, assignedSalesManager, assertSaleAvailability } from '../sales-workspace.js';
 import { randomUUID } from 'node:crypto';
 import { AppError } from '../lib/http.js';
 import { decimal, decimalString, divide, multiply, ZERO } from '../lib/decimal.js';
@@ -1881,7 +1881,7 @@ export class MemoryStore {
         const original=this.commerceDocuments.get(p.originalDocumentId); if(!original||original.companyId!==companyId||original.representativeId!==rep.id) throw new AppError(403,'RETURN_REPRESENTATIVE_MISMATCH','لا يمكن إرجاع بيع مندوب آخر');
         const refund=(p.payments||[]).reduce((s,x)=>s+decimal(x.amount),ZERO); const custody=[...this.custodyMovements.values()].filter(m=>m.companyId===companyId&&m.representativeId===rep.id&&m.currency===p.currency).reduce((s,m)=>s+decimal(m.amount),ZERO); if(refund>custody) throw new AppError(409,'REFUND_EXCEEDS_CUSTODY','نقد المرتجع يتجاوز عهدة المندوب');
       }
-      const document = this.#commitCommerce(context, { ...operation, payload: { ...p, representativeId: rep.id, warehouseId: rep.vehicleWarehouseId, documentType: isReturn ? 'sale_return' : 'sale' } });
+      const document = this.#commitCommerce(context, { ...operation, payload: { ...p, representativeId: rep.id, warehouseId: rep.vehicleWarehouseId, documentType: isReturn ? 'sale_return' : 'sale' } }, true);
       if (pendingOrder) { pendingOrder.status = 'converted'; pendingOrder.saleDocumentId = document.id; }
       return { entityId: document.id, document };
     }
@@ -2038,13 +2038,14 @@ export class MemoryStore {
     return clone(shift);
   }
 
-  #commitCommerce(context, operation) {
+  #commitCommerce(context, operation, trustedRepresentative = false) {
     this.assertFinancialPeriod(context.company.id,operation.occurredAt);
     const companyId = context.company.id;
     const payload = operation.payload;
     assertDocumentScope(this, context, payload);
+    assertSaleAvailability(this,context,payload);
     const assignedManager = payload.documentType==='sale'&&salesRep(context)?assignedSalesManager(this,context):null;
-    const salesApproval = !payload.representativeId ? checkSales(this,context,payload) : null;
+    const salesApproval = !trustedRepresentative ? checkSales(this,context,payload) : null;
     const warehouse = this.warehouses.get(payload.warehouseId);
     if (!warehouse || warehouse.companyId !== companyId) throw new AppError(400, 'WAREHOUSE_NOT_FOUND', 'المخزن غير موجود');
     if (![ 'purchase', 'sale', 'purchase_return', 'sale_return' ].includes(payload.documentType)) throw new AppError(400, 'INVALID_DOCUMENT_TYPE', 'نوع المستند غير صالح');
