@@ -17,7 +17,7 @@
   wrap.append(button,content);node.replaceWith(wrap);
  }
  function list(table){
-  if(table.closest('[data-workspace-stock],.assistant-report,.lg-workspace,.ui-list,details,dialog,.print-output,.customer-print-sheet,#lineTable,#documentDetail,#customerStatement,[data-inventory-orders]')||table.querySelector('#cartBody')||table.closest('form'))return;
+  if(table.closest('[data-workspace-stock],.assistant-report,.lg-workspace,.ui-list,details,dialog,.print-output,.customer-print-sheet,#lineTable,#documentDetail,#customerStatement,[data-inventory-orders],[data-inventory-loaded]')||table.querySelector('#cartBody')||table.closest('form'))return;
   const headers=[...table.querySelectorAll('thead th')].map(text);if(!headers.length)return;
   const parent=table.parentElement;if(!parent)return;
   const container=table.closest('.panel,.card,section')||parent;
