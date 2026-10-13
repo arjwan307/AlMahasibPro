@@ -20,7 +20,7 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
   function cloudURL(value){const url=new URL(value||defaultCloud);if(url.username||url.password||url.search||url.hash||!['/','/retail','/retail/'].includes(url.pathname)||(url.protocol!=='https:'&&!(allowTestCloud&&url.protocol==='http:'&&url.hostname==='127.0.0.1')))throw Error('استخدم عنوان الخادم عبر HTTPS؛ مسار /retail متاح للمطاعم');return url.origin+(url.pathname.startsWith('/retail')?'/retail':'');}
   config.url=cloudURL(config.url);store.cloudConnectionCompanyId=config.companyId||null;
   async function remote(path,{body,method='GET',token}={}){
-    const response=await fetch(config.url+path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(8000)])});
+    const response=await fetch(config.url+path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(45000)])});
     if(!response.ok){let message;try{message=(await response.json()).error?.message;}catch{}const error=Error(message||'تعذر الاتصال بالخادم: '+response.status);error.status=response.status;throw error;}
     return response;
   }
@@ -62,7 +62,7 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
         const transmitted=command.transmittedProtected?JSON.parse((await unprotect(Buffer.from(command.transmittedProtected,'base64'))).toString()):command.transmitted;
         let response;
         try{
-          const raw=await fetch(config.url+'/api/v1/desktop/commands',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(transmitted),signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(8000)])});
+          const raw=await fetch(config.url+'/api/v1/desktop/commands',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(transmitted),signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(45000)])});
           const result=await raw.json();
           if(!raw.ok){if(raw.status>=400&&raw.status<500&&![401,408,429].includes(raw.status))await store.transaction(()=>{command.status='conflict';command.error=result.error?.message||'رفض الخادم العملية';store.desktopCommands.set(command.id,command);});throw Error(result.error?.message||'تعذر إرسال العملية');}
           if(result.id!==command.id||!result.result||result.result.status>=400)throw Error('استجابة المزامنة غير مكتملة؛ بقيت العملية محفوظة');

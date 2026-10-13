@@ -46,6 +46,7 @@ export class MongoStore extends MemoryStore {
     this.stateChunks = db.collection('_app_state_chunks');
     this.persistQueue = Promise.resolve();
     this.backupExtension = 'mongo';
+    this.lastStateCleanup = 0;
     // Serialize explicit transactions the same way the SQLite store does, and
     // persist the resulting snapshot once the callback settles. Re-entrant calls
     // (already inside a transaction) run inline to avoid deadlocking the queue.
@@ -85,6 +86,22 @@ export class MongoStore extends MemoryStore {
       restored = deserialize(Buffer.concat(buffers));
     }
     this.#applyState(restored);
+    // Startup must be able to reclaim obsolete internal snapshots even when
+    // Atlas has blocked new writes at the quota. Verify the active state first.
+    await this.pruneStateChunks().catch(error => console.warn('Mongo state cleanup failed:', error.message));
+  }
+
+  async pruneStateChunks({ now = Date.now() } = {}) {
+    const active = await this.state.findOne({ _id: 'primary' });
+    if (!active || active.storageFormat !== 'chunks-v1' || !Array.isArray(active.chunkIds) || !active.chunkIds.length) return { deletedCount: 0 };
+    // Never delete an active chunk by age. Recent orphan chunks may belong to
+    // an in-flight publisher; a five-minute grace protects those writes.
+    const result = await this.stateChunks.deleteMany({
+      _id: { $nin: active.chunkIds }, createdAt: { $lt: new Date(now - 5 * 60 * 1000) }
+    });
+    this.lastStateCleanup = now;
+    if (result.deletedCount) console.info('Mongo obsolete state chunks reclaimed:', result.deletedCount);
+    return result;
   }
 
   #applyState(restored) {
@@ -113,6 +130,8 @@ export class MongoStore extends MemoryStore {
       }
       // Publish only after every chunk is durable. Legacy primary remains intact until then.
       await this.state.replaceOne({ _id: 'primary' }, { _id: 'primary', storageFormat: 'chunks-v1', chunkIds, changeSequence: state.changeSequence, updatedAt: new Date() }, { upsert: true });
+      // Cleanup failure cannot roll back a state whose manifest is committed.
+      if (Date.now() - this.lastStateCleanup > 60000) await this.pruneStateChunks().catch(error => console.warn('Mongo state cleanup failed:', error.message));
     });
     await this.persistQueue;
   }

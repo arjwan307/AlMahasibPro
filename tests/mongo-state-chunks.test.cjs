@@ -8,7 +8,7 @@ class MemoryStore{constructor(){for(const name of fields)this[name]=new Map();th
 for(const name of methods)MemoryStore.prototype[name]=async function(){this.changeSequence++;return this.changeSequence};
 const copy=x=>x==null?x:deserialize(serialize(x));
 const rows=new Map([['primary',{_id:'primary',companies:[['company',{name:'old company'}]],changes:[{payload:'x'.repeat(19*1024*1024)}],changeSequence:7}]]),chunks=new Map();let fail=false;
-const db={collection(name){return name==='_app_state'?{findOne:async()=>copy(rows.get('primary')),replaceOne:async(_,doc)=>{if(fail){fail=false;throw Error('temporary write failure')}rows.set('primary',copy(doc))}}:{findOne:async q=>copy(chunks.get(q._id)),updateOne:async(q,update)=>{if(!chunks.has(q._id))chunks.set(q._id,copy({_id:q._id,...update.$setOnInsert}))}}}};
+const db={collection(name){return name==='_app_state'?{findOne:async()=>copy(rows.get('primary')),replaceOne:async(_,doc)=>{if(fail){fail=false;throw Error('temporary write failure')}rows.set('primary',copy(doc))}}:{findOne:async q=>copy(chunks.get(q._id)),deleteMany:async q=>{let deletedCount=0;for(const [id,row] of chunks)if(!q._id.$nin.includes(id)&&row.createdAt<q.createdAt.$lt){chunks.delete(id);deletedCount++;}return {deletedCount};},updateOne:async(q,update)=>{if(!chunks.has(q._id))chunks.set(q._id,copy({_id:q._id,...update.$setOnInsert}))}}}};
 class MongoClient{async connect(){}db(){return db}async close(){}}
 const context={MongoClient,MemoryStore,serialize,deserialize,createHash,Buffer,structuredClone,process,AsyncLocalStorage};vm.createContext(context);vm.runInContext(source.replace(/^import .*;\r?\n/gm,'').replace('export class MongoStore','class MongoStore')+';globalThis.Store=MongoStore',context);
 (async()=>{const {MemoryStore:RealStore}=await import(pathToFileURL(path.join(__dirname,'../apps/api/src/store/memory-store.js')).href);const real=new RealStore();
@@ -21,4 +21,11 @@ const loaded=await context.Store.create('fake');assert.equal(loaded.companies.ge
 const n=chunks.size;await loaded.seedPlatformAdmin();assert(chunks.size<=n+1);
 await loaded.transaction(async()=>{loaded.companies.set('txn',{name:'inside transaction'});await loaded.transaction(()=>{loaded.companies.set('nested',{name:'nested'});});});
 const afterTxn=await context.Store.create('fake');assert.equal(afterTxn.companies.get('txn').name,'inside transaction');assert.equal(afterTxn.companies.get('nested').name,'nested');
+// Retain every current chunk, including old chunks that are still referenced.
+const activeIds=rows.get('primary').chunkIds.slice(),past=new Date(Date.now()-3600000);
+for(const id of activeIds)chunks.get(id).createdAt=past;
+chunks.set('obsolete',{_id:'obsolete',data:Buffer.from('unused historical serialization'),createdAt:past});
+chunks.set('in-flight',{_id:'in-flight',data:Buffer.from('not yet published'),createdAt:new Date()});
+const cleaned=await afterTxn.pruneStateChunks();assert(cleaned.deletedCount>=1);assert(!chunks.has('obsolete'));assert(chunks.has('in-flight'));assert(activeIds.every(id=>chunks.has(id)));
+const verified=await context.Store.create('fake');assert.equal(verified.companies.get('txn').name,'inside transaction');assert.equal(verified.changes[0].payload,store.changes[0].payload);
 console.log('PASS: legacy >19MB state migrates to bounded chunks; failed writes preserve old state and next write recovers; restart restores all records and reuses unchanged chunks');})().catch(e=>{console.error(e);process.exitCode=1});
