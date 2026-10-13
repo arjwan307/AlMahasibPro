@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { serialize, deserialize } from 'node:v8';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdirSync, readFileSync, unlinkSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { dirname, join, basename } from 'node:path';
 import { MemoryStore } from './memory-store.js';
 
@@ -145,7 +145,38 @@ export class SQLiteStore extends MemoryStore {
     if (this.deletedCompanies?.has(companyId) && !(initial && this.deletedCompanies.get(companyId).localOnly)) throw new Error('تم حذف الشركة نهائيًا؛ لا يمكن استيراد نسخة سحابية قديمة');
     const filename = this.filename + '.' + randomUUID() + '.incoming';
     const {writeFileSync} = await import('node:fs');
-    writeFileSync(filename,bytes);
+    const magic=Buffer.from('AlMahasibProMongoBackup\n');
+    const buffer=Buffer.from(bytes);
+    if(buffer.subarray(0,magic.length).equals(magic)) {
+      const header=magic.length+1+32;
+      if(buffer.length<=header||buffer[magic.length]!==1)throw Error('إصدار النسخة الاحتياطية غير مدعوم');
+      const payload=buffer.subarray(header);
+      if(!createHash('sha256').update(payload).digest().equals(buffer.subarray(magic.length+1,header)))throw Error('النسخة الاحتياطية تالفة');
+      const state=deserialize(payload);
+      if(!state||typeof state!=='object'||Array.isArray(state))throw Error('النسخة الاحتياطية غير سليمة');
+      // Convert the verified portable envelope into domain_state rows, then use
+      // the same tenant validation, pending-command guard and transaction below.
+      let converted;
+      try {
+        converted=new DatabaseSync(filename);
+        converted.exec('CREATE TABLE domain_state (field TEXT PRIMARY KEY,data BLOB NOT NULL) STRICT;');
+        const write=converted.prepare('INSERT INTO domain_state(field,data) VALUES (?,?)');
+        for(const [field,value] of Object.entries(state)) {
+          if(this[field] instanceof Map) {
+            if(!Array.isArray(value)||value.some(entry=>!Array.isArray(entry)||entry.length!==2))throw Error('النسخة الاحتياطية غير سليمة');
+            const map=new Map(value);if(map.size!==value.length)throw Error('معرف مكرر في النسخة الاحتياطية');
+            write.run(field,serialize(map));
+          }else if(Array.isArray(this[field])) {
+            if(!Array.isArray(value))throw Error('النسخة الاحتياطية غير سليمة');
+            write.run(field,serialize(value));
+          }else if(field==='changeSequence') {
+            if(!Number.isSafeInteger(value)||value<0)throw Error('تسلسل النسخة غير صالح');
+            write.run(field,serialize(value));
+          }
+        }
+      }catch(error){converted?.close();try{unlinkSync(filename);}catch{}throw error;}
+      converted.close();
+    }else writeFileSync(filename,buffer);
     let incoming;
     try {
       incoming = new DatabaseSync(filename,{readOnly:true});

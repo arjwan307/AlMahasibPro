@@ -54,7 +54,7 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211, product
     });
   }
 
-  app.get('/api/local/status', (req, res) => res.json({ local: true, initialized: store.companies.size > 0, companyCode: [...store.companies.values()][0]?.code,generation:store.installationGeneration||null,lanUrl:lanHost?`${protocol}://${lanHost}:${port}`:null }));
+  app.get('/api/local/status', (req, res) => res.json({ local: true, initialized: store.companies.size > 0, companyCode: cloud.status().companyCode || [...store.companies.values()][0]?.code,generation:store.installationGeneration||null,lanUrl:lanHost?`${protocol}://${lanHost}:${port}`:null }));
   let configuring = false;
   app.post('/api/local/setup', async (req, res) => {
     if(product==='unified')return res.status(409).json({error:{message:'أدخل رمز الشركة المعتمد واسم المستخدم وكلمة المرور؛ إنشاء الحساب يتم عبر المطور.'}});
