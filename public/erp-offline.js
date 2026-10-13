@@ -38,7 +38,7 @@
   try{if(indexedDB.databases)for(const database of await indexedDB.databases()){if(database.name&&(String(database.name).startsWith('almahasib-erp-'+id+'-')||String(database.name).startsWith('almahasib-'+id+'-')||database.name==='almahasib-market-'+id))await new Promise(resolve=>{const request=indexedDB.deleteDatabase(database.name);request.onsuccess=resolve;request.onerror=resolve;request.onblocked=resolve;});}}catch{}
   return true;
  }
- async function confirmCompanyDeletion(companyId){if(!companyId)return false;try{const r=await rawFetch('/api/v1/company/deletion-notice?companyId='+encodeURIComponent(companyId),{credentials:'same-origin',signal:AbortSignal.timeout(3000)});if(r.ok){const d=await r.json();if(d.deleted){await purgeCompanyScope(companyId);return true;}}}catch{}return false;}
+ async function confirmCompanyDeletion(companyId){if(!companyId)return false;try{const r=await rawFetch('/api/v1/company/deletion-notice?companyId='+encodeURIComponent(companyId),{credentials:'same-origin',signal:AbortSignal.timeout(window.AlMahasibDesktop?12000:3000)});if(r.ok){const d=await r.json();if(d.deleted){await purgeCompanyScope(companyId);return true;}}}catch{}return false;}
  ready=(async()=>{
   try {
    const response=await rawFetch('/api/local/status',{credentials:'same-origin',signal:AbortSignal.timeout(2000)});
@@ -87,15 +87,15 @@
   const mutation=!['GET','HEAD','OPTIONS'].includes(String(options.method||'GET').toUpperCase());
   if(mutation&&usingLan&&lan?.url&&valid()){
    const url=new URL(typeof input==='string'?input:input.url,location.href),headers=new Headers(options.headers||{});headers.set('Authorization','Bearer '+lan.token);
-   return rawFetch(lan.url+url.pathname+url.search,{...options,headers,credentials:'omit',signal:options.signal||AbortSignal.timeout(3000)});
+   return rawFetch(lan.url+url.pathname+url.search,{...options,headers,credentials:'omit',signal:options.signal||AbortSignal.timeout(window.AlMahasibDesktop?12000:3000)});
   }
-  try{const r=await rawFetch(input,{...options,signal:options.signal||AbortSignal.timeout(3000)});if(r.status<500){usingLan=false;return r;}}catch(e){if(options.signal?.aborted)throw e;}
+  try{const r=await rawFetch(input,{...options,signal:options.signal||AbortSignal.timeout(window.AlMahasibDesktop?12000:3000)});if(r.status<500){usingLan=false;return r;}}catch(e){if(options.signal?.aborted)throw e;}
   // A lost response may follow a committed write. Never replay it on another database.
   if(mutation)throw Error('لم يُؤكد استلام العملية؛ بقيت محفوظة للمراجعة وإعادة المحاولة');
   if(lan?.url&&valid()){
    const url=new URL(typeof input==='string'?input:input.url,location.href);
    const headers=new Headers(options.headers||{});headers.set('Authorization','Bearer '+lan.token);
-   const response=await rawFetch(lan.url+url.pathname+url.search,{...options,headers,credentials:'omit',signal:options.signal||AbortSignal.timeout(3000)});usingLan=true;return response;
+   const response=await rawFetch(lan.url+url.pathname+url.search,{...options,headers,credentials:'omit',signal:options.signal||AbortSignal.timeout(window.AlMahasibDesktop?12000:3000)});usingLan=true;return response;
   }
   throw Error('الخادم غير متاح؛ البيانات محفوظة على الجهاز');
  }

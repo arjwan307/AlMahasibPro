@@ -72,7 +72,7 @@ export async function startEnterpriseLocal({ dataDirectory, port = 3211, product
   app.use((req,_res,next)=>{if(product!=='unified'&&!req.path.startsWith('/api/v1/platform/'))req.productScope=product;next();});
   app.use(createApp({ store, productScope:product==='unified'?null:product, localMode:true, cookieName:product==='retail'?'almahasib_retail_session':'almahasib_session', allowedOrigins: origins,secureCookies:Boolean(tls) }));
   const server = await new Promise((resolve, reject) => { const server = tls?createHttpsServer(tls,app):app;const listening=server.listen(port,bindHost,()=>resolve(listening));listening.on('error',reject); });
-  return { url: `${protocol}://127.0.0.1:${port}`, lanUrl:lanHost?`${protocol}://${lanHost}:${port}`:null, cleanInstallation, store, close: async () => { cloud?.close(); await backups.close(); await new Promise(resolve => server.close(resolve)); await store.close(); } };
+  return { url: `${protocol}://127.0.0.1:${port}`, lanUrl:lanHost?`${protocol}://${lanHost}:${port}`:null, cleanInstallation, store, close: async () => { await cloud?.close(); await backups.close(); await new Promise(resolve => server.close(resolve)); await store.close(); } };
 }
 if (process.argv[1]?.endsWith('enterprise-server.js')) {
   const { homedir } = await import('node:os');

@@ -73,6 +73,8 @@ test('linked cloud deletion rejects pending edits, survives lost acknowledgement
   const request=async(path,body)=>{const r=await fetch(local.url+path,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body)});return {status:r.status,data:await r.json()};};
   assert.equal((await request('/api/local/cloud/connect',{url:cloudUrl,companyCode:a.code,username:'owner',password,adopt:true})).status,200);
   token=(await request('/api/v1/auth/login',{companyCode:a.code,username:'owner',password})).data.token;
+  // This scenario deliberately keeps an offline command pending for deletion review.
+  await fetch(local.url+'/api/local/cloud/settings',{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({automatic:false})});
   assert.equal((await request('/api/v1/catalog/units',{code:'PENDING',name:'pending'})).status,201);
   assert.equal((await request('/api/local/settings/delete-cloud-company',confirmation(a))).status,400);assert.ok(cloud.companies.has(a.id));
   assert.equal((await request('/api/local/cloud/synchronize',{})).data.state,'complete');

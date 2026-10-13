@@ -9,6 +9,9 @@ import { commandPathAllowed } from '../api/src/lib/desktop-sync.js';
 const defaultCloud='https://shenoo-menoo-tak-tak.onrender.com';
 export async function installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud=false,cloudOrigin=defaultCloud,product='company'}){
   const filename=join(dataDirectory,'cloud-connection.json');
+  const shutdown=new AbortController();let syncFlight=null,syncTimer=null,syncAgain=false,lastReadRequest=0,cloudWrites=0;let writeQueue=Promise.resolve();
+  function requestSync(){if(closed||!config.automatic||!config.companyId)return;if(running||cloudWrites){syncAgain=true;return;}if(syncTimer)return;syncTimer=setTimeout(()=>{syncTimer=null;if(!closed)void synchronize();},80);syncTimer.unref();}
+  function synchronize(){if(syncFlight)return syncFlight;const task=runSynchronize();syncFlight=task;void task.finally(()=>{if(syncFlight===task)syncFlight=null;});return task;}
   let config={url:product==='retail'?cloudOrigin.replace(/\/retail\/?$/,'')+'/retail':cloudOrigin,automatic:true},tokens=new Map(),running=false,lastError='',lastSync=null,closed=false,connecting=false,saveQueue=Promise.resolve();
   try{const saved=JSON.parse(await readFile(filename,'utf8'));config=saved.config;if(unprotect&&saved.tokens)tokens=new Map(JSON.parse(await unprotect(Buffer.from(saved.tokens,'base64'))));}catch{}
   if(config.companyId&&!store.companies.has(config.companyId)){config={url:config.url||defaultCloud,automatic:false};tokens.clear();await writeFile(filename,JSON.stringify({config}));}
@@ -17,7 +20,7 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
   function cloudURL(value){const url=new URL(value||defaultCloud);if(url.username||url.password||url.search||url.hash||!['/','/retail','/retail/'].includes(url.pathname)||(url.protocol!=='https:'&&!(allowTestCloud&&url.protocol==='http:'&&url.hostname==='127.0.0.1')))throw Error('استخدم عنوان الخادم عبر HTTPS؛ مسار /retail متاح للمطاعم');return url.origin+(url.pathname.startsWith('/retail')?'/retail':'');}
   config.url=cloudURL(config.url);store.cloudConnectionCompanyId=config.companyId||null;
   async function remote(path,{body,method='GET',token}={}){
-    const response=await fetch(config.url+path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(45000)});
+    const response=await fetch(config.url+path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(8000)])});
     if(!response.ok){let message;try{message=(await response.json()).error?.message;}catch{}const error=Error(message||'تعذر الاتصال بالخادم: '+response.status);error.status=response.status;throw error;}
     return response;
   }
@@ -31,8 +34,8 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
     await store.deletePlatformCompany(companyId,null,{confirm:true,code});
     config={url:config.url,automatic:false};tokens.clear();await save();
   }
-  async function synchronize(){
-    if(running||connecting)return {state:'busy',...status()};if(!config.companyId)return {state:'failed',message:'اربط الجهاز بالشركة السحابية أولًا',...status()};
+  async function runSynchronize(){
+    if(running||connecting||cloudWrites)return {state:'busy',...status()};if(!config.companyId)return {state:'failed',message:'اربط الجهاز بالشركة السحابية أولًا',...status()};
     running=true;lastError='';
     try{
       // Fail closed before replay; a revoked session alone cannot identify a deleted tenant.
@@ -59,20 +62,20 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
         const transmitted=command.transmittedProtected?JSON.parse((await unprotect(Buffer.from(command.transmittedProtected,'base64'))).toString()):command.transmitted;
         let response;
         try{
-          const raw=await fetch(config.url+'/api/v1/desktop/commands',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(transmitted),signal:AbortSignal.timeout(45000)});
+          const raw=await fetch(config.url+'/api/v1/desktop/commands',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(transmitted),signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(8000)])});
           const result=await raw.json();
           if(!raw.ok){if(raw.status>=400&&raw.status<500&&![401,408,429].includes(raw.status))await store.transaction(()=>{command.status='conflict';command.error=result.error?.message||'رفض الخادم العملية';store.desktopCommands.set(command.id,command);});throw Error(result.error?.message||'تعذر إرسال العملية');}
           if(result.id!==command.id||!result.result||result.result.status>=400)throw Error('استجابة المزامنة غير مكتملة؛ بقيت العملية محفوظة');
           response=result.result;
         }catch(error){throw error;}
-        await store.transaction(()=>{remember(command.result.body,response.body,command.generatedIds);command.status='acknowledged';command.acknowledgedAt=new Date().toISOString();store.desktopCommands.set(command.id,command);});
+        await store.transaction(()=>{remember(command.result?.body,response.body,command.generatedIds);command.status='acknowledged';command.acknowledgedAt=new Date().toISOString();store.desktopCommands.set(command.id,command);});
       }
       const token=tokens.get(config.directorId);if(!token)throw Error('جلسة المدير مطلوبة لاستقبال بيانات الشركة');
       const bytes=Buffer.from(await (await remote('/api/v1/enterprise/backup',{token})).arrayBuffer());
       if(await store.importCloudSnapshot(bytes,config.companyId)){lastSync=new Date().toISOString();config.lastSuccessfulSync=lastSync;await save();}
       return {state:'complete',...status()};
     }catch(error){lastError=error.message;return {state:'failed',message:lastError,...status()};}
-    finally{running=false;}
+    finally{running=false;if(syncAgain&&!closed){syncAgain=false;requestSync();}}
   }
 
   app.post('/api/local/settings/transfer-owner',async(req,res)=>{
@@ -192,6 +195,65 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
       const result=await response.json();res.status(response.status).json(result);
     }catch{res.status(503).json({error:{message:'لم يصل طلب الإنشاء إلى السحابة؛ تحقق من الاتصال وأعد المحاولة'}});}
   });
+  app.use(async(req,_res,next)=>{
+    if(config.companyId&&req.path.startsWith('/api/v1/')&&!/^\/api\/v1\/(auth|platform)(\/|$)/.test(req.path)){
+      req.url=req.url.replace(/[0-9a-f-]{36}/gi,id=>mapped(id));if(req.body)req.body=mapped(req.body);
+      if(req.method==='GET'&&Date.now()-lastReadRequest>15000){const account=await localAccount(req);if(account?.company?.id===config.companyId){lastReadRequest=Date.now();requestSync();}}
+    }
+    next();
+  });
+  // The cloud is authoritative while reachable. Persist the replay identity
+  // before transmission so a lost reply can never create a second operation.
+  app.use(async(req,res,next)=>{
+    if(product!=='company'||!config.companyId||!config.automatic||!req.path.startsWith('/api/v1/')||/^\/api\/v1\/(auth|platform|desktop|sync|companies)(\/|$)/.test(req.path))return next();
+    const account=await localAccount(req);if(account?.company?.id!==config.companyId)return next();
+    const token=tokens.get(account.user.id)||tokens.get(mapped(account.user.id));
+    if(req.method==='GET'){
+      if(!token)return next();
+      try{
+        const response=await fetch(config.url+req.url,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(8000)])});
+        const bytes=Buffer.from(await response.arrayBuffer());
+        if(response.status>=500||[408,429].includes(response.status))return next();
+        res.setHeader('Cache-Control','no-store');res.setHeader('X-AlMahasib-Source','cloud');
+        if(response.headers.get('content-type'))res.setHeader('Content-Type',response.headers.get('content-type'));
+        return res.status(response.status).send(bytes);
+      }catch{return next();}
+    }
+    if(!commandPathAllowed(req.originalUrl))return next();
+    if(closed||connecting||config.deletionPending)return res.status(423).json({error:{message:'انتظر انتهاء الربط أو مراجعة الحذف السحابي'}});
+    let release;const previous=writeQueue;writeQueue=new Promise(resolve=>{release=resolve;});await previous;
+    let command;
+    try{
+      if(syncFlight)await syncFlight;
+      // Earlier offline commands must be acknowledged before dependent writes.
+      if(pending().length)await synchronize();
+      cloudWrites++;
+      let released=false;const done=()=>{if(released)return;released=true;cloudWrites--;release();requestSync();};res.once('finish',done);res.once('close',done);
+      if(!token||pending().length)return next();
+      command={id:randomUUID(),local:true,companyId:account.company.id,userId:account.user.id,method:req.method,path:req.originalUrl,result:{status:202,body:null},status:'pending',createdAt:new Date().toISOString(),generatedIds:[]};
+      const body=structuredClone(req.body||{}),transmitted={id:command.id,method:req.method,path:req.url,body:mapped(body)};
+      if(protect){command.bodyProtected=(await protect(Buffer.from(JSON.stringify(body)))).toString('base64');command.transmittedProtected=(await protect(Buffer.from(JSON.stringify(transmitted)))).toString('base64');}
+      else{command.body=body;command.transmitted=transmitted;}
+      await store.transaction(()=>store.desktopCommands.set(command.id,command));
+      req.cloudFirstCommand=command;
+      const response=await fetch(config.url+'/api/v1/desktop/commands',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(transmitted),signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(8000)])});
+      const result=await response.json();
+      if(!response.ok){
+        if(response.status>=400&&response.status<500&&![408,429].includes(response.status)){
+          // An explicit rejection is never reinterpreted as an offline success.
+          await store.transaction(()=>store.desktopCommands.delete(command.id));
+          return res.status(response.status).json(result);
+        }
+        return next();
+      }
+      if(result.id!==command.id||!result.result||result.result.status>=400)return next();
+      await store.transaction(()=>{command.status='acknowledged';command.result=result.result;command.acknowledgedAt=new Date().toISOString();store.desktopCommands.set(command.id,command);});
+      res.setHeader('X-AlMahasib-Source','cloud');return res.status(result.result.status).json(result.result.body);
+    }catch(error){
+      if(req.cloudFirstCommand)return next();
+      release();return res.status(503).json({error:{message:'تعذر حفظ طلب الإرسال بأمان؛ أعد المحاولة'}});
+    }
+  });
   const idsIn=(value,ids=new Set())=>{if(typeof value==='string'&&/^[0-9a-f-]{36}$/i.test(value))ids.add(value);else if(value instanceof Map)for(const [key,row] of value){idsIn(key,ids);idsIn(row,ids);}else if(Array.isArray(value))for(const row of value)idsIn(row,ids);else if(value&&typeof value==='object')for(const row of Object.values(value))idsIn(row,ids);return ids;};
   // Commit the domain mutation and its replay command together before releasing
   // the HTTP response. Server rejection restores every domain field.
@@ -209,16 +271,16 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
         res.end=(chunk,encoding,callback)=>{output={chunk,encoding,callback};let body=null;try{body=chunk?JSON.parse(Buffer.isBuffer(chunk)?chunk.toString():String(chunk)):null;}catch{}
           if(res.statusCode>=400){const error=Error('request rejected');error.localResponse=true;reject(error);return res;}
           const accepted=(!body?.result?.status||body.result.status==='acknowledged')&&(!body?.results||body.results.every(x=>x.status==='acknowledged'));
-          if(capture&&accepted){const id=randomUUID(),command={id,local:true,companyId:account.company.id,userId:account.user.id,method:req.method,path:req.originalUrl,result:{status:res.statusCode,body},status:'pending',createdAt:new Date().toISOString(),generatedIds:[...idsIn(body)].filter(id=>!knownIds.has(id))};
+          if(capture&&accepted){const id=req.cloudFirstCommand?.id||randomUUID(),command={...req.cloudFirstCommand,id,local:true,companyId:account.company.id,userId:account.user.id,method:req.method,path:req.originalUrl,result:{status:res.statusCode,body},status:'pending',createdAt:req.cloudFirstCommand?.createdAt||new Date().toISOString(),generatedIds:[...idsIn(body)].filter(id=>!knownIds.has(id))};
             if(protect){Promise.resolve(protect(Buffer.from(JSON.stringify(req.body||{})))).then(bytes=>{command.bodyProtected=bytes.toString('base64');store.desktopCommands.set(id,command);resolve();}).catch(reject);return res;}
             command.body=structuredClone(req.body||{});store.desktopCommands.set(id,command);}
-          if(isLogin&&body?.account?.company?.id===config.companyId){void (async()=>{try{const login=await(await remote('/api/v1/auth/login',{method:'POST',body:req.body})).json();if(login.account.user.id===mapped(body.account.user.id)){tokens.set(login.account.user.id,login.token);await save();}}catch{}})();}
+          if(isLogin&&body?.account?.company?.id===config.companyId){void (async()=>{try{const login=await(await remote('/api/v1/auth/login',{method:'POST',body:req.body})).json();if(login.account.user.id===mapped(body.account.user.id)){tokens.set(login.account.user.id,login.token);await save();requestSync();}}catch{}finally{resolve();}})();return res;}
           resolve();return res;
         };next();
       });});
     }catch(error){if(!error.localResponse){res.statusCode=500;output={chunk:JSON.stringify({error:{message:'تعذر حفظ العملية؛ لم يتم اعتمادها'}})};}}
-    finally{res.end=end;if(output)end(output.chunk,output.encoding,output.callback);}
+    finally{res.end=end;if(output){end(output.chunk,output.encoding,output.callback);if(capture&&res.statusCode<400)requestSync();}}
   });
-  const timer=setInterval(()=>{if(!closed&&config.automatic&&config.companyId)void synchronize();},60000);timer.unref();
-  return {synchronize,status,close(){closed=true;clearInterval(timer);}};
+  const timer=setInterval(requestSync,5000);timer.unref();requestSync();
+  return {synchronize,status,async close(){closed=true;clearInterval(timer);clearTimeout(syncTimer);await writeQueue;await syncFlight;await saveQueue;shutdown.abort();}};
 }

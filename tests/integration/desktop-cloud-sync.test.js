@@ -23,6 +23,7 @@ test('desktop replays offline edits with ID mapping, atomic receipts, conflict r
   let r=await request('/api/local/cloud/connect',{url,companyCode:company.code,username:'owner',password,adopt:true});assert.equal(r.status,200,JSON.stringify(r.data));
   assert.equal(local.store.companies.size,1);assert.ok(local.store.companies.has(company.id));
   r=await request('/api/v1/auth/login',{companyCode:company.code,username:'owner',password});assert.equal(r.status,200);token=r.data.token;
+  await request('/api/local/cloud/settings',{automatic:false},'PUT');
   const unit=(await request('/api/v1/catalog/units',{code:'OFFLINE-U',name:'قطعة'})).data.unit;
   assert.ok(unit?.id);
   const item=(await request('/api/v1/catalog/items',{sku:'OFFLINE-I',name:'بضاعة جديدة',baseUnitId:unit.id,units:[{unitId:unit.id,isBase:true,factorToBase:'1'}]})).data.item;
@@ -69,4 +70,41 @@ test('desktop replays offline edits with ID mapping, atomic receipts, conflict r
   assert.equal((await request('/api/local/cloud/status')).status,403,'another tenant cannot inspect or drive the existing cloud connection');assert.equal((await request('/api/local/cloud/synchronize',{})).status,403);assert.ok(local.store.companies.has(company.id),'scoped import preserves the previously cached company');assert.ok(local.store.companies.has(other.id));
 
  }finally{await local?.close();if(server)await new Promise(resolve=>server.close(resolve));await cloud?.close();await rm(dir,{recursive:true,force:true});}
+});
+
+
+test('company desktop saves cloud first, reads web approvals live, and replays offline/lost replies once',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'cloud-first-'));let cloud,server,local;const originalFetch=globalThis.fetch;
+ try{
+  cloud=new SQLiteStore(join(dir,'cloud.sqlite'));const password='Cloud-First-Test-123';
+  const company=await cloud.registerCompany({code:'primary',legalName:'Cloud primary',currency:'IQD',owner:{username:'owner',displayName:'Director',passwordHash:await hashPassword(password)}});await cloud.approveCompany(company.id,company.ownerUserId);
+  server=await new Promise(resolve=>{const s=createApp({store:cloud}).listen(0,'127.0.0.1',()=>resolve(s));});const url='http://127.0.0.1:'+server.address().port;
+  local=await startEnterpriseLocal({dataDirectory:join(dir,'local'),port:33386,allowTestCloud:true,protect:x=>x,unprotect:x=>x});let token;
+  const call=async(base,path,body,authToken=token,method='POST')=>{const r=await originalFetch(base+path,{method:body?method:'GET',headers:{...(body?{'Content-Type':'application/json'}:{}),...(authToken?{Authorization:'Bearer '+authToken}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,data:await r.json(),source:r.headers.get('x-almahasib-source')};};
+  assert.equal((await call(local.url,'/api/local/cloud/connect',{url,companyCode:company.code,username:'owner',password,adopt:true})).status,200);
+  token=(await call(local.url,'/api/v1/auth/login',{companyCode:company.code,username:'owner',password})).data.token;
+  const owner=(await call(url,'/api/v1/auth/login',{companyCode:company.code,username:'owner',password},null)).data.token;
+  const created=await call(local.url,'/api/v1/catalog/units',{code:'ONLINE',name:'Cloud first'});assert.equal(created.status,201,JSON.stringify(created.data));assert.equal(created.source,'cloud');assert.ok(cloud.units.has(created.data.unit.id),'cloud has committed before the desktop receives success');
+  const synced=await call(local.url,'/api/local/cloud/synchronize',{});assert.equal(synced.data.state,'complete',JSON.stringify(synced.data));assert.ok(local.store.units.has(created.data.unit.id));
+  let offline=true,lost=false;globalThis.fetch=async(input,options)=>{if(String(input).startsWith(url)){if(offline)throw Error('test offline');const r=await originalFetch(input,options);if(lost&&String(input)===url+'/api/v1/desktop/commands'){lost=false;await r.text();throw Error('lost reply after commit');}return r;}return originalFetch(input,options);};
+  const saved=await call(local.url,'/api/v1/catalog/units',{code:'OFFLINE',name:'Offline durable'});assert.equal(saved.status,201,JSON.stringify(saved.data));assert.equal([...cloud.units.values()].filter(x=>x.code==='OFFLINE').length,0);assert.equal((await call(local.url,'/api/local/cloud/status')).data.pending,1);
+  offline=false;const deadline=Date.now()+10000;while(![...cloud.units.values()].some(x=>x.code==='OFFLINE')&&Date.now()<deadline)await new Promise(r=>setTimeout(r,50));assert.equal([...cloud.units.values()].filter(x=>x.code==='OFFLINE').length,1,'automatic reconnect replay requires no button');
+  assert.equal((await call(local.url,'/api/local/cloud/synchronize',{})).data.state,'complete');
+  lost=true;const uncertain=await call(local.url,'/api/v1/catalog/units',{code:'LOST',name:'Lost acknowledgement'});assert.equal(uncertain.status,201,JSON.stringify(uncertain.data));assert.equal((await call(local.url,'/api/local/cloud/synchronize',{})).data.state,'complete');assert.equal([...cloud.units.values()].filter(x=>x.code==='LOST').length,1);
+  const rejected=await call(local.url,'/api/v1/catalog/units',{code:'ONLINE',name:'Duplicate'});assert.equal(rejected.status,409);assert.equal((await call(local.url,'/api/local/cloud/status')).data.pending,0);
+  const unit=created.data.unit;const item=(await call(url,'/api/v1/catalog/items',{sku:'A',name:'Item',baseUnitId:unit.id},owner)).data.item;
+  const wh=(await call(url,'/api/v1/warehouses',{code:'WH',name:'Warehouse'},owner)).data.warehouse;
+  const customer=(await call(url,'/api/v1/customers',{code:'C',name:'Customer',creditLimit:'1000'},owner)).data.customer;
+  const rep=(await call(url,'/api/v1/users',{username:'seller',displayName:'Seller',roleCode:'representative',password},owner)).data.user;
+  assert.equal((await call(url,'/api/v1/sales/settings/user/'+rep.id,{channel:'retail',maxDiscountPercent:'5'},owner,'PUT')).status,200);
+  assert.equal((await call(url,'/api/v1/catalog/prices',{itemId:item.id,unitId:unit.id,priceType:'sale_retail',currency:'IQD',amount:'100'},owner)).status,201);
+  assert.equal((await call(url,'/api/v1/commerce/commit',{operationId:randomUUID(),deviceId:'web',clientSequence:1,occurredAt:new Date().toISOString(),document:{documentType:'purchase',documentNumber:'P1',warehouseId:wh.id,currency:'IQD',lines:[{itemId:item.id,unitId:unit.id,quantity:'10',unitPrice:'50'}],payments:[{method:'cash',amount:'500'}]}},owner)).status,201);
+  const seller=(await call(url,'/api/v1/auth/login',{companyCode:company.code,username:'seller',password},null)).data.token;
+  const document={documentType:'sale',documentNumber:'WEB-12',warehouseId:wh.id,partyId:customer.id,currency:'IQD',discountAmount:'12',lines:[{itemId:item.id,unitId:unit.id,quantity:'1',unitPrice:'100'}],payments:[]};
+  const asked=await call(url,'/api/v1/sales/approvals',{document},seller);assert.equal(asked.status,201,JSON.stringify(asked.data));assert.equal(asked.data.approval.status,'pending');
+  assert.ok((await call(url,'/api/v1/sales/bootstrap',null,seller)).data.approvals.some(x=>x.id===asked.data.approval.id));
+  const desktop=await call(local.url,'/api/v1/sales/bootstrap');assert.equal(desktop.source,'cloud');assert.ok(desktop.data.approvals.some(x=>x.id===asked.data.approval.id&&x.status==='pending'),'web discount approval is immediately readable by desktop director');
+  assert.equal((await call(local.url,'/api/local/cloud/synchronize',{})).data.state,'complete');assert.ok(local.store.salesApprovals.has(asked.data.approval.id));
+  offline=true;const fallback=await call(local.url,'/api/v1/sales/bootstrap');assert.ok(fallback.data.approvals.some(x=>x.id===asked.data.approval.id));
+ }finally{globalThis.fetch=originalFetch;await local?.close();if(server)await new Promise(resolve=>server.close(resolve));await cloud?.close();await rm(dir,{recursive:true,force:true});}
 });
