@@ -6,6 +6,8 @@ const arrays=vm.runInNewContext(source.match(/const ARRAY_FIELDS = (\[[\s\S]*?\]
 const methods=vm.runInNewContext(source.match(/const WRITE_METHODS = (\[[\s\S]*?\]);/)[1]);
 class MemoryStore{constructor(){for(const name of fields)this[name]=new Map();this.changes=[];this.audit=[];this.serverOutbox=[];this.changeSequence=0}}
 for(const name of methods)MemoryStore.prototype[name]=async function(){this.changeSequence++;return this.changeSequence};
+MemoryStore.prototype.saveSalesApproval=async function(row){this.salesApprovals.set(row.id,copy(row));return copy(row)};
+MemoryStore.prototype.saveSalesSetting=async function(key,row){this.salesSettings.set(key,copy(row));return copy(row)};
 const copy=x=>x==null?x:deserialize(serialize(x));
 const rows=new Map([['primary',{_id:'primary',companies:[['company',{name:'old company'}]],changes:[{payload:'x'.repeat(19*1024*1024)}],changeSequence:7}]]),chunks=new Map();let fail=false;
 const db={collection(name){return name==='_app_state'?{findOne:async()=>copy(rows.get('primary')),replaceOne:async(_,doc)=>{if(fail){fail=false;throw Error('temporary write failure')}rows.set('primary',copy(doc))}}:{findOne:async q=>copy(chunks.get(q._id)),deleteMany:async q=>{let deletedCount=0;for(const [id,row] of chunks)if(!q._id.$nin.includes(id)&&row.createdAt<q.createdAt.$lt){chunks.delete(id);deletedCount++;}return {deletedCount};},updateOne:async(q,update)=>{if(!chunks.has(q._id))chunks.set(q._id,copy({_id:q._id,...update.$setOnInsert}))}}}};
@@ -21,6 +23,10 @@ const loaded=await context.Store.create('fake');assert.equal(loaded.companies.ge
 const n=chunks.size;await loaded.seedPlatformAdmin();assert(chunks.size<=n+1);
 await loaded.transaction(async()=>{loaded.companies.set('txn',{name:'inside transaction'});await loaded.transaction(()=>{loaded.companies.set('nested',{name:'nested'});});});
 const afterTxn=await context.Store.create('fake');assert.equal(afterTxn.companies.get('txn').name,'inside transaction');assert.equal(afterTxn.companies.get('nested').name,'nested');
+const approval={id:'web-12',companyId:'company',status:'pending',discountPercent:'12'};
+await afterTxn.saveSalesApproval(approval);await afterTxn.saveSalesSetting('board:director',{companyId:'company',cards:[{text:'Director note'}]});
+const durableSales=await context.Store.create('fake');assert.equal(durableSales.salesApprovals.get('web-12').status,'pending');assert.equal(durableSales.salesSettings.get('board:director').cards[0].text,'Director note');
+fail=true;await assert.rejects(afterTxn.saveSalesApproval({...approval,id:'must-rollback'}),/temporary write failure/);assert(!afterTxn.salesApprovals.has('must-rollback'));
 // Retain every current chunk, including old chunks that are still referenced.
 const activeIds=rows.get('primary').chunkIds.slice(),past=new Date(Date.now()-3600000);
 for(const id of activeIds)chunks.get(id).createdAt=past;

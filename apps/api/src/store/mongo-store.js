@@ -53,7 +53,11 @@ export class MongoStore extends MemoryStore {
     this.txScope = new AsyncLocalStorage();
     this.txQueue = Promise.resolve();
 
-    for (const name of WRITE_METHODS) {
+    // Include every domain mutator, including sales approvals/settings that
+    // were absent from the old hand-maintained list. Web writes must be durable
+    // before returning success and roll back if Mongo rejects persistence.
+    const domainWrites = Object.getOwnPropertyNames(MemoryStore.prototype).filter(name => /^(create|update|delete|save|record|mark|post|receive|issue|writeOff|transfer|commit|prepare|set|assign|approve|decide|review|pay|adjust|cancel|classify|closeFinancial|reopen|enforce|seed|revoke|touch|push)/.test(name));
+    for (const name of new Set([...WRITE_METHODS, ...domainWrites])) {
       const domainMethod = this[name].bind(this);
       // Inside an explicit transaction defer persistence to the caller; standalone
       // calls run in their own transaction so a failed mutation never half-writes.

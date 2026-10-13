@@ -9,7 +9,7 @@ import { commandPathAllowed } from '../api/src/lib/desktop-sync.js';
 const defaultCloud='https://shenoo-menoo-tak-tak.onrender.com';
 export async function installLocalCloud(app,{store,dataDirectory,protect,unprotect,allowTestCloud=false,cloudOrigin=defaultCloud,product='company'}){
   const filename=join(dataDirectory,'cloud-connection.json');
-  const shutdown=new AbortController();let syncFlight=null,syncTimer=null,syncAgain=false,lastReadRequest=0,cloudWrites=0;let writeQueue=Promise.resolve();
+  const shutdown=new AbortController();const onlineTimeout=allowTestCloud?45000:8000;let syncFlight=null,syncTimer=null,syncAgain=false,lastReadRequest=0,cloudWrites=0;let writeQueue=Promise.resolve();
   function requestSync(){if(closed||!config.automatic||!config.companyId)return;if(running||cloudWrites){syncAgain=true;return;}if(syncTimer)return;syncTimer=setTimeout(()=>{syncTimer=null;if(!closed)void synchronize();},80);syncTimer.unref();}
   function synchronize(){if(syncFlight)return syncFlight;const task=runSynchronize();syncFlight=task;void task.finally(()=>{if(syncFlight===task)syncFlight=null;});return task;}
   let config={url:product==='retail'?cloudOrigin.replace(/\/retail\/?$/,'')+'/retail':cloudOrigin,automatic:true},tokens=new Map(),running=false,lastError='',lastSync=null,closed=false,connecting=false,saveQueue=Promise.resolve();
@@ -211,7 +211,7 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
     if(req.method==='GET'){
       if(!token)return next();
       try{
-        const response=await fetch(config.url+req.url,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(8000)])});
+        const response=await fetch(config.url+req.url,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(onlineTimeout)])});
         const bytes=Buffer.from(await response.arrayBuffer());
         if(response.status>=500||[408,429].includes(response.status))return next();
         res.setHeader('Cache-Control','no-store');res.setHeader('X-AlMahasib-Source','cloud');
@@ -236,7 +236,7 @@ export async function installLocalCloud(app,{store,dataDirectory,protect,unprote
       else{command.body=body;command.transmitted=transmitted;}
       await store.transaction(()=>store.desktopCommands.set(command.id,command));
       req.cloudFirstCommand=command;
-      const response=await fetch(config.url+'/api/v1/desktop/commands',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(transmitted),signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(8000)])});
+      const response=await fetch(config.url+'/api/v1/desktop/commands',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(transmitted),signal:AbortSignal.any([shutdown.signal,AbortSignal.timeout(onlineTimeout)])});
       const result=await response.json();
       if(!response.ok){
         if(response.status>=400&&response.status<500&&![408,429].includes(response.status)){
