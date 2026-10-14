@@ -41,3 +41,14 @@ test('installation refuses to activate an incomplete offline company shell',asyn
  assert.equal(installed.length,0);
  assert.equal(written.includes('/enterprise.html'),false);
 });
+
+ test('company shell activates when the cloud index redirects, but requires all enterprise assets',async()=>{
+ const listeners={},written=[],installed=[];
+ const html=readFileSync(new URL('../../public/enterprise.html',import.meta.url),'utf8');
+ const assets=[...html.matchAll(/(?:src|href)="(\/[^"?]+)(?:[^" ]*)"/g)].map(x=>x[1]);
+ const context={Response,URL,AbortSignal,importScripts(){},self:{registration:{scope:'https://example.test/'},ERP_SHELL:[...new Set(['/index.html','/login.html','/enterprise.html',...assets])],location:{origin:'https://example.test'},addEventListener(n,f){listeners[n]=f;},async skipWaiting(){installed.push(true);}},caches:{open:async()=>({put:async p=>written.push(p)})},fetch:async p=>{const r=new Response('asset');if(p==='/index.html')Object.defineProperty(r,'redirected',{value:true});return r;}};
+ runInNewContext(readFileSync(new URL('../../public/erp-service-worker.js',import.meta.url),'utf8'),context);
+ let installation;listeners.install({waitUntil(p){installation=p;}});await installation;
+ assert.equal(installed.length,1);assert.equal(written.includes('/index.html'),false);
+ for(const asset of assets)assert(written.includes(asset),asset);
+ });

@@ -9,7 +9,7 @@
   ['/api/v1/inventory/issues',['inventory.issue','inventory.manage']],
   ['/api/v1/enterprise/transfers',['inventory.manage']]
  ]);
- const readPaths=new Set(['/api/v1/bootstrap','/api/local/status','/api/v1/master-data','/api/v1/commerce/documents','/api/v1/enterprise/reports','/api/v1/inventory/operations','/api/v1/pos/bootstrap','/api/v1/representatives/bootstrap','/api/v1/users','/api/v1/hr/bootstrap','/api/v1/treasury/cashboxes','/api/v1/import/shipments','/api/v1/import/logistics']);
+ const readPaths=new Set(['/api/v1/bootstrap','/api/local/status','/api/v1/master-data','/api/v1/commerce/documents','/api/v1/enterprise/reports','/api/v1/inventory/operations','/api/v1/inventory/reservations','/api/v1/treasury/accounts','/api/v1/pos/bootstrap','/api/v1/representatives/bootstrap','/api/v1/users','/api/v1/hr/bootstrap','/api/v1/treasury/cashboxes','/api/v1/import/shipments','/api/v1/import/logistics']);
  const valid=()=>account&&Date.parse(account.offlineSessionExpiresAt)>Date.now();
  const read=r=>new Promise((ok,no)=>{r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error);});
  async function open(value){

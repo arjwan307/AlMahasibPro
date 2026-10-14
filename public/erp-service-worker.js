@@ -1,7 +1,7 @@
 importScripts('/erp-shell-manifest.js');
 const PRODUCT=new URL(self.registration.scope).pathname.startsWith('/retail/')?'retail':'company';
 const PREFIX='almahasib-erp-shell-'+PRODUCT+'-';
-const CACHE=PREFIX+(PRODUCT==='company'?'1.2.20-offline-shell-safe':'1.2.7-logistics-v6');
+const CACHE=PREFIX+(PRODUCT==='company'?'1.2.21-web-offline':'1.2.7-logistics-v6');
 // Cached redirected responses cannot satisfy Chromium navigation requests.
 // Preserve their content while removing the redirected response metadata.
 const shellResponse=response=>response.redirected?new Response(response.clone().body,{status:response.status,statusText:response.statusText,headers:response.headers}):response;
@@ -10,7 +10,9 @@ self.addEventListener('install',event=>event.waitUntil((async()=>{
  // A worker must never become active with an incomplete company shell.
  // Cache the essential company UI first; optional pages cannot block an update.
  const essential=['/index.html','/login.html','/enterprise.html','/enterprise.js','/enterprise.css','/erp-offline.js','/company-runtime-ui.js','/company-sync-ui.js','/sales-workspace.js','/sales-workspace.css','/logistics-workspace.js','/logistics-workspace.css'];
- const required=essential.filter(path=>self.ERP_SHELL.includes(path));
+ // The cloud redirects /index.html to login; it is not a required asset.
+ const companyAssets=['/assistant-workbench.js','/assistant.js','/assistant.css','/password-visibility.js','/company-output.js','/company-output.css','/company-messages.js','/company-responsive.js','/company-responsive.css','/app-ui.css','/enterprise-sections.css','/enterprise-workspaces.css'];
+ const required=(PRODUCT==='company'?[...essential.filter(path=>path!=='/index.html'),...companyAssets]:essential).filter(path=>self.ERP_SHELL.includes(path));
  for(const path of required){
   const response=await fetch(path,{cache:'reload',signal:AbortSignal.timeout(15000)});
   if(!response.ok||response.redirected)throw Error('Offline shell asset unavailable: '+path);
