@@ -1,0 +1,24 @@
+/* Colorful cloud company theme: visual-only, scoped to authenticated workspace. */
+#workspace{--brand:#0865d9;--dark:#09294e;--line:#d6e5f7;--ink:#173455;background:#f0f6ff}
+#workspace aside{background:linear-gradient(180deg,#073c80 0%,#082e64 46%,#071d3c 100%);box-shadow:-6px 0 22px #123d7522}
+#workspace aside .brand{color:#fff;text-shadow:0 2px 10px #001a4b55}
+#workspace aside .brand b{color:#79d8ff}
+#workspace aside>p{color:#d5eaff}
+#workspace .erp-module-nav>button[data-view].active,#workspace .erp-nav-links button.active{background:linear-gradient(105deg,#1687ff,#0060c8);box-shadow:0 5px 15px #001d4860;color:#fff}
+#workspace .erp-nav-icon{color:#65d9ff}
+#workspace .erp-nav-group[open]{background:#ffffff12;border-color:#ffffff24}
+#workspace main{background:linear-gradient(145deg,#edf6ff,#f8fbff 60%,#eff4ff)}
+#workspace main>header{background:linear-gradient(100deg,#fff,#e7f2ff);border:1px solid #d3e6fc;border-radius:18px;padding:18px 22px;box-shadow:0 8px 26px #124d9110}
+#workspace .metric,#workspace .panel{border:1px solid #d6e5f7;border-radius:18px;box-shadow:0 9px 24px #174d8712}
+#workspace .metrics>.metric{color:#fff;border:0;position:relative;overflow:hidden;background:linear-gradient(135deg,#04a954,#008c67)}
+#workspace .metrics>.metric:nth-child(4n+2){background:linear-gradient(135deg,#1898fa,#0558d8)}
+#workspace .metrics>.metric:nth-child(4n+3){background:linear-gradient(135deg,#ff9d10,#f15b0c)}
+#workspace .metrics>.metric:nth-child(4n){background:linear-gradient(135deg,#9853f3,#5934d3)}
+#workspace .metrics>.metric strong,#workspace .metrics>.metric small,#workspace .metrics>.metric span{color:#fff}
+#workspace button:not(.secondary):not([data-view]){transition:filter .16s,transform .16s}
+#workspace button:not(.secondary):not([data-view]):hover{filter:brightness(1.07)}
+#workspace input:focus,#workspace select:focus,#workspace textarea:focus{outline:2px solid #4b9bff;outline-offset:1px}
+#workspace .panel h2{color:#123b74}
+#workspace th{background:#e9f3ff;color:#244c7c}
+@media(max-width:700px){#workspace main>header{padding:14px}#workspace .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media print{#workspace main>header{box-shadow:none}}
