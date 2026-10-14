@@ -52,3 +52,16 @@ test('installation refuses to activate an incomplete offline company shell',asyn
  assert.equal(installed.length,1);assert.equal(written.includes('/index.html'),false);
  for(const asset of assets)assert(written.includes(asset),asset);
  });
+
+for(const path of ['/', '/index.html', '/companies', '/companies/'])test('offline company entry opens cached enterprise: '+path,async()=>{
+ const listeners={},lookups=[];
+ const context={Response,URL,AbortSignal,importScripts(){},self:{registration:{scope:'https://example.test/'},ERP_SHELL:['/index.html','/enterprise.html'],location:{origin:'https://example.test'},addEventListener(n,f){listeners[n]=f;}},caches:{open:async()=>({match:async p=>{lookups.push(p);return p==='/enterprise.html'?new Response('<main>ERP</main>',{headers:{'Content-Type':'text/html'}}):undefined;}})},fetch:async()=>{throw Error('offline');}};
+ runInNewContext(readFileSync(new URL('../../public/erp-service-worker.js',import.meta.url),'utf8'),context);
+ let response;listeners.fetch({request:{url:'https://example.test'+path,method:'GET',mode:'navigate'},respondWith(p){response=p;}});
+ const result=await response;assert.equal(result.status,200);assert.equal(await result.text(),'<main>ERP</main>');assert.deepEqual(lookups,['/enterprise.html']);
+});
+
+test('online company root keeps the server landing response',async()=>{
+ const listeners={};const context={Response,URL,AbortSignal,importScripts(){},self:{registration:{scope:'https://example.test/'},ERP_SHELL:['/index.html','/enterprise.html'],location:{origin:'https://example.test'},addEventListener(n,f){listeners[n]=f;}},caches:{open:async()=>({match:async()=>{throw Error('Online entry must use server');}})},fetch:async()=>new Response('<main>online login</main>')};
+ runInNewContext(readFileSync(new URL('../../public/erp-service-worker.js',import.meta.url),'utf8'),context);let response;listeners.fetch({request:{url:'https://example.test/',method:'GET',mode:'navigate'},respondWith(p){response=p;}});assert.equal(await (await response).text(),'<main>online login</main>');
+});

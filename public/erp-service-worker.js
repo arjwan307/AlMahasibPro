@@ -1,7 +1,7 @@
 importScripts('/erp-shell-manifest.js');
 const PRODUCT=new URL(self.registration.scope).pathname.startsWith('/retail/')?'retail':'company';
 const PREFIX='almahasib-erp-shell-'+PRODUCT+'-';
-const CACHE=PREFIX+(PRODUCT==='company'?'1.2.21-web-offline':'1.2.7-logistics-v6');
+const CACHE=PREFIX+(PRODUCT==='company'?'1.2.22-web-offline-root':'1.2.7-logistics-v6');
 // Cached redirected responses cannot satisfy Chromium navigation requests.
 // Preserve their content while removing the redirected response metadata.
 const shellResponse=response=>response.redirected?new Response(response.clone().body,{status:response.status,statusText:response.statusText,headers:response.headers}):response;
@@ -34,10 +34,16 @@ self.addEventListener('activate',event=>event.waitUntil((async()=>{
 self.addEventListener('fetch',event=>{
  const request=event.request,url=new URL(request.url);
  if(request.method!=='GET'||url.origin!==self.location.origin||url.pathname.startsWith('/api/'))return;
- if(!self.ERP_SHELL.includes(url.pathname)&&url.pathname!=='/')return;
+ const companyEntry=PRODUCT==='company'&&['/','/index.html','/companies','/companies/'].includes(url.pathname);
+ if(!self.ERP_SHELL.includes(url.pathname)&&url.pathname!=='/'&&!companyEntry)return;
  event.respondWith((async()=>{
   const cache=await caches.open(CACHE),path=url.pathname==='/'?'/index.html':url.pathname;
   if(request.mode==='navigate'){
+   // Keep the online landing redirect; offline entry must use the prepared ERP.
+   if(companyEntry){
+    try{return shellResponse(await fetch(request,{signal:AbortSignal.timeout(5000)}));}
+    catch{const entry=await cache.match('/enterprise.html');if(entry)return shellResponse(entry);}
+   }
    const page=await cache.match(path);if(page)return shellResponse(page);
    try{const response=await fetch(request,{signal:AbortSignal.timeout(5000)});if(response.ok)await cache.put(path,shellResponse(response).clone());return shellResponse(response);}catch{return new Response('افتح هذه الصفحة مرة مع الاتصال لتجهيز العمل دون إنترنت',{status:503,headers:{'Content-Type':'text/plain;charset=utf-8'}});}
   }

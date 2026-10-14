@@ -19,7 +19,8 @@ try{
  const receipt={operationId:randomUUID(),voucherNumber:'OFF-RECEIPT',lines:[{itemId:item.id,warehouseId:warehouse.id,quantity:'5',unitCost:'10'}]};
  const onlineMaster=await page.evaluate(()=>fetch('/api/v1/master-data').then(r=>r.json()));assert.equal(onlineMaster.items.length,1);
  await page.waitForFunction(()=>document.querySelector('#content')?.textContent.trim().length>0);
- await context.setOffline(true);await page.reload();console.log('offline reloaded');await page.waitForFunction(()=>document.querySelector('#workspace')&&!document.querySelector('#workspace').hidden);
+ await context.setOffline(true);await page.reload();console.log('offline reloaded');
+ for(const path of ['/', '/index.html', '/companies', '/companies/']){await page.goto(url+path);await page.waitForFunction(()=>window.AlMahasibERP&&!document.querySelector('#workspace').hidden&&document.querySelector('#content')?.textContent.trim().length>0);} await page.waitForFunction(()=>document.querySelector('#workspace')&&!document.querySelector('#workspace').hidden);
  await page.waitForFunction(()=>document.querySelector('#content')?.textContent.trim().length>0);
  const reservations=await page.evaluate(async()=>{const r=await fetch('/api/v1/inventory/reservations');return {status:r.status,offline:r.headers.get('X-AlMahasib-Offline')};});assert.equal(reservations.status,200);assert.equal(reservations.offline,'true');
  const cached=await page.evaluate(()=>fetch('/api/v1/master-data').then(r=>({offline:r.headers.get('X-AlMahasib-Offline'),data:r.json()})));assert.equal(cached.offline,'true');
@@ -41,7 +42,7 @@ try{
  assert.equal(store.stockReceipts.size,2);assert.equal((await resumed.evaluate(()=>AlMahasibERP.status())).pending,0);
  await context.setOffline(true);
  const duplicate=await resumed.evaluate(async body=>(await fetch('/api/v1/inventory/receipts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,voucherNumber:'DIFFERENT'})})).status,lost);assert.equal(duplicate,409);
- assert.deepEqual(errors,[]);const checks=['ERP reload offline','scoped local data','durable pending operation','idempotent reconnect','local stock reservation','lost response retry without duplicate','concurrent synchronization','reject changed payload for same operation ID'];fs.writeFileSync('outputs/company-web-offline-checks.json',JSON.stringify({passed:true,checks,errors},null,2));console.log('PASS',checks.join('; '));await context.unrouteAll({behavior:'wait'});await context.close();
+ assert.deepEqual(errors,[]);const checks=['ERP reload offline','root and company entry aliases offline','scoped local data','durable pending operation','idempotent reconnect','local stock reservation','lost response retry without duplicate','concurrent synchronization','reject changed payload for same operation ID'];fs.writeFileSync('outputs/company-web-offline-checks.json',JSON.stringify({passed:true,checks,errors},null,2));console.log('PASS',checks.join('; '));await context.unrouteAll({behavior:'wait'});await context.close();
 }finally{await browser?.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 
 
