@@ -1,13 +1,28 @@
 importScripts('/erp-shell-manifest.js');
 const PRODUCT=new URL(self.registration.scope).pathname.startsWith('/retail/')?'retail':'company';
 const PREFIX='almahasib-erp-shell-'+PRODUCT+'-';
-const CACHE=PREFIX+(PRODUCT==='company'?'1.2.19-sales-inbox-r1':'1.2.7-logistics-v6');
+const CACHE=PREFIX+(PRODUCT==='company'?'1.2.20-offline-shell-safe':'1.2.7-logistics-v6');
 // Cached redirected responses cannot satisfy Chromium navigation requests.
 // Preserve their content while removing the redirected response metadata.
 const shellResponse=response=>response.redirected?new Response(response.clone().body,{status:response.status,statusText:response.statusText,headers:response.headers}):response;
 self.addEventListener('install',event=>event.waitUntil((async()=>{
  const cache=await caches.open(CACHE);
- await Promise.allSettled(self.ERP_SHELL.map(async path=>{const r=await fetch(path,{cache:'reload',signal:AbortSignal.timeout(8000)});if(r.ok)await cache.put(path,r);}));
+ // A worker must never become active with an incomplete company shell.
+ // Cache the essential company UI first; optional pages cannot block an update.
+ const essential=['/index.html','/login.html','/enterprise.html','/enterprise.js','/enterprise.css','/erp-offline.js','/company-runtime-ui.js','/company-sync-ui.js','/sales-workspace.js','/sales-workspace.css','/logistics-workspace.js','/logistics-workspace.css'];
+ const required=essential.filter(path=>self.ERP_SHELL.includes(path));
+ for(const path of required){
+  const response=await fetch(path,{cache:'reload',signal:AbortSignal.timeout(15000)});
+  if(!response.ok||response.redirected)throw Error('Offline shell asset unavailable: '+path);
+  await cache.put(path,response);
+ }
+ const optional=self.ERP_SHELL.filter(path=>!required.includes(path));
+ for(let i=0;i<optional.length;i+=4){
+  await Promise.allSettled(optional.slice(i,i+4).map(async path=>{
+   const response=await fetch(path,{cache:'reload',signal:AbortSignal.timeout(8000)});
+   if(response.ok&&!response.redirected)await cache.put(path,response);
+  }));
+ }
  await self.skipWaiting();
 })()));
 self.addEventListener('activate',event=>event.waitUntil((async()=>{
