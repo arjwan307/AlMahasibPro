@@ -45,3 +45,4 @@ jobs:
           node tests/browser/workspace-draft-preservation.mjs
           node tests/browser/logistics-workspace.mjs
           node tests/browser/erp-offline.mjs
+          node tests/browser/company-web-offline.mjs
