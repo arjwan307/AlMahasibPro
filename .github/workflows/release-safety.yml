@@ -46,3 +46,4 @@ jobs:
           node tests/browser/logistics-workspace.mjs
           node tests/browser/erp-offline.mjs
           node tests/browser/company-web-offline.mjs
+          node tests/browser/company-offline-services.mjs
