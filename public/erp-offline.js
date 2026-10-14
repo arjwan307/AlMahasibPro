@@ -5,11 +5,15 @@
  let account,db,ready,flushing=false,reachable=false,localServer=false,flushPromise,cloud,lan,usingLan=false;
  const routes=new Map([
   ['/api/v1/commerce/commit',['sales.create','purchasing.create']],
+  ['/api/v1/sales/approvals',['sales.create']],
   ['/api/v1/inventory/receipts',['inventory.receive','inventory.manage']],
   ['/api/v1/inventory/issues',['inventory.issue','inventory.manage']],
   ['/api/v1/enterprise/transfers',['inventory.manage']]
  ]);
- const readPaths=new Set(['/api/v1/bootstrap','/api/local/status','/api/v1/master-data','/api/v1/commerce/documents','/api/v1/enterprise/reports','/api/v1/inventory/operations','/api/v1/inventory/reservations','/api/v1/treasury/accounts','/api/v1/pos/bootstrap','/api/v1/representatives/bootstrap','/api/v1/users','/api/v1/hr/bootstrap','/api/v1/treasury/cashboxes','/api/v1/import/shipments','/api/v1/import/logistics']);
+ const readPaths=new Set(['/api/v1/sales/bootstrap','/api/v1/sales/personal-board','/api/v1/company/invoice-design','/api/v1/bootstrap','/api/local/status','/api/v1/master-data','/api/v1/commerce/documents','/api/v1/enterprise/reports','/api/v1/inventory/operations','/api/v1/inventory/reservations','/api/v1/treasury/accounts','/api/v1/pos/bootstrap','/api/v1/representatives/bootstrap','/api/v1/users','/api/v1/hr/bootstrap','/api/v1/treasury/cashboxes','/api/v1/import/shipments','/api/v1/import/logistics']);
+ const loadingPath=path=>/^\/api\/v1\/sales\/[0-9a-f-]{36}\/loads$/i.test(path);
+ const mutationPermissions=path=>routes.get(path)||(loadingPath(path)?['inventory.manage']:null);
+ const cacheableRead=path=>readPaths.has(path)||/^\/api\/v1\/customers\/[^/]+\/statement$/.test(path)||/^\/api\/v1\/catalog\/items\/[^/]+\/details$/.test(path);
  const valid=()=>account&&Date.parse(account.offlineSessionExpiresAt)>Date.now();
  const read=r=>new Promise((ok,no)=>{r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error);});
  async function open(value){
@@ -22,7 +26,7 @@
  }
  async function rows(store){await ready;return db?read(db.transaction(store).objectStore(store).getAll()):[];}
  async function put(store,row){return new Promise((ok,no)=>{const t=db.transaction(store,'readwrite');t.objectStore(store).put(row);t.oncomplete=ok;t.onerror=()=>no(t.error);t.onabort=()=>no(t.error||Error('تعذر الحفظ المحلي'));});}
- function json(body,status=200,offline=false){return new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json',...(offline?{'X-AlMahasib-Offline':'true'}:{})}});}
+ function json(body,status=200,offline=false,savedAt=null){return new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json',...(offline?{'X-AlMahasib-Offline':'true'}:{}),...(savedAt?{'X-AlMahasib-Cached-At':savedAt}:{})}});}
  function error(message,status=503){return json({error:{code:'OFFLINE_UNAVAILABLE',message}},status,true);}
  function connectionText(){return reachable?(usingLan?'مزامنة عبر شبكة الفرع':localServer?'خادم الفرع المحلي متصل':'خادم الشركة متصل'):'قاعدة الجهاز · الخادم غير متصل';}
  async function status(){const queue=await rows('outbox');return{reachable,localServer,cloud,pending:queue.filter(x=>['pending','sending'].includes(x.state)).length,conflicts:queue.filter(x=>x.state==='conflict').length,connection:connectionText()};}
@@ -54,9 +58,10 @@
  async function saveQueue(path,body){
   if(!valid())return error('يلزم تسجيل الدخول عبر الخادم أولًا؛ انتهت صلاحية جلسة العمل دون اتصال',401);
   if(!account.permissions?.includes('sync.use'))return error('الحساب لا يملك صلاحية المزامنة',403);
-  let needed=routes.get(path);
+  let needed=mutationPermissions(path);
   if(path==='/api/v1/commerce/commit')needed=[body.document?.documentType?.startsWith('purchase')?'purchasing.create':'sales.create'];
   if(!needed?.some(p=>account.permissions.includes(p)))return error('لا توجد صلاحية لحفظ هذه العملية دون اتصال',403);
+  if(path==='/api/v1/sales/approvals'&&body.requestId!==body.operationId)return error('يلزم معرف طلب ثابت مطابق للعملية');
   if(!body.operationId)return error('يلزم معرف ثابت للعملية قبل الحفظ');
   const existing=await read(db.transaction('outbox').objectStore('outbox').get(body.operationId));
   if(existing&&JSON.stringify(existing.body)!==JSON.stringify(body))return error('معرف العملية مستخدم لبيانات مختلفة',409);
@@ -70,10 +75,21 @@
     if(command.path==='/api/v1/inventory/issues')lines=command.body.lines||[];
     if(command.path==='/api/v1/enterprise/transfers'){warehouse=command.body.sourceWarehouseId;lines=command.body.lines||[];}
     const doc=command.body.document;
-    if(command.path==='/api/v1/commerce/commit'&&['sale','purchase_return'].includes(doc?.documentType)){warehouse=doc.warehouseId;lines=doc.lines||[];}
+    if(['/api/v1/commerce/commit','/api/v1/sales/approvals'].includes(command.path)&&['sale','purchase_return'].includes(doc?.documentType)){warehouse=doc.warehouseId;lines=doc.lines||[];}
     return lines.map(line=>{const factor=doc?master.items.find(x=>x.id===line.itemId)?.units?.find(x=>x.unitId===line.unitId)?.conversionFactor||'1':'1';return{key:(line.warehouseId||warehouse)+':'+line.itemId,quantity:scale(line.quantity)*scale(factor)/1000000n};});
    }
    try{
+    if(loadingPath(path)){
+     const documents=await read(db.transaction('reads').objectStore('reads').get('/api/v1/commerce/documents'));
+     const operations=await read(db.transaction('reads').objectStore('reads').get('/api/v1/inventory/operations'));
+     if(documents?.signature!==account.offlineSignature||operations?.signature!==account.offlineSignature)throw Error('نزّل الفواتير وسجل التحميل أولًا مع الاتصال');
+     const documentId=path.split('/')[4],document=documents.data.documents.find(x=>x.id===documentId&&x.documentType==='sale');
+     if(!document)throw Error('الفاتورة غير متاحة في البيانات المنزّلة');
+     const queued=(await rows('outbox')).filter(x=>loadingPath(x.path)&&x.state!=='acknowledged'&&x.path===path);
+     const used=new Map();for(const line of [...(operations.data.loads||[]).filter(x=>x.documentId===documentId).flatMap(x=>x.lines),...queued.flatMap(x=>x.body.lines||[])])used.set(line.originalLineId,(used.get(line.originalLineId)||0n)+scale(line.quantity));
+     if(!Array.isArray(body.lines)||!body.lines.length)throw Error('أدخل بنود التحميل');
+     for(const line of body.lines){const original=document.lines.find(x=>x.id===line.originalLineId),quantity=scale(line.quantity),next=(used.get(line.originalLineId)||0n)+quantity;if(!original||quantity<=0n||next>scale(original.baseQuantity))throw Error('التحميل يتجاوز المتبقي المنزّل بعد احتساب طلبات الجهاز المعلقة');used.set(line.originalLineId,next);}
+    }
     const balances=new Map((master.stock||[]).map(x=>[x.warehouseId+':'+x.itemId,scale(x.quantity)]));
     const queued=await rows('outbox');
     for(const command of [...queued.filter(x=>x.state!=='acknowledged'),{path,body}])for(const line of withdrawals(command)){const remaining=(balances.get(line.key)||0n)-line.quantity;if(line.quantity<=0n||remaining<0n)throw Error('الكمية تتجاوز الرصيد المنزّل بعد حجز عمليات الجهاز؛ يلزم اتصال ومراجعة المخزون');balances.set(line.key,remaining);}
@@ -103,7 +119,7 @@
   const url=new URL(typeof input==='string'?input:input.url,location.href),method=String(options.method||input?.method||'GET').toUpperCase();
   if(url.origin!==location.origin||!url.pathname.startsWith('/api/'))return rawFetch(input,options);
   await ready;
-  if(method==='POST'&&routes.has(url.pathname)&&valid()){
+  if(method==='POST'&&!!mutationPermissions(url.pathname)&&valid()){
    const body=JSON.parse(options.body||'{}'),saved=await queue(url.pathname,body);
    if(saved.status===202){
     if(reachable){
@@ -123,7 +139,7 @@
    if(url.pathname==='/api/v1/auth/login'&&response.ok){reset();reachable=true;}
    if(url.pathname==='/api/v1/auth/logout'&&response.ok)reset();
    if(response.status===401&&url.pathname!=='/api/v1/auth/login'){const activeCompanyId=account?.company?.id;reset();void render();if(activeCompanyId)void confirmCompanyDeletion(activeCompanyId);return response;}
-   if(response.ok&&method==='GET'&&readPaths.has(url.pathname)){
+   if(response.ok&&method==='GET'&&cacheableRead(url.pathname)){
     const data=await response.clone().json();
     if(url.pathname==='/api/v1/bootstrap')await open(data);
     if(url.pathname==='/api/local/status')localServer=data.local===true;
@@ -134,14 +150,14 @@
    if(options.signal?.aborted)throw e;
    reachable=false;void render();
    if(!valid())throw e;
-   if(method==='GET'&&readPaths.has(url.pathname)){
+   if(method==='GET'&&cacheableRead(url.pathname)){
     if(url.pathname==='/api/v1/bootstrap')return json(account,200,true);
     const cached=await read(db.transaction('reads').objectStore('reads').get(url.pathname+url.search));
-    if(cached?.signature===account.offlineSignature)return json(cached.data,200,true);
+    if(cached?.signature===account.offlineSignature)return json(cached.data,200,true,cached.savedAt);
     return error('لم تُنزّل بيانات هذه الصفحة على هذا الجهاز. افتحها مرة مع الاتصال أولًا');
    }
    if(method==='GET'&&url.pathname==='/api/v1/presence/online-users')return json({count:0,userIds:[]},200,true);
-   if(method==='POST'&&routes.has(url.pathname))return queue(url.pathname,JSON.parse(options.body||'{}'));
+   if(method==='POST'&&!!mutationPermissions(url.pathname))return queue(url.pathname,JSON.parse(options.body||'{}'));
    if(method==='POST'&&url.pathname==='/api/v1/auth/logout'){reset();return json({ok:true});}
    if(method!=='GET')return error('هذه العملية تحتاج اتصالًا واعتمادًا من الخادم؛ لم تُرسل ولم تُحفظ كعملية معتمدة');
    throw e;
@@ -176,6 +192,12 @@
     if(rejected)break;
    }
    for(const path of readPaths){if(path==='/api/v1/bootstrap')continue;try{const response=await transport(path,{credentials:'same-origin'});if(response.ok)await put('reads',{path,data:await response.json(),savedAt:new Date().toISOString(),signature:account.offlineSignature});}catch{break;}}
+   // Only server-generated statements are saved; financial balances are never reconstructed here.
+   const master=await read(db.transaction('reads').objectStore('reads').get('/api/v1/master-data'));
+   if(navigator.onLine&&master?.signature===account.offlineSignature&&account.permissions.some(p=>['sales.read','customers.read','customers.manage','accounting.read','sales.edit'].includes(p))){
+    const customers=[...(master.data.customers||[])];let failed=false;
+    for(let i=0;i<customers.length&&!failed;i+=3)await Promise.all(customers.slice(i,i+3).map(async customer=>{const path='/api/v1/customers/'+encodeURIComponent(customer.id)+'/statement';try{const response=await transport(path,{credentials:'same-origin'});if(response.ok)await put('reads',{path,data:await response.json(),savedAt:new Date().toISOString(),signature:account.offlineSignature});}catch{failed=true;}}));
+   }
    window.dispatchEvent(new CustomEvent('almahasib:erp-synced'));
   }catch{reachable=false;}finally{flushing=false;await render();}
  }
