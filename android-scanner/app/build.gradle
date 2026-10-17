@@ -10,8 +10,8 @@ android {
         applicationId "com.almahasibpro.scanner"
         minSdk 26
         targetSdk 36
-        versionCode 6
-        versionName "1.0.5"
+        versionCode 7
+        versionName "1.0.6"
     }
 }
 
@@ -23,3 +23,4 @@ dependencies {
     implementation 'androidx.camera:camera-view:1.4.2'
     implementation 'com.google.mlkit:barcode-scanning:17.3.0'
 }
+

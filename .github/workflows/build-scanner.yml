@@ -2,8 +2,8 @@ name: Build AlMahasibPro Scanner
 on:
   workflow_dispatch:
   push:
-    branches: [main, fix/unified-tenant-identity-20261010]
-    paths: ['android-scanner/**', '.github/workflows/build-scanner.yml']
+    branches: [main, fix/unified-tenant-identity-20261010, development/android-scanner-lan]
+    paths: ['android-scanner/**', 'tests/android-scanner/**', '.github/workflows/build-scanner.yml']
 permissions:
   contents: read
 jobs:
@@ -24,11 +24,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.14.3'
+      - name: Check local pairing address validation
+        run: |
+          mkdir -p "$RUNNER_TEMP/scanner-tests"
+          javac -d "$RUNNER_TEMP/scanner-tests" android-scanner/app/src/main/java/com/almahasibpro/scanner/PairingTarget.java tests/android-scanner/PairingTargetTest.java
+          java -cp "$RUNNER_TEMP/scanner-tests" PairingTargetTest
       - name: Build and check scanner
         working-directory: android-scanner
         run: gradle --no-daemon assembleDebug lintDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: AlMahasibPro-Scanner-1.0.5-debug
+          name: AlMahasibPro-Scanner-1.0.6-debug
           path: android-scanner/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
